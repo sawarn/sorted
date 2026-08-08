@@ -647,15 +647,15 @@ private fun SortedTheme(
         )
     } else {
         lightColorScheme(
-            background = Color(0xFFFFFBF1),
+            background = Color(0xFFFFFAFE),
             surface = Color(0xFFFFFFFF),
-            surfaceVariant = Color(0xFFFFF0B8),
-            primary = Color(0xFFFF4D8D),
-            secondary = Color(0xFF00B8FF),
+            surfaceVariant = Color(0xFFEAF4FF),
+            primary = Color(0xFFFF3F86),
+            secondary = Color(0xFF00AEEF),
             tertiary = Color(0xFF7C4DFF),
-            onBackground = Color(0xFF171018),
-            onSurface = Color(0xFF171018),
-            onSurfaceVariant = Color(0xFF64555F),
+            onBackground = Color(0xFF151018),
+            onSurface = Color(0xFF151018),
+            onSurfaceVariant = Color(0xFF665A68),
             onPrimary = Color(0xFFFFFFFF)
         )
     }
@@ -2753,6 +2753,12 @@ private fun SortedNavGlyph(
 @Composable
 private fun MonthSummary(feedState: FeedState) {
     val breakdown = feedState.transactions.monthBreakdown()
+    val monthTransactions = feedState.transactions.latestMonthDebitTransactions()
+        .filter { it.inrAmountValue != null }
+    val categoryGroups = feedState.transactions.monthCategoryGroups().take(5)
+    val activeDays = monthTransactions.mapNotNull { it.transactionDate }.toSet().size
+    val averageDebit = if (breakdown.debitCount > 0) breakdown.totalDebits / breakdown.debitCount else 0.0
+    val topMerchant = feedState.transactions.monthMerchantGroups().firstOrNull()
 
     Surface(
         modifier = Modifier
@@ -2770,13 +2776,17 @@ private fun MonthSummary(feedState: FeedState) {
                         text = breakdown.monthKey?.monthOutflowLabel() ?: "Tracked INR outflow",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
                         letterSpacing = 0.sp
                     )
+                    Spacer(modifier = Modifier.height(5.dp))
                     Text(
                         text = breakdown.totalDebits.formatInr(),
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 28.sp,
+                        fontSize = 31.sp,
                         fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         letterSpacing = 0.sp
                     )
                 }
@@ -2792,18 +2802,218 @@ private fun MonthSummary(feedState: FeedState) {
                         text = feedState.label,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp,
+                        maxLines = 1,
                         letterSpacing = 0.sp
                     )
                 }
             }
             Spacer(modifier = Modifier.height(14.dp))
-            SummaryBreakdownRow("Spends", breakdown.spends)
-            SummaryBreakdownRow("Transfers", breakdown.transfers)
-            SummaryBreakdownRow("Investments", breakdown.investments)
-            if (breakdown.fxConverted > 0.0) {
-                SummaryBreakdownRow("FX converted", breakdown.fxConverted)
+            HomeCategoryMixStrip(
+                groups = categoryGroups,
+                total = breakdown.totalDebits
+            )
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                HomeMetricTile(
+                    label = "Spends",
+                    value = breakdown.spends.formatInr(),
+                    accent = categoryColor("Food"),
+                    modifier = Modifier.weight(1f)
+                )
+                HomeMetricTile(
+                    label = "Investments",
+                    value = breakdown.investments.formatInr(),
+                    accent = categoryColor("Investment"),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                HomeMetricTile(
+                    label = "Avg debit",
+                    value = averageDebit.formatInr(),
+                    accent = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.weight(1f)
+                )
+                HomeMetricTile(
+                    label = "Top merchant",
+                    value = topMerchant?.label ?: "None",
+                    accent = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                HomeSignalChip(
+                    label = "$activeDays active days",
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.weight(1f)
+                )
+                HomeSignalChip(
+                    label = "${breakdown.debitCount} debits",
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f)
+                )
+                if (breakdown.fxConverted > 0.0) {
+                    HomeSignalChip(
+                        label = "FX ${breakdown.fxConverted.formatCompactInr()}",
+                        color = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun HomeCategoryMixStrip(
+    groups: List<SummaryGroup>,
+    total: Double
+) {
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(14.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            if (groups.isEmpty() || total <= 0.0) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                )
+            } else {
+                groups.forEach { group ->
+                    val weight = ((group.total / total).toFloat()).coerceAtLeast(0.04f)
+                    Box(
+                        modifier = Modifier
+                            .weight(weight)
+                            .height(14.dp)
+                            .background(categoryColor(group.category))
+                    )
+                }
+            }
+        }
+        if (groups.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(9.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(groups) { group ->
+                    HomeLegendChip(group = group)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeLegendChip(group: SummaryGroup) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(categoryContainerColor(group.category))
+            .padding(horizontal = 9.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        CategoryMiniDot(group.category)
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = group.label,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            letterSpacing = 0.sp
+        )
+    }
+}
+
+@Composable
+private fun HomeMetricTile(
+    label: String,
+    value: String,
+    accent: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .height(82.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(accent.copy(alpha = if (isDarkModeActive()) 0.16f else 0.14f))
+            .padding(11.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .width(26.dp)
+                .height(4.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(accent)
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = label,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 0.sp
+        )
+        Spacer(modifier = Modifier.height(3.dp))
+        Text(
+            text = value,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 0.sp
+        )
+    }
+}
+
+@Composable
+private fun HomeSignalChip(
+    label: String,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .height(36.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(color.copy(alpha = if (isDarkModeActive()) 0.15f else 0.13f))
+            .padding(horizontal = 9.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(color)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 0.sp
+        )
     }
 }
 
@@ -3118,7 +3328,29 @@ private fun SummaryRail(
     if (groups.isEmpty()) return
 
     Column {
-        SectionLabel(title)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                modifier = Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.sp
+            )
+            Text(
+                text = "Top ${groups.size}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                letterSpacing = 0.sp
+            )
+        }
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -3144,10 +3376,12 @@ private fun SummaryGroupCard(
     group: SummaryGroup,
     onClick: () -> Unit
 ) {
+    val accent = categoryColor(group.category)
+
     Surface(
         onClick = onClick,
-        modifier = Modifier.width(176.dp),
-        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.width(184.dp),
+        color = if (isDarkModeActive()) MaterialTheme.colorScheme.surface else categoryContainerColor(group.category),
         shape = RoundedCornerShape(8.dp)
     ) {
         Column(
@@ -3156,6 +3390,14 @@ private fun SummaryGroupCard(
                 .padding(14.dp),
             horizontalAlignment = Alignment.Start
         ) {
+            Box(
+                modifier = Modifier
+                    .width(34.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(accent)
+            )
+            Spacer(modifier = Modifier.height(11.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -3210,31 +3452,6 @@ private fun CategoryMiniDot(category: String) {
             .clip(CircleShape)
             .background(categoryColor(category))
     )
-}
-
-@Composable
-private fun SummaryBreakdownRow(label: String, amount: Double, currency: String = "INR") {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = label,
-            modifier = Modifier.weight(1f),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 13.sp,
-            letterSpacing = 0.sp
-        )
-        Text(
-            text = amount.formatMoney(currency),
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
-            letterSpacing = 0.sp
-        )
-    }
 }
 
 @Composable
@@ -3386,8 +3603,7 @@ private fun CategoryDot(category: String) {
 
 @Composable
 private fun categoryColor(category: String): Color {
-    val darkMode = MaterialTheme.colorScheme.background == Color(0xFF000000)
-    return if (darkMode) {
+    return if (isDarkModeActive()) {
         when (category) {
             "Food" -> Color(0xFFFFC857)
             "Groceries" -> Color(0xFFFFD76D)
@@ -3422,6 +3638,17 @@ private fun categoryColor(category: String): Color {
             else -> MaterialTheme.colorScheme.primary
         }
     }
+}
+
+@Composable
+private fun categoryContainerColor(category: String): Color {
+    val color = categoryColor(category)
+    return color.copy(alpha = if (isDarkModeActive()) 0.16f else 0.11f)
+}
+
+@Composable
+private fun isDarkModeActive(): Boolean {
+    return MaterialTheme.colorScheme.background == Color(0xFF000000)
 }
 
 @Composable
@@ -3501,6 +3728,16 @@ private fun DetailChip(label: String) {
 
 private fun Double.formatInr(): String {
     return "INR " + String.format(Locale.US, "%,.2f", this)
+}
+
+private fun Double.formatCompactInr(): String {
+    val magnitude = if (this < 0.0) -this else this
+    val value = when {
+        magnitude >= 100_000.0 -> String.format(Locale.US, "%.1fL", this / 100_000.0)
+        magnitude >= 1_000.0 -> String.format(Locale.US, "%.1fK", this / 1_000.0)
+        else -> String.format(Locale.US, "%.0f", this)
+    }.replace(".0", "")
+    return "INR $value"
 }
 
 private fun Double.formatMoney(currency: String?): String {
