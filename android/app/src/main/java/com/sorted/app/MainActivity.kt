@@ -16,10 +16,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -69,6 +72,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -111,6 +115,7 @@ import com.sorted.app.gmail.GmailSyncPreferences
 import com.sorted.app.gmail.GmailSyncScheduler
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.security.MessageDigest
@@ -126,15 +131,31 @@ class MainActivity : ComponentActivity() {
         setContent {
             val appPreferences = remember { SortedAppPreferences(applicationContext) }
             var themeMode by remember { mutableStateOf(appPreferences.themeMode()) }
+            var showOpening by remember { mutableStateOf(true) }
+
+            LaunchedEffect(Unit) {
+                delay(2300)
+                showOpening = false
+            }
 
             SortedTheme(themeMode = themeMode) {
-                SortedHome(
-                    themeMode = themeMode,
-                    onThemeModeChange = { mode ->
-                        appPreferences.setThemeMode(mode)
-                        themeMode = mode
+                Crossfade(
+                    targetState = showOpening,
+                    animationSpec = tween(durationMillis = 420),
+                    label = "opening_crossfade"
+                ) { opening ->
+                    if (opening) {
+                        SortedOpeningScreen()
+                    } else {
+                        SortedHome(
+                            themeMode = themeMode,
+                            onThemeModeChange = { mode ->
+                                appPreferences.setThemeMode(mode)
+                                themeMode = mode
+                            }
+                        )
                     }
-                )
+                }
             }
         }
     }
@@ -709,6 +730,115 @@ private fun Typography.withFontFamily(fontFamily: FontFamily): Typography {
         labelMedium = labelMedium.copy(fontFamily = fontFamily),
         labelSmall = labelSmall.copy(fontFamily = fontFamily)
     )
+}
+
+@Composable
+private fun SortedOpeningScreen() {
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        entered = true
+    }
+
+    val logoSize by animateDpAsState(
+        targetValue = if (entered) 104.dp else 74.dp,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "opening_logo_size"
+    )
+    val contentAlpha by animateFloatAsState(
+        targetValue = if (entered) 1f else 0f,
+        animationSpec = tween(durationMillis = 650),
+        label = "opening_content_alpha"
+    )
+    val taglineAlpha by animateFloatAsState(
+        targetValue = if (entered) 1f else 0f,
+        animationSpec = tween(durationMillis = 700, delayMillis = 280),
+        label = "opening_tagline_alpha"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier.alpha(contentAlpha),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            SortedLogoMark(modifier = Modifier.size(logoSize))
+            Spacer(modifier = Modifier.height(18.dp))
+            Text(
+                text = "Sorted",
+                color = MaterialTheme.colorScheme.onBackground,
+                fontSize = 42.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(13.dp))
+            Row(
+                modifier = Modifier.alpha(taglineAlpha),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Transactions?",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    letterSpacing = 0.sp
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.primary,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Sorted",
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            letterSpacing = 0.sp
+                        )
+                        Spacer(modifier = Modifier.width(7.dp))
+                        OpeningCheckGlyph(
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OpeningCheckGlyph(
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val strokeWidth = 2.2.dp.toPx()
+        drawLine(
+            color = color,
+            start = Offset(size.width * 0.18f, size.height * 0.55f),
+            end = Offset(size.width * 0.42f, size.height * 0.78f),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = color,
+            start = Offset(size.width * 0.42f, size.height * 0.78f),
+            end = Offset(size.width * 0.84f, size.height * 0.22f),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
