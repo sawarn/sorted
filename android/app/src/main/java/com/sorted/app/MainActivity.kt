@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,6 +21,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +39,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
@@ -50,6 +53,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -173,6 +177,17 @@ private data class SummaryGroup(
     val currency: String,
     val category: String
 )
+
+private data class DrilldownState(
+    val title: String,
+    val kind: DrilldownKind,
+    val group: SummaryGroup
+)
+
+private enum class DrilldownKind {
+    Merchant,
+    Category
+}
 
 private enum class DirectionUi {
     Debit,
@@ -429,18 +444,34 @@ private fun Context.signingCertificateSha1(): String? {
 
 @Composable
 private fun SortedTheme(content: @Composable () -> Unit) {
-    val colors = darkColorScheme(
-        background = Color(0xFF101412),
-        surface = Color(0xFF171C19),
-        surfaceVariant = Color(0xFF202721),
-        primary = Color(0xFF9BE3B4),
-        secondary = Color(0xFFFFCB77),
-        tertiary = Color(0xFF8EC9FF),
-        onBackground = Color(0xFFF3F5F1),
-        onSurface = Color(0xFFF3F5F1),
-        onSurfaceVariant = Color(0xFFC7D0C7),
-        onPrimary = Color(0xFF102016)
-    )
+    val darkMode = isSystemInDarkTheme()
+    val colors = if (darkMode) {
+        darkColorScheme(
+            background = Color(0xFF000000),
+            surface = Color(0xFF080806),
+            surfaceVariant = Color(0xFF151108),
+            primary = Color(0xFFFFC857),
+            secondary = Color(0xFFFFE08A),
+            tertiary = Color(0xFFD99A2B),
+            onBackground = Color(0xFFFFF8E7),
+            onSurface = Color(0xFFFFF8E7),
+            onSurfaceVariant = Color(0xFFC9B889),
+            onPrimary = Color(0xFF171000)
+        )
+    } else {
+        lightColorScheme(
+            background = Color(0xFFFFFBF1),
+            surface = Color(0xFFFFFFFF),
+            surfaceVariant = Color(0xFFFFF0B8),
+            primary = Color(0xFFFF4D8D),
+            secondary = Color(0xFF00B8FF),
+            tertiary = Color(0xFF7C4DFF),
+            onBackground = Color(0xFF171018),
+            onSurface = Color(0xFF171018),
+            onSurfaceVariant = Color(0xFF64555F),
+            onPrimary = Color(0xFFFFFFFF)
+        )
+    }
 
     MaterialTheme(
         colorScheme = colors,
@@ -457,6 +488,7 @@ private fun SortedHome() {
     val gmailSetupInfo = remember { gmailSetupInfo(appContext) }
     val gmailSyncPreferences = remember { GmailSyncPreferences(appContext) }
     var selected by remember { mutableStateOf<TransactionUi?>(null) }
+    var drilldown by remember { mutableStateOf<DrilldownState?>(null) }
     var hasPermission by remember { mutableStateOf(hasReadSmsPermission(context)) }
     var gmailState by remember {
         mutableStateOf(GmailUiState(autoSyncLabel = gmailSyncPreferences.statusLabel()))
@@ -670,72 +702,100 @@ private fun SortedHome() {
         }
     }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = {},
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                shape = CircleShape
+    val activeDrilldown = drilldown
+    BackHandler(enabled = activeDrilldown != null) {
+        drilldown = null
+    }
+
+    if (activeDrilldown == null) {
+        Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
+            floatingActionButton = {
+                FloatingActionButton(
+                    onClick = {},
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    shape = CircleShape
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Add transaction")
+                }
+            }
+        ) { padding ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Add transaction")
-            }
-        }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            item {
-                Header()
-            }
-            item {
-                MonthSummary(feedState)
-            }
-            if (feedState.needsSmsPermission) {
                 item {
-                    PermissionPrompt(
-                        onRequestPermission = {
-                            smsPermissionLauncher.launch(Manifest.permission.READ_SMS)
+                    Header()
+                }
+                item {
+                    MonthSummary(feedState)
+                }
+                if (feedState.needsSmsPermission) {
+                    item {
+                        PermissionPrompt(
+                            onRequestPermission = {
+                                smsPermissionLauncher.launch(Manifest.permission.READ_SMS)
+                            }
+                        )
+                    }
+                }
+                item {
+                    GmailImportCard(
+                        state = gmailState,
+                        setupInfo = gmailSetupInfo,
+                        onImport = { requestGmailImport() }
+                    )
+                }
+                item {
+                    SummaryRail(
+                        title = "By merchant",
+                        groups = feedState.transactions.monthMerchantGroups(),
+                        onGroupClick = { group ->
+                            drilldown = DrilldownState(
+                                title = group.label,
+                                kind = DrilldownKind.Merchant,
+                                group = group
+                            )
                         }
                     )
                 }
-            }
-            item {
-                GmailImportCard(
-                    state = gmailState,
-                    setupInfo = gmailSetupInfo,
-                    onImport = { requestGmailImport() }
-                )
-            }
-            item {
-                SummaryRail(
-                    title = "By merchant",
-                    groups = feedState.transactions.monthMerchantGroups()
-                )
-            }
-            item {
-                SummaryRail(
-                    title = "By category",
-                    groups = feedState.transactions.monthCategoryGroups()
-                )
-            }
-            item {
-                SectionLabel("Recent")
-            }
-            items(feedState.transactions) { transaction ->
-                TransactionRow(
-                    transaction = transaction,
-                    onClick = { selected = transaction }
-                )
-            }
-            item {
-                Spacer(modifier = Modifier.height(80.dp))
+                item {
+                    SummaryRail(
+                        title = "By category",
+                        groups = feedState.transactions.monthCategoryGroups(),
+                        onGroupClick = { group ->
+                            drilldown = DrilldownState(
+                                title = group.label,
+                                kind = DrilldownKind.Category,
+                                group = group
+                            )
+                        }
+                    )
+                }
+                item {
+                    SectionLabel("Recent")
+                }
+                items(feedState.transactions) { transaction ->
+                    TransactionRow(
+                        transaction = transaction,
+                        onClick = { selected = transaction }
+                    )
+                }
+                item {
+                    Spacer(modifier = Modifier.height(80.dp))
+                }
             }
         }
+    } else {
+        DrilldownScreen(
+            state = activeDrilldown,
+            allTransactions = feedState.transactions,
+            onBack = { drilldown = null },
+            onTransactionClick = { selected = it }
+        )
     }
 
     selected?.let { transaction ->
@@ -1002,9 +1062,215 @@ private fun GmailImportSummary.displayLabel(): String {
 }
 
 @Composable
+private fun DrilldownScreen(
+    state: DrilldownState,
+    allTransactions: List<TransactionUi>,
+    onBack: () -> Unit,
+    onTransactionClick: (TransactionUi) -> Unit
+) {
+    val transactions = remember(state, allTransactions) {
+        state.filteredTransactions(allTransactions)
+    }
+
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            item {
+                DrilldownHeader(
+                    state = state,
+                    transactions = transactions,
+                    onBack = onBack
+                )
+            }
+            item {
+                DrilldownBreakdown(transactions = transactions, kind = state.kind)
+            }
+            item {
+                SectionLabel("Transactions")
+            }
+            items(transactions) { transaction ->
+                TransactionRow(
+                    transaction = transaction,
+                    onClick = { onTransactionClick(transaction) }
+                )
+            }
+            item {
+                Spacer(modifier = Modifier.height(80.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun DrilldownHeader(
+    state: DrilldownState,
+    transactions: List<TransactionUi>,
+    onBack: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = state.title,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        letterSpacing = 0.sp
+                    )
+                    Text(
+                        text = state.kind.label(),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp,
+                        letterSpacing = 0.sp
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+            Text(
+                text = state.group.total.formatMoney(state.group.currency),
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 30.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "${transactions.size} transaction${if (transactions.size == 1) "" else "s"} this month",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+                letterSpacing = 0.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun DrilldownBreakdown(
+    transactions: List<TransactionUi>,
+    kind: DrilldownKind
+) {
+    val sourceGroups = transactions
+        .groupBy { it.source }
+        .map { (source, rows) -> source to rows.size }
+        .sortedByDescending { it.second }
+    val secondaryGroups = when (kind) {
+        DrilldownKind.Merchant -> transactions
+            .groupBy { it.category }
+            .map { (category, rows) -> category to rows.size }
+            .sortedByDescending { it.second }
+
+        DrilldownKind.Category -> transactions
+            .groupBy { it.merchant }
+            .map { (merchant, rows) -> merchant to rows.size }
+            .sortedByDescending { it.second }
+            .take(4)
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text(
+                text = if (kind == DrilldownKind.Merchant) "Category split" else "Merchant split",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            secondaryGroups.forEach { (label, count) ->
+                DrilldownBreakdownRow(label = label, count = count)
+            }
+            if (sourceGroups.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    sourceGroups.forEach { (source, count) ->
+                        DetailChip("$source $count")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DrilldownBreakdownRow(label: String, count: Int) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        CategoryMiniDot(label)
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 13.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 0.sp
+        )
+        Text(
+            text = "$count",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            letterSpacing = 0.sp
+        )
+    }
+}
+
+private fun DrilldownState.filteredTransactions(
+    allTransactions: List<TransactionUi>
+): List<TransactionUi> {
+    return allTransactions
+        .latestMonthDebitTransactions()
+        .filter { it.inrAmountValue != null }
+        .filter { transaction ->
+            when (kind) {
+                DrilldownKind.Merchant -> transaction.merchant == group.label
+                DrilldownKind.Category -> transaction.category == group.label
+            }
+        }
+}
+
+private fun DrilldownKind.label(): String {
+    return when (this) {
+        DrilldownKind.Merchant -> "Merchant"
+        DrilldownKind.Category -> "Category"
+    }
+}
+
+@Composable
 private fun SummaryRail(
     title: String,
-    groups: List<SummaryGroup>
+    groups: List<SummaryGroup>,
+    onGroupClick: (SummaryGroup) -> Unit
 ) {
     if (groups.isEmpty()) return
 
@@ -1018,7 +1284,10 @@ private fun SummaryRail(
                 Spacer(modifier = Modifier.width(10.dp))
             }
             items(groups) { group ->
-                SummaryGroupCard(group)
+                SummaryGroupCard(
+                    group = group,
+                    onClick = { onGroupClick(group) }
+                )
             }
             item {
                 Spacer(modifier = Modifier.width(10.dp))
@@ -1028,13 +1297,19 @@ private fun SummaryRail(
 }
 
 @Composable
-private fun SummaryGroupCard(group: SummaryGroup) {
+private fun SummaryGroupCard(
+    group: SummaryGroup,
+    onClick: () -> Unit
+) {
     Surface(
+        onClick = onClick,
         modifier = Modifier.width(168.dp),
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(8.dp)
     ) {
-        Column(modifier = Modifier.padding(13.dp)) {
+        Column(
+            modifier = Modifier.padding(13.dp)
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CategoryMiniDot(group.category)
                 Spacer(modifier = Modifier.width(8.dp))
@@ -1258,21 +1533,41 @@ private fun CategoryDot(category: String) {
 
 @Composable
 private fun categoryColor(category: String): Color {
-    return when (category) {
-        "Food" -> Color(0xFFFF9F7A)
-        "Groceries" -> Color(0xFF9BE3B4)
-        "Investment" -> Color(0xFF8EC9FF)
-        "Refund" -> Color(0xFFFFCB77)
-        "Subscriptions" -> Color(0xFFD3A4FF)
-        "Reward" -> Color(0xFFFFE08A)
-        "Transfer" -> Color(0xFFB8C2FF)
-        "Shopping" -> Color(0xFFFFB4D8)
-        "Health" -> Color(0xFFFF8E8E)
-        "Entertainment" -> Color(0xFFC9B7FF)
-        "Transport" -> Color(0xFF7DD3FC)
-        "Utilities" -> Color(0xFFFFD166)
-        "Fuel" -> Color(0xFFFFB86B)
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    val darkMode = isSystemInDarkTheme()
+    return if (darkMode) {
+        when (category) {
+            "Food" -> Color(0xFFFFC857)
+            "Groceries" -> Color(0xFFFFD76D)
+            "Investment" -> Color(0xFFE9B949)
+            "Refund" -> Color(0xFFFFE6A3)
+            "Subscriptions" -> Color(0xFFD7A928)
+            "Reward" -> Color(0xFFFFF0B8)
+            "Transfer" -> Color(0xFFC9951F)
+            "Shopping" -> Color(0xFFF3C969)
+            "Health" -> Color(0xFFFFDFA0)
+            "Entertainment" -> Color(0xFFE2B33B)
+            "Transport" -> Color(0xFFBC8926)
+            "Utilities" -> Color(0xFFFFC045)
+            "Fuel" -> Color(0xFFFFB020)
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        }
+    } else {
+        when (category) {
+            "Food" -> Color(0xFFFF6B6B)
+            "Groceries" -> Color(0xFF00C853)
+            "Investment" -> Color(0xFF2979FF)
+            "Refund" -> Color(0xFFFFB300)
+            "Subscriptions" -> Color(0xFFAA00FF)
+            "Reward" -> Color(0xFFFFEA00)
+            "Transfer" -> Color(0xFF536DFE)
+            "Shopping" -> Color(0xFFFF4081)
+            "Health" -> Color(0xFFFF1744)
+            "Entertainment" -> Color(0xFF7C4DFF)
+            "Transport" -> Color(0xFF00B8D4)
+            "Utilities" -> Color(0xFFFF9100)
+            "Fuel" -> Color(0xFF64DD17)
+            else -> MaterialTheme.colorScheme.primary
+        }
     }
 }
 
