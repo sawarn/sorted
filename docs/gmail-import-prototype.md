@@ -77,12 +77,34 @@ Package name: com.sorted.app
 Debug SHA-1: <your-debug-sha-1>
 ```
 
+Get the debug SHA-1 locally:
+
+```bash
+keytool -list -v \
+  -keystore ~/.android/debug.keystore \
+  -alias androiddebugkey \
+  -storepass android \
+  -keypass android
+```
+
+The Android app also shows the package name and signing SHA-1 inside the Gmail import card when authorization fails.
+
 OAuth consent:
 
 - App name: Sorted
 - User type: External for personal Gmail testing
 - Test user: add your Gmail account
 - Scope: Gmail readonly
+
+Minimum checklist:
+
+1. Enable Gmail API in the same Google Cloud project.
+2. Configure OAuth consent screen.
+3. Add `https://www.googleapis.com/auth/gmail.readonly` under Data Access/scopes.
+4. Add the Gmail account used on the phone as a test user.
+5. Create an OAuth client of type Android.
+6. Set package name to `com.sorted.app`.
+7. Set SHA-1 to the debug signing certificate from the installed APK/build machine.
 
 If the app shows:
 

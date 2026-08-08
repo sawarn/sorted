@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -85,6 +86,7 @@ import com.sorted.app.gmail.GmailImporter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -124,6 +126,11 @@ private data class GmailUiState(
     val label: String = "Not connected",
     val isImporting: Boolean = false,
     val error: String? = null
+)
+
+private data class GmailSetupInfo(
+    val packageName: String,
+    val signingSha1: String?
 )
 
 private const val LogTag = "Sorted"
@@ -333,6 +340,48 @@ private tailrec fun Context.findComponentActivity(): ComponentActivity? {
     }
 }
 
+private fun gmailSetupInfo(context: Context): GmailSetupInfo {
+    return GmailSetupInfo(
+        packageName = context.packageName,
+        signingSha1 = context.signingCertificateSha1()
+    )
+}
+
+private fun gmailAuthErrorMessage(error: ApiException, setupInfo: GmailSetupInfo): String {
+    val rawMessage = error.message ?: "unknown"
+    return when {
+        error.statusCode == 8 && rawMessage.contains("UNREGISTERED_ON_API_CONSOLE", ignoreCase = true) ->
+            "Google Cloud OAuth client missing or mismatched. Add an Android OAuth client with this package and SHA-1."
+        error.statusCode == 12501 ->
+            "Authorization was cancelled."
+        else ->
+            "Google auth failed (${error.statusCode}): $rawMessage"
+    }
+}
+
+@Suppress("DEPRECATION")
+private fun Context.signingCertificateSha1(): String? {
+    val signatures = runCatching {
+        val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+                .signingInfo
+                ?.apkContentsSigners
+        } else {
+            packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES)
+                .signatures
+        }
+        packageInfo?.toList().orEmpty()
+    }.getOrElse {
+        Log.e(LogTag, "Unable to read app signing certificate", it)
+        emptyList()
+    }
+
+    val certificate = signatures.firstOrNull()?.toByteArray() ?: return null
+    return MessageDigest.getInstance("SHA-1")
+        .digest(certificate)
+        .joinToString(":") { byte -> "%02X".format(byte) }
+}
+
 @Composable
 private fun SortedTheme(content: @Composable () -> Unit) {
     val colors = darkColorScheme(
@@ -360,6 +409,7 @@ private fun SortedHome() {
     val context = LocalContext.current
     val appContext = context.applicationContext
     val scope = rememberCoroutineScope()
+    val gmailSetupInfo = remember { gmailSetupInfo(appContext) }
     var selected by remember { mutableStateOf<TransactionUi?>(null) }
     var hasPermission by remember { mutableStateOf(hasReadSmsPermission(context)) }
     var gmailState by remember { mutableStateOf(GmailUiState()) }
@@ -415,7 +465,7 @@ private fun SortedHome() {
         if (activityResult.data == null) {
             gmailState = GmailUiState(
                 label = "Gmail not connected",
-                error = "Google returned no authorization result. Check OAuth setup and test-user access."
+                error = "Authorization was cancelled or Google returned no result. Check OAuth setup and test-user access."
             )
             return@rememberLauncherForActivityResult
         }
@@ -436,7 +486,7 @@ private fun SortedHome() {
             Log.e(LogTag, "Gmail authorization failed", error)
             gmailState = GmailUiState(
                 label = "Gmail import failed",
-                error = "Google auth failed (${error.statusCode}): ${error.statusMessage ?: error.message ?: "unknown"}"
+                error = gmailAuthErrorMessage(error, gmailSetupInfo)
             )
         } catch (error: Throwable) {
             Log.e(LogTag, "Gmail authorization result failed", error)
@@ -487,7 +537,7 @@ private fun SortedHome() {
                 gmailState = GmailUiState(
                     label = "Gmail import failed",
                     error = if (apiError != null) {
-                        "Google auth failed (${apiError.statusCode}): ${apiError.statusMessage ?: apiError.message ?: "unknown"}"
+                        gmailAuthErrorMessage(apiError, gmailSetupInfo)
                     } else {
                         error.localizedMessage ?: "Google authorization failed."
                     }
@@ -549,6 +599,7 @@ private fun SortedHome() {
             item {
                 GmailImportCard(
                     state = gmailState,
+                    setupInfo = gmailSetupInfo,
                     onImport = { requestGmailImport() }
                 )
             }
@@ -593,6 +644,7 @@ private fun SortedHome() {
 @Composable
 private fun GmailImportCard(
     state: GmailUiState,
+    setupInfo: GmailSetupInfo,
     onImport: () -> Unit
 ) {
     Surface(
@@ -621,10 +673,20 @@ private fun GmailImportCard(
                     text = state.error ?: state.label,
                     color = if (state.error == null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFFFF8E8E),
                     fontSize = 13.sp,
-                    maxLines = 2,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                     letterSpacing = 0.sp
                 )
+                if (state.error != null) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "OAuth setup: package ${setupInfo.packageName}, SHA-1 ${setupInfo.signingSha1 ?: "unavailable"}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        letterSpacing = 0.sp
+                    )
+                }
             }
             Text(
                 text = if (state.isImporting) "Reading" else "Import",
