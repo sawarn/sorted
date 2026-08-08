@@ -45,15 +45,17 @@ object GmailDebugFeedWriter {
             .put("amount", amount)
             .put("currency", currency)
             .put("direction", direction.value())
-            .put("merchantRaw", merchantRaw)
-            .put("merchantNormalized", merchantNormalized)
+            .put("merchantRaw", debugMerchant(merchantRaw))
+            .put("merchantNormalized", debugMerchant(merchantNormalized))
             .put("miscCategory", miscCategory)
             .put("departmentCategory", departmentCategory)
             .put("paymentMode", paymentMode.value())
-            .put("accountHint", accountHint)
+            .put("accountHint", accountHint?.let { "<account_hint>" })
             .put("transactionDate", transactionDate)
             .put("transactionTime", transactionTime)
             .put("transactionType", transactionType.value())
+            .put("categorySource", categorySource.name.lowercase())
+            .put("confidence", confidence)
             .put("ignoreReason", ignoreReason)
     }
 
@@ -62,13 +64,27 @@ object GmailDebugFeedWriter {
     private fun PaymentMode.value(): String = name.lowercase()
     private fun TransactionType.value(): String = name.lowercase()
 
+    private fun ParsedTransaction.debugMerchant(value: String?): String? {
+        val sanitized = value.sanitizedForDebug()
+        if (sanitized.isBlank()) return sanitized
+        return when {
+            transactionType == TransactionType.TRANSFER && paymentMode == PaymentMode.UPI -> "<person_or_vpa>"
+            Regex("""(?i)\bVPA\b|@""").containsMatchIn(value.orEmpty()) -> sanitized.replace(
+                Regex("""(?i)^VPA\s+"""),
+                "VPA "
+            )
+            else -> sanitized
+        }
+    }
+
     private fun String?.sanitizedForDebug(): String {
         return orEmpty()
             .replace(Regex("""(?i)\b\d{4,8}\b(?=\s+is\s+(?:an?\s+)?one-time password|\s+is\s+otp)"""), "<otp>")
             .replace(Regex("""(?i)\b(?:ref|reference|upi|umrn|transaction id|order id|invoice)[:\s-]*[A-Z0-9]{6,}\b"""), "<reference>")
             .replace(Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+"""), "<email>")
             .replace(Regex("""\b\d{10,}\b"""), "<number>")
-            .replace(Regex("""(?i)\b(?:a/c|account|card)(?:\s+no)?\s*(?:x+|\*+)?\d{4,}\b"""), "<account>")
+            .replace(Regex("""(?i)\b(?:a/c|account|card)\s+ending\s+(?:x+|\*+)?\d{3,6}\b"""), "<account>")
+            .replace(Regex("""(?i)\b(?:a/c|account|card)(?:\s+(?:no|number))?\s*(?:x+|\*+)?\d{4,}\b"""), "<account>")
             .replace(Regex("""[ \t\r\n]+"""), " ")
             .trim()
     }

@@ -42,6 +42,32 @@ class TransactionRepository(context: Context) {
         }
     }
 
+    fun replaceSource(source: ImportSource, records: List<ImportRecord>) {
+        val now = System.currentTimeMillis()
+        val db = database.writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete(
+                "transactions",
+                "source = ?",
+                arrayOf(source.value)
+            )
+            records
+                .filter { it.parsed.isTransaction }
+                .forEach { record ->
+                    db.insertWithOnConflict(
+                        "transactions",
+                        null,
+                        record.toValues(now),
+                        android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE
+                    )
+                }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     fun listTransactions(limit: Int = 1000): List<TransactionEntity> {
         val db = database.readableDatabase
         val rows = mutableListOf<TransactionEntity>()

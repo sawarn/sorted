@@ -16,7 +16,7 @@ object GmailParser {
                 .joinToString("\n")
         )
 
-        ignoreReason(text)?.let { return ignored(it) }
+        ignoreReason(message, text)?.let { return ignored(it) }
 
         val amount = parseAmount(text) ?: return ignored("amount_missing")
         val direction = parseDirection(text)
@@ -87,7 +87,9 @@ object GmailParser {
 
     private fun parseMerchant(text: String): String? {
         val patterns = listOf(
-            Regex("""(?is)\b(?:paid to|payment to|spent at|towards|merchant|at|to)\s*:?\s*([A-Za-z0-9][A-Za-z0-9 .&@/_-]{1,90})"""),
+            Regex("""(?is)\btowards\s+VPA\s+\S+\s*\(([^)]+)\)"""),
+            Regex("""(?is)\btowards\s+(.+?)(?:\s+on\s+\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\s+with\s+ref|\s+with\s+reference|[.;,]|$)"""),
+            Regex("""(?is)\b(?:merchant|biller|paid to|payment to|spent at|at)\s*:?\s*([A-Za-z0-9][A-Za-z0-9 .&@/_-]{1,90})"""),
             Regex("""(?is)\bfrom\s+([A-Za-z0-9][A-Za-z0-9 .&@/_-]{1,90})""")
         )
 
@@ -136,8 +138,10 @@ object GmailParser {
         return null
     }
 
-    private fun ignoreReason(text: String): String? {
+    private fun ignoreReason(message: GmailRawMessage, text: String): String? {
         val lower = text.lowercase()
+        val subject = message.subject.orEmpty().lowercase()
+        val from = message.from.orEmpty().lowercase()
         val financialAction = listOf(
             "debited",
             "credited",
@@ -152,6 +156,14 @@ object GmailParser {
         return when {
             "one-time password" in lower || Regex("""\botp\b""").containsMatchIn(lower) -> "otp"
             "failed" in lower || "declined" in lower || "unsuccessful" in lower -> "failed_transaction"
+            "groww digest" in subject || "all you need to know about the day" in lower -> "newsletter"
+            "newsletter" in lower && !financialAction -> "newsletter"
+            "annual general meeting" in lower || "integrated annual report" in lower -> "company_notice"
+            "notice of the" in lower && "meeting" in lower && !financialAction -> "company_notice"
+            "will be held" in lower && "meeting" in lower && !financialAction -> "company_notice"
+            "recipe contest" in lower || ("contest" in subject && !financialAction) -> "marketing"
+            "awake & hungry" in subject -> "marketing"
+            "periodic funds settlement" in subject || ("periodic funds settlement" in lower && "groww" in from) -> "broker_notice"
             "statement" in lower && !financialAction -> "statement"
             !looksFinancial(lower) -> "unsupported"
             else -> null
@@ -250,14 +262,28 @@ object GmailParser {
     }
 
     private fun String.cleanMerchant(): String? {
-        val candidate = replace(Regex("""(?i)\s+(?:on|using|via|through|thru|for|with|ref|reference|transaction|card|a/c|account)\b.*"""), "")
+        val candidate = replace(Regex("""(?i)^VPA\s+"""), "")
+            .replace(Regex("""(?i)\s+(?:on|date|using|via|through|thru|for|with|ref|reference|transaction|card|a/c|account)\b.*"""), "")
             .replace(Regex("""[.,;:]+$"""), "")
             .replace(Regex("""\s+"""), " ")
             .trim()
             .take(70)
 
         val lower = candidate.lowercase()
-        val blocked = listOf("your account", "my account", "account", "card", "credit card", "debit card", "hdfc bank", "icici bank")
+        val blocked = listOf(
+            "your account",
+            "my account",
+            "account",
+            "card",
+            "credit card",
+            "debit card",
+            "hdfc bank",
+            "icici bank",
+            "help you quickly",
+            "help you quickly check",
+            "a recent upi",
+            "transaction details"
+        )
         return candidate.takeIf { it.length >= 2 && blocked.none { blockedValue -> lower == blockedValue || lower.startsWith("$blockedValue ") } }
     }
 
