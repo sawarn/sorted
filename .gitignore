@@ -1,0 +1,31 @@
+# OS/editor
+.DS_Store
+*.iml
+.idea/
+
+# Android/Gradle local state
+**/build/
+**/.gradle/
+**/.kotlin/
+android/local.properties
+
+# Generated/debug artifacts
+*.apk
+*.aab
+*.hprof
+*.db
+*.db-*
+/debug-feed*.json
+/redacted*.json
+/sorted*.db
+/docs/sms-diagnostic-analysis-*.md
+
+# Secrets and signing material
+google-services.json
+secrets.properties
+local.env
+.env
+*.jks
+*.keystore
+*.pem
+*.p12
