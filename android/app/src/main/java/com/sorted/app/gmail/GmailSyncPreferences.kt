@@ -34,9 +34,19 @@ class GmailSyncPreferences(context: Context) {
     }
 
     fun markSyncError(message: String) {
+        if (message.isTransientCancellation()) return
         prefs.edit()
             .putString(KeyLastError, message.take(160))
             .apply()
+    }
+
+    fun clearTransientErrors() {
+        val lastError = prefs.getString(KeyLastError, null) ?: return
+        if (lastError.isTransientCancellation()) {
+            prefs.edit()
+                .remove(KeyLastError)
+                .apply()
+        }
     }
 
     fun statusLabel(): String {
@@ -67,4 +77,9 @@ class GmailSyncPreferences(context: Context) {
         private const val KeyLastFxUpdated = "last_fx_updated"
         private const val KeyLastError = "last_error"
     }
+}
+
+private fun String.isTransientCancellation(): Boolean {
+    return contains("rememberCoroutineScope left", ignoreCase = true) ||
+        contains("job was cancelled", ignoreCase = true)
 }

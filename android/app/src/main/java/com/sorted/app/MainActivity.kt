@@ -44,7 +44,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -110,6 +109,7 @@ import com.sorted.app.gmail.GmailImportSummary
 import com.sorted.app.gmail.GmailImporter
 import com.sorted.app.gmail.GmailSyncPreferences
 import com.sorted.app.gmail.GmailSyncScheduler
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -205,6 +205,13 @@ private data class SummaryGroup(
     val total: Double,
     val currency: String,
     val category: String
+)
+
+private data class RecentDateGroup(
+    val dateKey: String,
+    val label: String,
+    val transactions: List<TransactionUi>,
+    val outflow: Double
 )
 
 private data class ManualTransactionDraft(
@@ -619,8 +626,8 @@ private fun SortedTheme(
         )
     } else {
         FontFamily(
-            Font(R.font.comic_neue_regular, FontWeight.Normal),
-            Font(R.font.comic_neue_regular, FontWeight.Medium),
+            Font(R.font.comic_neue_bold, FontWeight.Normal),
+            Font(R.font.comic_neue_bold, FontWeight.Medium),
             Font(R.font.comic_neue_bold, FontWeight.SemiBold),
             Font(R.font.comic_neue_bold, FontWeight.Bold)
         )
@@ -714,7 +721,9 @@ private fun SortedHome(
     val appContext = context.applicationContext
     val scope = rememberCoroutineScope()
     val gmailSetupInfo = remember { gmailSetupInfo(appContext) }
-    val gmailSyncPreferences = remember { GmailSyncPreferences(appContext) }
+    val gmailSyncPreferences = remember {
+        GmailSyncPreferences(appContext).also { it.clearTransientErrors() }
+    }
     var selected by remember { mutableStateOf<TransactionUi?>(null) }
     var drilldown by remember { mutableStateOf<DrilldownState?>(null) }
     var selectedTab by remember { mutableStateOf(SortedTab.Home) }
@@ -799,6 +808,7 @@ private fun SortedHome(
                 )
                 gmailState = gmailStateWithAutoSync(label = summary.displayLabel())
             } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 gmailSyncPreferences.markSyncError(error.message ?: error.javaClass.simpleName)
                 gmailState = gmailStateWithAutoSync(
                     label = "Gmail import failed",
@@ -1082,14 +1092,14 @@ private fun HomeTabContent(
         item {
             SummaryRail(
                 title = "By merchant",
-                groups = feedState.transactions.monthMerchantGroups(),
+                groups = feedState.transactions.monthMerchantGroups().take(5),
                 onGroupClick = onMerchantClick
             )
         }
         item {
             SummaryRail(
                 title = "By category",
-                groups = feedState.transactions.monthCategoryGroups(),
+                groups = feedState.transactions.monthCategoryGroups().take(5),
                 onGroupClick = onCategoryClick
             )
         }
@@ -1113,6 +1123,27 @@ private fun InsightsTabContent(
             transaction.transactionDate.orEmpty()
         }
     }
+    val recentDateGroups = remember(recentTransactions) {
+        recentTransactions
+            .take(80)
+            .groupBy { transaction -> transaction.transactionDate ?: "unknown" }
+            .map { (dateKey, rows) ->
+                RecentDateGroup(
+                    dateKey = dateKey,
+                    label = dateKey.recentDateLabel(),
+                    transactions = rows,
+                    outflow = rows
+                        .filter { it.direction == DirectionUi.Debit }
+                        .sumOf { it.inrAmountValue ?: 0.0 }
+                )
+            }
+    }
+    val recentGroupKey = remember(recentDateGroups) {
+        recentDateGroups.joinToString("|") { it.dateKey }
+    }
+    var expandedRecentDates by remember(recentGroupKey) {
+        mutableStateOf(recentDateGroups.take(2).map { it.dateKey }.toSet())
+    }
     val monthTransactions = remember(feedState.transactions) {
         feedState.transactions.latestMonthDebitTransactions()
             .filter { it.inrAmountValue != null }
@@ -1121,10 +1152,10 @@ private fun InsightsTabContent(
         feedState.transactions.monthBreakdown()
     }
     val categoryGroups = remember(feedState.transactions) {
-        feedState.transactions.monthCategoryGroups().take(5)
+        feedState.transactions.monthCategoryGroups()
     }
     val merchantGroups = remember(feedState.transactions) {
-        feedState.transactions.monthMerchantGroups().take(5)
+        feedState.transactions.monthMerchantGroups()
     }
     val sourceGroups = remember(monthTransactions) {
         monthTransactions
@@ -1193,12 +1224,20 @@ private fun InsightsTabContent(
             )
         }
         item {
-            SectionLabel("Recent")
+            RecentSectionTitle(totalGroups = recentDateGroups.size)
         }
-        items(recentTransactions.take(20)) { transaction ->
-            TransactionRow(
-                transaction = transaction,
-                onClick = { onTransactionClick(transaction) }
+        items(recentDateGroups, key = { it.dateKey }) { group ->
+            RecentDateGroupCard(
+                group = group,
+                expanded = group.dateKey in expandedRecentDates,
+                onToggle = {
+                    expandedRecentDates = if (group.dateKey in expandedRecentDates) {
+                        expandedRecentDates - group.dateKey
+                    } else {
+                        expandedRecentDates + group.dateKey
+                    }
+                },
+                onTransactionClick = onTransactionClick
             )
         }
         item {
@@ -1240,7 +1279,10 @@ private fun InsightPulseCard(
                 letterSpacing = 0.sp
             )
             Spacer(modifier = Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 MiniMetric(
                     label = "Avg debit",
                     value = averageDebit.formatInr(),
@@ -1253,7 +1295,10 @@ private fun InsightPulseCard(
                 )
             }
             Spacer(modifier = Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 MiniMetric(
                     label = "Largest",
                     value = largestDebit?.merchant ?: "None",
@@ -1309,8 +1354,6 @@ private fun InsightBreakdownCard(
     emptyLabel: String,
     onGroupClick: (SummaryGroup) -> Unit
 ) {
-    val maxAmount = groups.maxOfOrNull { it.total } ?: 0.0
-
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -1319,13 +1362,25 @@ private fun InsightBreakdownCard(
         shape = RoundedCornerShape(8.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = title,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.sp
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = title,
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.sp
+                )
+                if (groups.isNotEmpty()) {
+                    Text(
+                        text = "${groups.size} groups",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        letterSpacing = 0.sp
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(12.dp))
             if (groups.isEmpty()) {
                 Text(
@@ -1335,10 +1390,10 @@ private fun InsightBreakdownCard(
                     letterSpacing = 0.sp
                 )
             } else {
-                groups.forEach { group ->
+                groups.forEachIndexed { index, group ->
                     InsightGroupRow(
                         group = group,
-                        maxAmount = maxAmount,
+                        rank = index + 1,
                         onClick = { onGroupClick(group) }
                     )
                 }
@@ -1398,56 +1453,244 @@ private fun InsightMixCard(
 @Composable
 private fun InsightGroupRow(
     group: SummaryGroup,
-    maxAmount: Double,
+    rank: Int,
     onClick: () -> Unit
 ) {
-    val fraction = if (maxAmount > 0.0) (group.total / maxAmount).toFloat().coerceIn(0.08f, 1f) else 0.08f
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = rank.toString().padStart(2, '0'),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.width(9.dp))
+            CategoryMiniDot(group.category)
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = group.label,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    letterSpacing = 0.sp
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = "${group.count} transaction${if (group.count == 1) "" else "s"}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    letterSpacing = 0.sp
+                )
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = group.total.formatInr(),
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                letterSpacing = 0.sp
+            )
+        }
+    }
+    Spacer(modifier = Modifier.height(8.dp))
+}
 
-    Column(
+@Composable
+private fun RecentSectionTitle(totalGroups: Int) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "Recent",
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            letterSpacing = 0.sp
+        )
+        Text(
+            text = "$totalGroups days",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            maxLines = 1,
+            letterSpacing = 0.sp
+        )
+    }
+}
+
+@Composable
+private fun RecentDateGroupCard(
+    group: RecentDateGroup,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onTransactionClick: (TransactionUi) -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onToggle)
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = group.label,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        letterSpacing = 0.sp
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = "${group.transactions.size} transaction${if (group.transactions.size == 1) "" else "s"}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        letterSpacing = 0.sp
+                    )
+                }
+                Text(
+                    text = group.outflow.formatInr(),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    letterSpacing = 0.sp
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                ChevronGlyph(
+                    expanded = expanded,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            AnimatedVisibility(visible = expanded) {
+                Column {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    group.transactions.forEachIndexed { index, transaction ->
+                        if (index > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(1.dp)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                            )
+                        }
+                        RecentInlineTransactionRow(
+                            transaction = transaction,
+                            onClick = { onTransactionClick(transaction) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentInlineTransactionRow(
+    transaction: TransactionUi,
+    onClick: () -> Unit
+) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 7.dp)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            CategoryMiniDot(group.category)
-            Spacer(modifier = Modifier.width(8.dp))
+        CategoryMiniDot(transaction.category)
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = group.label,
-                modifier = Modifier.weight(1f),
+                text = transaction.merchant,
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 13.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 letterSpacing = 0.sp
             )
+            Spacer(modifier = Modifier.height(3.dp))
             Text(
-                text = group.total.formatInr(),
+                text = transaction.detail,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 letterSpacing = 0.sp
             )
         }
-        Spacer(modifier = Modifier.height(6.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(7.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(fraction)
-                    .height(7.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(categoryColor(group.category))
-            )
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            text = if (transaction.direction == DirectionUi.Credit) "+${transaction.amount}" else transaction.amount,
+            color = if (transaction.direction == DirectionUi.Credit) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            letterSpacing = 0.sp
+        )
+    }
+}
+
+@Composable
+private fun ChevronGlyph(
+    expanded: Boolean,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val strokeWidth = 2.dp.toPx()
+        val start = if (expanded) {
+            Offset(size.width * 0.22f, size.height * 0.38f)
+        } else {
+            Offset(size.width * 0.30f, size.height * 0.22f)
         }
+        val middle = if (expanded) {
+            Offset(size.width * 0.50f, size.height * 0.66f)
+        } else {
+            Offset(size.width * 0.66f, size.height * 0.50f)
+        }
+        val end = if (expanded) {
+            Offset(size.width * 0.78f, size.height * 0.38f)
+        } else {
+            Offset(size.width * 0.30f, size.height * 0.78f)
+        }
+        drawLine(color, start, middle, strokeWidth, StrokeCap.Round)
+        drawLine(color, middle, end, strokeWidth, StrokeCap.Round)
     }
 }
 
@@ -1881,15 +2124,92 @@ private fun ThemeSettingsCard(
                 letterSpacing = 0.sp
             )
             Spacer(modifier = Modifier.height(12.dp))
-            AppThemeMode.entries.forEach { mode ->
-                SettingsChoiceRow(
-                    title = mode.label,
-                    detail = mode.description,
-                    selected = mode == selected,
-                    onClick = { onSelected(mode) }
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                AppThemeMode.entries.forEach { mode ->
+                    ThemeModeTile(
+                        mode = mode,
+                        selected = mode == selected,
+                        onClick = { onSelected(mode) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun ThemeModeTile(
+    mode: AppThemeMode,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val containerColor by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+        label = "theme_tile_container"
+    )
+    val titleColor = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+    val detailColor = if (selected) {
+        MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f)
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val swatchColor = if (selected && mode != AppThemeMode.Dark) {
+        MaterialTheme.colorScheme.onPrimary
+    } else {
+        mode.swatchColor()
+    }
+
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(74.dp),
+        color = containerColor,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(14.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(swatchColor)
+                )
+                Spacer(modifier = Modifier.width(7.dp))
+                Text(
+                    text = mode.label,
+                    color = titleColor,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    letterSpacing = 0.sp
+                )
+            }
+            Spacer(modifier = Modifier.height(5.dp))
+            Text(
+                text = mode.description,
+                color = detailColor,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                letterSpacing = 0.sp
+            )
+        }
+    }
+}
+
+private fun AppThemeMode.swatchColor(): Color {
+    return when (this) {
+        AppThemeMode.System -> Color(0xFF7C4DFF)
+        AppThemeMode.Dark -> Color(0xFF000000)
+        AppThemeMode.Light -> Color(0xFFFF4D8D)
     }
 }
 
@@ -1897,6 +2217,11 @@ private fun ThemeSettingsCard(
 private fun LocalDataSettingsCard(feedState: FeedState) {
     val sourceCounts = feedState.transactions.groupingBy { it.source }.eachCount().toSortedMap()
     val monthBreakdown = feedState.transactions.monthBreakdown()
+    val sourceSummary = if (sourceCounts.isEmpty()) {
+        "None"
+    } else {
+        sourceCounts.entries.joinToString(" / ") { (source, count) -> "$source $count" }
+    }
 
     Surface(
         modifier = Modifier
@@ -1914,17 +2239,66 @@ private fun LocalDataSettingsCard(feedState: FeedState) {
                 letterSpacing = 0.sp
             )
             Spacer(modifier = Modifier.height(10.dp))
-            SettingsInfoRow("Transactions", feedState.transactions.size.toString())
-            SettingsInfoRow("Current month", monthBreakdown.monthKey ?: "Unknown")
-            SettingsInfoRow("Month outflow", monthBreakdown.totalDebits.formatInr())
-            if (sourceCounts.isEmpty()) {
-                SettingsInfoRow("Sources", "None")
-            } else {
-                sourceCounts.forEach { (source, count) ->
-                    SettingsInfoRow(source, "$count")
-                }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                SettingsMetricCell(
+                    label = "Transactions",
+                    value = feedState.transactions.size.toString(),
+                    modifier = Modifier.weight(1f)
+                )
+                SettingsMetricCell(
+                    label = "Current month",
+                    value = monthBreakdown.monthKey ?: "Unknown",
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                SettingsMetricCell(
+                    label = "Month outflow",
+                    value = monthBreakdown.totalDebits.formatInr(),
+                    modifier = Modifier.weight(1f)
+                )
+                SettingsMetricCell(
+                    label = "Sources",
+                    value = sourceSummary,
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun SettingsMetricCell(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = label,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 0.sp
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = value,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 0.sp
+        )
     }
 }
 
@@ -1933,6 +2307,12 @@ private fun SourceSettingsCard(
     feedState: FeedState,
     gmailState: GmailUiState
 ) {
+    val gmailLabel = if (gmailState.error != null) "Needs attention" else gmailState.label
+    val autoSyncLabel = gmailState.autoSyncLabel
+        ?.removePrefix("Auto sync: ")
+        ?.replaceFirstChar { it.titlecase(Locale.getDefault()) }
+        ?: "Manual"
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -1950,61 +2330,9 @@ private fun SourceSettingsCard(
             )
             Spacer(modifier = Modifier.height(10.dp))
             SettingsInfoRow("SMS", if (feedState.needsSmsPermission) "Permission needed" else "Enabled")
-            SettingsInfoRow("Gmail", gmailState.error ?: gmailState.label)
-            gmailState.autoSyncLabel?.let { SettingsInfoRow("Auto sync", it) }
-            SettingsInfoRow("Storage", "On this phone")
-        }
-    }
-}
-
-@Composable
-private fun SettingsChoiceRow(
-    title: String,
-    detail: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(18.dp)
-                .clip(CircleShape)
-                .background(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center
-        ) {
-            if (selected) {
-                Box(
-                    modifier = Modifier
-                        .size(7.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onPrimary)
-                )
-            }
-        }
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.sp
-            )
-            Text(
-                text = detail,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                letterSpacing = 0.sp
-            )
+            SettingsInfoRow("Gmail", gmailLabel)
+            SettingsInfoRow("Auto sync", autoSyncLabel)
+            SettingsInfoRow("Storage", "Local only")
         }
     }
 }
@@ -2018,13 +2346,14 @@ private fun SettingsInfoRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.Top
     ) {
         Text(
             text = label,
-            modifier = Modifier.width(112.dp),
+            modifier = Modifier.width(96.dp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             letterSpacing = 0.sp
@@ -2035,7 +2364,7 @@ private fun SettingsInfoRow(
             color = MaterialTheme.colorScheme.onSurface,
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
-            textAlign = TextAlign.End,
+            textAlign = TextAlign.Start,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             letterSpacing = 0.sp
@@ -2178,6 +2507,8 @@ private fun Header(
     onBack: (() -> Unit)? = null,
     showActions: Boolean = true
 ) {
+    val showLogo = title == "Sorted" && onBack == null
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -2190,6 +2521,10 @@ private fun Header(
             }
             Spacer(modifier = Modifier.width(4.dp))
         }
+        if (showLogo) {
+            SortedLogoMark(modifier = Modifier.size(34.dp))
+            Spacer(modifier = Modifier.width(10.dp))
+        }
         Text(
             text = title,
             modifier = Modifier.weight(1f),
@@ -2201,9 +2536,6 @@ private fun Header(
             letterSpacing = 0.sp
         )
         if (showActions) {
-            IconButton(onClick = {}) {
-                Icon(Icons.Default.Search, contentDescription = "Search")
-            }
             IconButton(onClick = onSettings) {
                 SettingsGlyph(
                     color = MaterialTheme.colorScheme.onBackground,
@@ -2211,6 +2543,43 @@ private fun Header(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun SortedLogoMark(modifier: Modifier = Modifier) {
+    val containerColor = MaterialTheme.colorScheme.primary
+    val markColor = MaterialTheme.colorScheme.onPrimary
+
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val strokeHeight = h * 0.10f
+        val radius = CornerRadius(strokeHeight * 0.5f, strokeHeight * 0.5f)
+
+        drawCircle(
+            color = containerColor,
+            radius = size.minDimension * 0.46f,
+            center = Offset(w * 0.5f, h * 0.5f)
+        )
+        drawRoundRect(
+            color = markColor,
+            topLeft = Offset(w * 0.27f, h * 0.34f),
+            size = Size(w * 0.46f, strokeHeight),
+            cornerRadius = radius
+        )
+        drawRoundRect(
+            color = markColor,
+            topLeft = Offset(w * 0.27f, h * 0.50f),
+            size = Size(w * 0.34f, strokeHeight),
+            cornerRadius = radius
+        )
+        drawRoundRect(
+            color = markColor,
+            topLeft = Offset(w * 0.27f, h * 0.66f),
+            size = Size(w * 0.22f, strokeHeight),
+            cornerRadius = radius
+        )
     }
 }
 
@@ -2494,7 +2863,6 @@ private fun List<TransactionUi>.monthMerchantGroups(): List<SummaryGroup> {
             )
         }
         .sortedByDescending { it.total }
-        .take(12)
 }
 
 private fun List<TransactionUi>.monthCategoryGroups(): List<SummaryGroup> {
@@ -2786,21 +3154,20 @@ private fun SummaryGroupCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(14.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.Start
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 CategoryMiniDot(group.category)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = group.displayLabel(),
+                    modifier = Modifier.weight(1f),
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     letterSpacing = 0.sp
@@ -2813,7 +3180,6 @@ private fun SummaryGroupCard(
                 color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 letterSpacing = 0.sp
@@ -2825,7 +3191,6 @@ private fun SummaryGroupCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
-                textAlign = TextAlign.Center,
                 maxLines = 1,
                 letterSpacing = 0.sp
             )
@@ -3247,4 +3612,32 @@ private fun String.monthOutflowLabel(): String {
         else -> "Month"
     }
     return "$monthName INR outflow"
+}
+
+private fun String?.recentDateLabel(): String {
+    val date = this?.toLocalDateOrNull() ?: return "Date unknown"
+    val today = LocalDate.now()
+    return when (date) {
+        today -> "Today"
+        today.minusDays(1) -> "Yesterday"
+        else -> "${date.dayOfMonth} ${date.monthValue.shortMonthLabel()} ${date.year}"
+    }
+}
+
+private fun Int.shortMonthLabel(): String {
+    return when (this) {
+        1 -> "Jan"
+        2 -> "Feb"
+        3 -> "Mar"
+        4 -> "Apr"
+        5 -> "May"
+        6 -> "Jun"
+        7 -> "Jul"
+        8 -> "Aug"
+        9 -> "Sep"
+        10 -> "Oct"
+        11 -> "Nov"
+        12 -> "Dec"
+        else -> "Date"
+    }
 }

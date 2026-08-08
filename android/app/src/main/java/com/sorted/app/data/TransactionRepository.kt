@@ -68,7 +68,7 @@ class TransactionRepository(context: Context) {
         }
     }
 
-    fun listTransactions(limit: Int = 1000): List<TransactionEntity> {
+    fun listTransactions(limit: Int? = null): List<TransactionEntity> {
         val db = database.readableDatabase
         val rows = mutableListOf<TransactionEntity>()
         db.query(
@@ -79,7 +79,7 @@ class TransactionRepository(context: Context) {
             null,
             null,
             "transaction_date DESC, id DESC",
-            limit.toString()
+            limit?.toString()
         ).use { cursor ->
             while (cursor.moveToNext()) {
                 rows.add(cursor.toTransactionEntity())
