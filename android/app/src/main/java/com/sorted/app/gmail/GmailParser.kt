@@ -121,6 +121,9 @@ object GmailParser {
         if ("vested" in lower && ("remittance" in lower || "hdfc transaction on vested" in lower)) {
             return "Vested"
         }
+        if ("team global investing" in lower || "global investing account" in lower) {
+            return "Global Investing"
+        }
 
         val patterns = listOf(
             Regex("""(?is)\btowards\s+VPA\s+\S+\s*\(([^)]+)\)"""),
@@ -196,6 +199,11 @@ object GmailParser {
             "one-time password" in lower || Regex("""\botp\b""").containsMatchIn(lower) -> "otp"
             "failed" in lower || "declined" in lower || "unsuccessful" in lower -> "failed_transaction"
             ("swift copy" in subject || "swift copy" in lower) && "cross-border remittance" in lower -> "remittance_document"
+            "buy order is complete" in subject || "sell order is complete" in subject -> "broker_order"
+            "payment reminder" in subject || "bill payment is due" in lower || "payment is due" in lower -> "payment_reminder"
+            "due date alert" in lower || "payment due today" in lower || "pay without penalty" in subject -> "payment_reminder"
+            "smart statement" in subject || "bill summary" in lower || "total amount due" in lower || "minimum due" in lower -> "statement"
+            "lock in your life insurance premium" in subject || ("product brochure" in lower && "term plan" in lower) -> "marketing"
             "groww digest" in subject || "all you need to know about the day" in lower -> "newsletter"
             "newsletter" in lower && !financialAction -> "newsletter"
             "annual general meeting" in lower || "integrated annual report" in lower -> "company_notice"
@@ -259,6 +267,7 @@ object GmailParser {
             "groww" in lower -> "Groww"
             "zerodha" in lower -> "Zerodha"
             "vested" in lower -> "Vested"
+            "global investing" in lower -> "Global Investing"
             "google" in lower || "youtube" in lower -> "Google"
             "openai" in lower || "chatgpt" in lower -> "OpenAI ChatGPT"
             else -> null
@@ -328,7 +337,10 @@ object GmailParser {
             "help you quickly",
             "help you quickly check",
             "a recent upi",
-            "transaction details"
+            "transaction details",
+            "attorney or tax professional",
+            "torney or tax professional",
+            "regarding your specific financial"
         )
         return candidate.takeIf { it.length >= 2 && blocked.none { blockedValue -> lower == blockedValue || lower.startsWith("$blockedValue ") } }
     }

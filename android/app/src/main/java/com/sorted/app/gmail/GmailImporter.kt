@@ -39,6 +39,7 @@ class GmailImporter(context: Context) {
             .filter { it.parsed.confidence >= GmailImportPlan.MinImportConfidence }
         val importableRecords = highConfidenceRecords
             .filterNot { it.isLikelyDuplicateOf(existingTransactions) }
+            .dedupeWithinBatch()
 
         repository.replaceSource(
             ImportSource.GMAIL,
@@ -61,6 +62,19 @@ class GmailImporter(context: Context) {
         )
     }
 
+    private fun List<GmailScanRecord>.dedupeWithinBatch(): List<GmailScanRecord> {
+        val kept = mutableListOf<GmailScanRecord>()
+        sortedWith(
+            compareByDescending<GmailScanRecord> { it.importPriority() }
+                .thenByDescending { it.parsed.confidence }
+        ).forEach { record ->
+            if (kept.none { keptRecord -> record.isLikelyDuplicateOf(keptRecord) }) {
+                kept.add(record)
+            }
+        }
+        return kept
+    }
+
     private fun GmailScanRecord.isLikelyDuplicateOf(
         existingTransactions: List<TransactionEntity>
     ): Boolean {
@@ -81,6 +95,35 @@ class GmailImporter(context: Context) {
                         (gmailLooksAuthoritative && existing.source == ImportSource.SMS) ||
                         sameTransactionFamily(existing.transactionType, parsedTransaction.transactionType)
                 )
+        }
+    }
+
+    private fun GmailScanRecord.isLikelyDuplicateOf(existing: GmailScanRecord): Boolean {
+        val parsedTransaction = parsed
+        val parsedAmount = parsedTransaction.amount ?: return false
+        val parsedDate = parsedTransaction.transactionDate ?: return false
+        val parsedMerchant = parsedTransaction.merchantNormalized ?: parsedTransaction.merchantRaw ?: return false
+        val existingParsed = existing.parsed
+        val existingAmount = existingParsed.amount ?: return false
+        val existingMerchant = existingParsed.merchantNormalized ?: existingParsed.merchantRaw ?: return false
+
+        return existingParsed.transactionDate == parsedDate &&
+            existingParsed.direction == parsedTransaction.direction &&
+            sameCurrency(existingParsed.currency, parsedTransaction.currency) &&
+            sameAmount(existingAmount, parsedAmount) &&
+            (
+                sameMerchant(existingMerchant, parsedMerchant) ||
+                    sameTransactionFamily(existingParsed.transactionType, parsedTransaction.transactionType)
+            )
+    }
+
+    private fun GmailScanRecord.importPriority(): Int {
+        val sourceText = "${raw.from.orEmpty()} ${raw.subject.orEmpty()}".uppercase()
+        return when {
+            "VESTED FINANCE" in sourceText -> 100
+            raw.looksLikeAuthoritativeFinancialAlert() -> 90
+            parsed.categorySource.name == "KNOWN_MERCHANT_RULE" -> 80
+            else -> (parsed.confidence * 100).toInt()
         }
     }
 

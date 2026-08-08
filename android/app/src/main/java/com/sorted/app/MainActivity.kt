@@ -155,7 +155,14 @@ private data class MonthBreakdown(
     val totalDebits: Double,
     val spends: Double,
     val transfers: Double,
-    val investments: Double
+    val investments: Double,
+    val foreignDebits: List<CurrencyTotal>
+)
+
+private data class CurrencyTotal(
+    val currency: String,
+    val count: Int,
+    val total: Double
 )
 
 private data class SummaryGroup(
@@ -754,7 +761,7 @@ private fun MonthSummary(feedState: FeedState) {
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = breakdown.monthKey?.monthOutflowLabel() ?: "Tracked outflow",
+                        text = breakdown.monthKey?.monthOutflowLabel() ?: "Tracked INR outflow",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp,
                         letterSpacing = 0.sp
@@ -787,17 +794,34 @@ private fun MonthSummary(feedState: FeedState) {
             SummaryBreakdownRow("Spends", breakdown.spends)
             SummaryBreakdownRow("Transfers", breakdown.transfers)
             SummaryBreakdownRow("Investments", breakdown.investments)
+            breakdown.foreignDebits.forEach { total ->
+                SummaryBreakdownRow("${total.currency} outflow", total.total, total.currency)
+            }
         }
     }
 }
 
 private fun List<TransactionUi>.monthBreakdown(): MonthBreakdown {
     val monthKey = mapNotNull { it.transactionDate?.take(7) }.maxOrNull()
-    val monthTransactions = filter {
+    val allMonthTransactions = filter {
+        monthKey == null || it.transactionDate?.startsWith(monthKey) == true
+    }
+    val monthTransactions = allMonthTransactions.filter {
         it.countsInInrTotals() &&
             (monthKey == null || it.transactionDate?.startsWith(monthKey) == true)
     }
     val debitTransactions = monthTransactions.filter { it.direction == DirectionUi.Debit }
+    val foreignDebits = allMonthTransactions
+        .filter { it.direction == DirectionUi.Debit && !it.countsInInrTotals() }
+        .groupBy { it.currency }
+        .map { (currency, transactions) ->
+            CurrencyTotal(
+                currency = currency,
+                count = transactions.size,
+                total = transactions.sumOf { it.amountValue }
+            )
+        }
+        .sortedByDescending { it.total }
     val spends = debitTransactions
         .filter { it.transactionType.countsAsSpend() }
         .sumOf { it.amountValue }
@@ -814,7 +838,8 @@ private fun List<TransactionUi>.monthBreakdown(): MonthBreakdown {
         totalDebits = debitTransactions.sumOf { it.amountValue },
         spends = spends,
         transfers = transfers,
-        investments = investments
+        investments = investments,
+        foreignDebits = foreignDebits
     )
 }
 
@@ -909,7 +934,7 @@ private fun SummaryGroupCard(group: SummaryGroup) {
                 CategoryMiniDot(group.category)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = group.label,
+                    text = group.displayLabel(),
                     modifier = Modifier.weight(1f),
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 14.sp,
@@ -940,6 +965,10 @@ private fun SummaryGroupCard(group: SummaryGroup) {
     }
 }
 
+private fun SummaryGroup.displayLabel(): String {
+    return if (currency.equals("INR", ignoreCase = true)) label else "$label ($currency)"
+}
+
 @Composable
 private fun CategoryMiniDot(category: String) {
     Box(
@@ -951,7 +980,7 @@ private fun CategoryMiniDot(category: String) {
 }
 
 @Composable
-private fun SummaryBreakdownRow(label: String, amount: Double) {
+private fun SummaryBreakdownRow(label: String, amount: Double, currency: String = "INR") {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -966,7 +995,7 @@ private fun SummaryBreakdownRow(label: String, amount: Double) {
             letterSpacing = 0.sp
         )
         Text(
-            text = amount.formatInr(),
+            text = amount.formatMoney(currency),
             color = MaterialTheme.colorScheme.onSurface,
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
@@ -1289,5 +1318,5 @@ private fun String.monthOutflowLabel(): String {
         "12" -> "December"
         else -> "Month"
     }
-    return "$monthName outflow"
+    return "$monthName INR outflow"
 }
