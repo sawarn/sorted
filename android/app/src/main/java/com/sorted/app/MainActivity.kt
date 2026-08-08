@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.result.IntentSenderRequest
@@ -40,22 +41,27 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,21 +77,25 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
+import com.sorted.app.engine.CategorySource
 import com.sorted.app.engine.Direction
 import com.sorted.app.engine.ParsedTransaction
 import com.sorted.app.engine.PaymentMode
 import com.sorted.app.engine.SmsParser
+import com.sorted.app.engine.TransactionStatus
 import com.sorted.app.engine.TransactionType
 import com.sorted.app.data.ImportRecord
 import com.sorted.app.data.ImportSource
@@ -114,8 +124,17 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            SortedTheme {
-                SortedHome()
+            val appPreferences = remember { SortedAppPreferences(applicationContext) }
+            var themeMode by remember { mutableStateOf(appPreferences.themeMode()) }
+
+            SortedTheme(themeMode = themeMode) {
+                SortedHome(
+                    themeMode = themeMode,
+                    onThemeModeChange = { mode ->
+                        appPreferences.setThemeMode(mode)
+                        themeMode = mode
+                    }
+                )
             }
         }
     }
@@ -128,6 +147,8 @@ private data class TransactionUi(
     val amountValue: Double,
     val currency: String,
     val inrAmountValue: Double?,
+    val paymentMode: String,
+    val miscCategory: String,
     val category: String,
     val direction: DirectionUi,
     val transactionType: TransactionType,
@@ -186,6 +207,23 @@ private data class SummaryGroup(
     val category: String
 )
 
+private data class ManualTransactionDraft(
+    val merchant: String,
+    val amount: Double,
+    val date: String,
+    val category: String,
+    val miscCategory: String,
+    val paymentMode: PaymentMode,
+    val transactionType: TransactionType,
+    val direction: Direction
+)
+
+private data class ManualSaveState(
+    val isSaving: Boolean = false,
+    val message: String? = null,
+    val error: String? = null
+)
+
 private data class DrilldownState(
     val title: String,
     val kind: DrilldownKind,
@@ -218,6 +256,37 @@ private enum class SortedNavIcon {
 private enum class DirectionUi {
     Debit,
     Credit
+}
+
+private enum class AppThemeMode(
+    val storageValue: String,
+    val label: String,
+    val description: String
+) {
+    System("system", "System", "Follow phone"),
+    Dark("dark", "Dark", "Pitch black"),
+    Light("light", "Light", "Funky light");
+
+    companion object {
+        fun from(value: String?): AppThemeMode {
+            return entries.firstOrNull { it.storageValue == value } ?: System
+        }
+    }
+}
+
+private class SortedAppPreferences(context: Context) {
+    private val preferences = context.applicationContext.getSharedPreferences(
+        "sorted_app_preferences",
+        Context.MODE_PRIVATE
+    )
+
+    fun themeMode(): AppThemeMode {
+        return AppThemeMode.from(preferences.getString("theme_mode", AppThemeMode.System.storageValue))
+    }
+
+    fun setThemeMode(mode: AppThemeMode) {
+        preferences.edit().putString("theme_mode", mode.storageValue).apply()
+    }
 }
 
 private fun parsedSampleTransactions(): List<TransactionUi> {
@@ -271,6 +340,63 @@ private fun hasPersistedGmailTransactions(context: Context): Boolean {
         .any { it.source == ImportSource.GMAIL }
 }
 
+private fun loadFeedState(context: Context, hasSmsPermission: Boolean): FeedState {
+    val transactions = if (hasSmsPermission) {
+        loadRealSmsTransactions(context)
+    } else {
+        loadPersistedTransactions(context)
+    }
+
+    return if (transactions.isNotEmpty()) {
+        FeedState(
+            transactions = transactions,
+            label = transactions.feedSourceLabel(),
+            needsSmsPermission = !hasSmsPermission
+        )
+    } else {
+        FeedState(
+            transactions = parsedSampleTransactions(),
+            label = "sample SMS",
+            needsSmsPermission = !hasSmsPermission
+        )
+    }
+}
+
+private fun saveManualTransaction(context: Context, draft: ManualTransactionDraft) {
+    val now = System.currentTimeMillis()
+    val merchant = draft.merchant.trim()
+    val parsed = ParsedTransaction(
+        isTransaction = true,
+        status = TransactionStatus.COMPLETED,
+        amount = draft.amount,
+        currency = "INR",
+        direction = draft.direction,
+        merchantRaw = merchant,
+        merchantNormalized = merchant,
+        miscCategory = draft.miscCategory,
+        departmentCategory = draft.category,
+        paymentMode = draft.paymentMode,
+        accountHint = null,
+        transactionDate = draft.date,
+        transactionTime = null,
+        transactionType = draft.transactionType,
+        categorySource = CategorySource.USER_RULE,
+        confidence = 1.0,
+        ignoreReason = null
+    )
+
+    TransactionRepository(context).import(
+        listOf(
+            ImportRecord(
+                source = ImportSource.MANUAL,
+                sourceHash = "manual:$now:${merchant}:${draft.amount}:${draft.date}".stableHash(),
+                sourceReceivedDate = draft.date,
+                parsed = parsed
+            )
+        )
+    )
+}
+
 private fun ParsedTransaction.toTransactionUi(
     source: String = "Parsed SMS",
     fxRates: Map<FxRateKey, FxRateEntity> = emptyMap()
@@ -296,6 +422,8 @@ private fun ParsedTransaction.toTransactionUi(
         amountValue = amountNumber,
         currency = currencyCode,
         inrAmountValue = inrEquivalent,
+        paymentMode = payment,
+        miscCategory = misc,
         category = category,
         direction = directionUi,
         transactionType = transactionType,
@@ -328,6 +456,8 @@ private fun TransactionEntity.toTransactionUi(
         amountValue = amountNumber,
         currency = currencyCode,
         inrAmountValue = inrEquivalent,
+        paymentMode = payment,
+        miscCategory = misc,
         category = category,
         direction = directionUi,
         transactionType = transactionType,
@@ -468,9 +598,18 @@ private fun Context.signingCertificateSha1(): String? {
         .joinToString(":") { byte -> "%02X".format(byte) }
 }
 
+@Suppress("DEPRECATION")
 @Composable
-private fun SortedTheme(content: @Composable () -> Unit) {
-    val darkMode = isSystemInDarkTheme()
+private fun SortedTheme(
+    themeMode: AppThemeMode,
+    content: @Composable () -> Unit
+) {
+    val systemDarkMode = isSystemInDarkTheme()
+    val darkMode = when (themeMode) {
+        AppThemeMode.System -> systemDarkMode
+        AppThemeMode.Dark -> true
+        AppThemeMode.Light -> false
+    }
     val appFontFamily = if (darkMode) {
         FontFamily(
             Font(R.font.balsamiq_sans_regular, FontWeight.Normal),
@@ -513,6 +652,30 @@ private fun SortedTheme(content: @Composable () -> Unit) {
             onPrimary = Color(0xFFFFFFFF)
         )
     }
+    val activity = LocalContext.current.findComponentActivity()
+
+    SideEffect {
+        activity?.window?.let { window ->
+            window.statusBarColor = colors.background.toArgb()
+            window.navigationBarColor = colors.surface.toArgb()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                var flags = window.decorView.systemUiVisibility
+                flags = if (darkMode) {
+                    flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+                } else {
+                    flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    flags = if (darkMode) {
+                        flags and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
+                    } else {
+                        flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+                    }
+                }
+                window.decorView.systemUiVisibility = flags
+            }
+        }
+    }
 
     MaterialTheme(
         colorScheme = colors,
@@ -543,7 +706,10 @@ private fun Typography.withFontFamily(fontFamily: FontFamily): Typography {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SortedHome() {
+private fun SortedHome(
+    themeMode: AppThemeMode,
+    onThemeModeChange: (AppThemeMode) -> Unit
+) {
     val context = LocalContext.current
     val appContext = context.applicationContext
     val scope = rememberCoroutineScope()
@@ -553,6 +719,7 @@ private fun SortedHome() {
     var drilldown by remember { mutableStateOf<DrilldownState?>(null) }
     var selectedTab by remember { mutableStateOf(SortedTab.Home) }
     var settingsOpen by remember { mutableStateOf(false) }
+    var manualSaveState by remember { mutableStateOf(ManualSaveState()) }
     var hasPermission by remember { mutableStateOf(hasReadSmsPermission(context)) }
     var gmailState by remember {
         mutableStateOf(GmailUiState(autoSyncLabel = gmailSyncPreferences.statusLabel()))
@@ -582,6 +749,28 @@ private fun SortedHome() {
             error = error,
             autoSyncLabel = gmailSyncPreferences.statusLabel()
         )
+    }
+
+    fun saveManualDraft(draft: ManualTransactionDraft) {
+        manualSaveState = ManualSaveState(isSaving = true)
+        scope.launch {
+            try {
+                val transactions = withContext(Dispatchers.IO) {
+                    saveManualTransaction(appContext, draft)
+                    loadPersistedTransactions(appContext)
+                }
+                feedState = FeedState(
+                    transactions = transactions,
+                    label = transactions.feedSourceLabel(),
+                    needsSmsPermission = !hasPermission
+                )
+                manualSaveState = ManualSaveState(message = "Added ${draft.merchant.trim()}")
+            } catch (error: Throwable) {
+                manualSaveState = ManualSaveState(
+                    error = error.message?.take(160) ?: error.javaClass.simpleName
+                )
+            }
+        }
     }
 
     fun runGmailImport(accessToken: String?, startLabel: String = "Reading Gmail") {
@@ -750,19 +939,8 @@ private fun SortedHome() {
     }
 
     LaunchedEffect(hasPermission) {
-        feedState = if (hasPermission) {
-            val realTransactions = loadRealSmsTransactions(context)
-            FeedState(
-                transactions = realTransactions,
-                label = realTransactions.feedSourceLabel(),
-                needsSmsPermission = false
-            )
-        } else {
-            FeedState(
-                transactions = parsedSampleTransactions(),
-                label = "sample SMS",
-                needsSmsPermission = true
-            )
+        feedState = withContext(Dispatchers.IO) {
+            loadFeedState(appContext, hasPermission)
         }
     }
 
@@ -788,7 +966,13 @@ private fun SortedHome() {
         }
 
         settingsOpen -> {
-            SettingsScreen(onBack = { settingsOpen = false })
+            SettingsScreen(
+                themeMode = themeMode,
+                feedState = feedState,
+                gmailState = gmailState,
+                onThemeModeChange = onThemeModeChange,
+                onBack = { settingsOpen = false }
+            )
         }
 
         else -> {
@@ -826,12 +1010,28 @@ private fun SortedHome() {
                         feedState = feedState,
                         modifier = Modifier.padding(padding),
                         onSettings = { settingsOpen = true },
+                        onMerchantClick = { group ->
+                            drilldown = DrilldownState(
+                                title = group.label,
+                                kind = DrilldownKind.Merchant,
+                                group = group
+                            )
+                        },
+                        onCategoryClick = { group ->
+                            drilldown = DrilldownState(
+                                title = group.label,
+                                kind = DrilldownKind.Category,
+                                group = group
+                            )
+                        },
                         onTransactionClick = { selected = it }
                     )
 
                     SortedTab.Capture -> CaptureTabContent(
                         modifier = Modifier.padding(padding),
-                        onSettings = { settingsOpen = true }
+                        saveState = manualSaveState,
+                        onSettings = { settingsOpen = true },
+                        onSave = { draft -> saveManualDraft(draft) }
                     )
 
                     SortedTab.Sources -> SourcesTabContent(
@@ -904,12 +1104,56 @@ private fun InsightsTabContent(
     feedState: FeedState,
     modifier: Modifier,
     onSettings: () -> Unit,
+    onMerchantClick: (SummaryGroup) -> Unit,
+    onCategoryClick: (SummaryGroup) -> Unit,
     onTransactionClick: (TransactionUi) -> Unit
 ) {
     val recentTransactions = remember(feedState.transactions) {
         feedState.transactions.sortedByDescending { transaction ->
             transaction.transactionDate.orEmpty()
         }
+    }
+    val monthTransactions = remember(feedState.transactions) {
+        feedState.transactions.latestMonthDebitTransactions()
+            .filter { it.inrAmountValue != null }
+    }
+    val breakdown = remember(feedState.transactions) {
+        feedState.transactions.monthBreakdown()
+    }
+    val categoryGroups = remember(feedState.transactions) {
+        feedState.transactions.monthCategoryGroups().take(5)
+    }
+    val merchantGroups = remember(feedState.transactions) {
+        feedState.transactions.monthMerchantGroups().take(5)
+    }
+    val sourceGroups = remember(monthTransactions) {
+        monthTransactions
+            .groupBy { it.source }
+            .map { (source, rows) ->
+                SummaryGroup(
+                    label = source,
+                    count = rows.size,
+                    total = rows.sumOf { it.inrAmountValue ?: 0.0 },
+                    currency = "INR",
+                    category = source
+                )
+            }
+            .sortedByDescending { it.total }
+    }
+    val paymentGroups = remember(monthTransactions) {
+        monthTransactions
+            .groupBy { it.paymentMode }
+            .map { (paymentMode, rows) ->
+                SummaryGroup(
+                    label = paymentMode,
+                    count = rows.size,
+                    total = rows.sumOf { it.inrAmountValue ?: 0.0 },
+                    currency = "INR",
+                    category = rows.firstOrNull()?.category ?: paymentMode
+                )
+            }
+            .sortedByDescending { it.total }
+            .take(5)
     }
 
     LazyColumn(
@@ -920,13 +1164,38 @@ private fun InsightsTabContent(
             Header(title = "Insights", onSettings = onSettings)
         }
         item {
-            SectionIntroCard(
-                title = "Recent transactions",
-                body = "${recentTransactions.size} transactions from ${feedState.label}",
-                accent = MaterialTheme.colorScheme.primary
+            InsightPulseCard(
+                breakdown = breakdown,
+                transactions = monthTransactions,
+                feedLabel = feedState.label
             )
         }
-        items(recentTransactions) { transaction ->
+        item {
+            InsightBreakdownCard(
+                title = "Category split",
+                groups = categoryGroups,
+                emptyLabel = "No debit categories yet",
+                onGroupClick = onCategoryClick
+            )
+        }
+        item {
+            InsightBreakdownCard(
+                title = "Merchant focus",
+                groups = merchantGroups,
+                emptyLabel = "No merchant groups yet",
+                onGroupClick = onMerchantClick
+            )
+        }
+        item {
+            InsightMixCard(
+                sourceGroups = sourceGroups,
+                paymentGroups = paymentGroups
+            )
+        }
+        item {
+            SectionLabel("Recent")
+        }
+        items(recentTransactions.take(20)) { transaction ->
             TransactionRow(
                 transaction = transaction,
                 onClick = { onTransactionClick(transaction) }
@@ -939,9 +1208,285 @@ private fun InsightsTabContent(
 }
 
 @Composable
+private fun InsightPulseCard(
+    breakdown: MonthBreakdown,
+    transactions: List<TransactionUi>,
+    feedLabel: String
+) {
+    val activeDays = transactions.mapNotNull { it.transactionDate }.map { it.takeLast(2) }.toSet().size
+    val averageDebit = if (transactions.isNotEmpty()) breakdown.totalDebits / transactions.size else 0.0
+    val largestDebit = transactions.maxByOrNull { it.inrAmountValue ?: 0.0 }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = breakdown.monthKey?.monthOutflowLabel() ?: "Current view",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = breakdown.totalDebits.formatInr(),
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 29.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                MiniMetric(
+                    label = "Avg debit",
+                    value = averageDebit.formatInr(),
+                    modifier = Modifier.weight(1f)
+                )
+                MiniMetric(
+                    label = "Active days",
+                    value = activeDays.toString(),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                MiniMetric(
+                    label = "Largest",
+                    value = largestDebit?.merchant ?: "None",
+                    modifier = Modifier.weight(1f)
+                )
+                MiniMetric(
+                    label = "Sources",
+                    value = feedLabel,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MiniMetric(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = label,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp,
+                maxLines = 1,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = value,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                letterSpacing = 0.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun InsightBreakdownCard(
+    title: String,
+    groups: List<SummaryGroup>,
+    emptyLabel: String,
+    onGroupClick: (SummaryGroup) -> Unit
+) {
+    val maxAmount = groups.maxOfOrNull { it.total } ?: 0.0
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = title,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            if (groups.isEmpty()) {
+                Text(
+                    text = emptyLabel,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    letterSpacing = 0.sp
+                )
+            } else {
+                groups.forEach { group ->
+                    InsightGroupRow(
+                        group = group,
+                        maxAmount = maxAmount,
+                        onClick = { onGroupClick(group) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InsightMixCard(
+    sourceGroups: List<SummaryGroup>,
+    paymentGroups: List<SummaryGroup>
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Mix",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "Sources",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            sourceGroups.forEach { group ->
+                CompactAmountRow(group = group)
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "Payment modes",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            paymentGroups.forEach { group ->
+                CompactAmountRow(group = group)
+            }
+        }
+    }
+}
+
+@Composable
+private fun InsightGroupRow(
+    group: SummaryGroup,
+    maxAmount: Double,
+    onClick: () -> Unit
+) {
+    val fraction = if (maxAmount > 0.0) (group.total / maxAmount).toFloat().coerceIn(0.08f, 1f) else 0.08f
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 7.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            CategoryMiniDot(group.category)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = group.label,
+                modifier = Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                letterSpacing = 0.sp
+            )
+            Text(
+                text = group.total.formatInr(),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                letterSpacing = 0.sp
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(7.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(fraction)
+                    .height(7.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(categoryColor(group.category))
+            )
+        }
+    }
+}
+
+@Composable
+private fun CompactAmountRow(group: SummaryGroup) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        CategoryMiniDot(group.category)
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = "${group.label} (${group.count})",
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 13.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 0.sp
+        )
+        Text(
+            text = group.total.formatInr(),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            letterSpacing = 0.sp
+        )
+    }
+}
+
+@Composable
 private fun CaptureTabContent(
     modifier: Modifier,
-    onSettings: () -> Unit
+    saveState: ManualSaveState,
+    onSettings: () -> Unit,
+    onSave: (ManualTransactionDraft) -> Unit
 ) {
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -951,21 +1496,282 @@ private fun CaptureTabContent(
             Header(title = "Capture", onSettings = onSettings)
         }
         item {
-            SectionIntroCard(
-                title = "Manual add",
-                body = "Fast transaction entry will live here. This tab replaces the floating add button.",
-                accent = MaterialTheme.colorScheme.primary
-            )
-        }
-        item {
-            FeaturePlaceholder(
-                title = "Next build",
-                body = "Amount, merchant, category, payment mode, date, and note in one low-friction sheet."
+            ManualAddCard(
+                saveState = saveState,
+                onSave = onSave
             )
         }
         item {
             Spacer(modifier = Modifier.height(104.dp))
         }
+    }
+}
+
+@Composable
+private fun ManualAddCard(
+    saveState: ManualSaveState,
+    onSave: (ManualTransactionDraft) -> Unit
+) {
+    var merchant by remember { mutableStateOf("") }
+    var amount by remember { mutableStateOf("") }
+    var date by remember { mutableStateOf(LocalDate.now().toString()) }
+    var category by remember { mutableStateOf("Food") }
+    var miscCategory by remember { mutableStateOf("Manual") }
+    var paymentMode by remember { mutableStateOf(PaymentMode.UPI) }
+    var transactionType by remember { mutableStateOf(TransactionType.EXPENSE) }
+    var direction by remember { mutableStateOf(Direction.DEBIT) }
+    var validationError by remember { mutableStateOf<String?>(null) }
+
+    val categories = listOf(
+        "Food",
+        "Groceries",
+        "Shopping",
+        "Subscriptions",
+        "Transport",
+        "Utilities",
+        "Health",
+        "Entertainment",
+        "Investment",
+        "Transfer",
+        "Other"
+    )
+    val paymentModes = listOf(
+        PaymentMode.UPI,
+        PaymentMode.CARD,
+        PaymentMode.CASH,
+        PaymentMode.WALLET,
+        PaymentMode.BANK_TRANSFER,
+        PaymentMode.NACH
+    )
+    val transactionTypes = listOf(
+        TransactionType.EXPENSE,
+        TransactionType.SUBSCRIPTION,
+        TransactionType.TRANSFER,
+        TransactionType.INVESTMENT,
+        TransactionType.INCOME
+    )
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Add transaction",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SelectableChip(
+                    label = "Debit",
+                    selected = direction == Direction.DEBIT,
+                    modifier = Modifier.weight(1f),
+                    onClick = { direction = Direction.DEBIT }
+                )
+                SelectableChip(
+                    label = "Credit",
+                    selected = direction == Direction.CREDIT,
+                    modifier = Modifier.weight(1f),
+                    onClick = { direction = Direction.CREDIT }
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedTextField(
+                value = amount,
+                onValueChange = { value ->
+                    amount = value.filter { it.isDigit() || it == '.' }.take(12)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Amount") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            OutlinedTextField(
+                value = merchant,
+                onValueChange = { merchant = it.take(48) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Merchant") },
+                singleLine = true
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            OutlinedTextField(
+                value = date,
+                onValueChange = { date = it.take(10) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Date") },
+                singleLine = true
+            )
+            Spacer(modifier = Modifier.height(14.dp))
+            ChoiceRail(
+                title = "Category",
+                choices = categories,
+                selected = category,
+                onSelected = { selected ->
+                    category = selected
+                    if (selected == "Investment") transactionType = TransactionType.INVESTMENT
+                    if (selected == "Transfer") transactionType = TransactionType.TRANSFER
+                }
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            ChoiceRail(
+                title = "Type",
+                choices = transactionTypes.map { it.displayName() },
+                selected = transactionType.displayName(),
+                onSelected = { selected ->
+                    transactionType = transactionTypes.first { it.displayName() == selected }
+                    category = when (transactionType) {
+                        TransactionType.INVESTMENT -> "Investment"
+                        TransactionType.TRANSFER -> "Transfer"
+                        else -> category
+                    }
+                }
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            ChoiceRail(
+                title = "Payment",
+                choices = paymentModes.map { it.displayName() },
+                selected = paymentMode.displayName(),
+                onSelected = { selected ->
+                    paymentMode = paymentModes.first { it.displayName() == selected }
+                }
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            OutlinedTextField(
+                value = miscCategory,
+                onValueChange = { miscCategory = it.take(36) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Merchant tag") },
+                singleLine = true
+            )
+            val statusText = validationError ?: saveState.error ?: saveState.message
+            if (statusText != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = statusText,
+                    color = if (validationError == null && saveState.error == null) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        Color(0xFFFF8E8E)
+                    },
+                    fontSize = 13.sp,
+                    letterSpacing = 0.sp
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        amount = ""
+                        merchant = ""
+                        date = LocalDate.now().toString()
+                        category = "Food"
+                        miscCategory = "Manual"
+                        paymentMode = PaymentMode.UPI
+                        transactionType = TransactionType.EXPENSE
+                        direction = Direction.DEBIT
+                        validationError = null
+                    }
+                ) {
+                    Text("Clear")
+                }
+                Button(
+                    modifier = Modifier.weight(1f),
+                    enabled = !saveState.isSaving,
+                    onClick = {
+                        val parsedAmount = amount.toDoubleOrNull()
+                        validationError = when {
+                            parsedAmount == null || parsedAmount <= 0.0 -> "Enter a valid amount."
+                            merchant.isBlank() -> "Enter a merchant."
+                            date.toLocalDateOrNull() == null -> "Use date as YYYY-MM-DD."
+                            else -> null
+                        }
+                        if (validationError == null && parsedAmount != null) {
+                            onSave(
+                                ManualTransactionDraft(
+                                    merchant = merchant.trim(),
+                                    amount = parsedAmount,
+                                    date = date,
+                                    category = category,
+                                    miscCategory = miscCategory.ifBlank { "Manual" },
+                                    paymentMode = paymentMode,
+                                    transactionType = transactionType,
+                                    direction = direction
+                                )
+                            )
+                        }
+                    }
+                ) {
+                    Text(if (saveState.isSaving) "Saving" else "Save")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChoiceRail(
+    title: String,
+    choices: List<String>,
+    selected: String,
+    onSelected: (String) -> Unit
+) {
+    Column {
+        Text(
+            text = title,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            letterSpacing = 0.sp
+        )
+        Spacer(modifier = Modifier.height(7.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(choices) { choice ->
+                SelectableChip(
+                    label = choice,
+                    selected = choice == selected,
+                    onClick = { onSelected(choice) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SelectableChip(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick),
+        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            letterSpacing = 0.sp
+        )
     }
 }
 
@@ -1008,7 +1814,13 @@ private fun SourcesTabContent(
 }
 
 @Composable
-private fun SettingsScreen(onBack: () -> Unit) {
+private fun SettingsScreen(
+    themeMode: AppThemeMode,
+    feedState: FeedState,
+    gmailState: GmailUiState,
+    onThemeModeChange: (AppThemeMode) -> Unit,
+    onBack: () -> Unit
+) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
@@ -1027,16 +1839,18 @@ private fun SettingsScreen(onBack: () -> Unit) {
                 )
             }
             item {
-                SectionIntroCard(
-                    title = "Settings and privacy",
-                    body = "Theme, local data controls, exports, parser diagnostics, and source permissions will be grouped here.",
-                    accent = MaterialTheme.colorScheme.primary
+                ThemeSettingsCard(
+                    selected = themeMode,
+                    onSelected = onThemeModeChange
                 )
             }
             item {
-                FeaturePlaceholder(
-                    title = "Local-first controls",
-                    body = "No backend. The important settings are import sources, database controls, export/delete, and parser debugging."
+                LocalDataSettingsCard(feedState = feedState)
+            }
+            item {
+                SourceSettingsCard(
+                    feedState = feedState,
+                    gmailState = gmailState
                 )
             }
             item {
@@ -1047,54 +1861,9 @@ private fun SettingsScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun SectionIntroCard(
-    title: String,
-    body: String,
-    accent: Color
-) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .clip(CircleShape)
-                    .background(accent)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.sp
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = body,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp,
-                    letterSpacing = 0.sp
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun FeaturePlaceholder(
-    title: String,
-    body: String
+private fun ThemeSettingsCard(
+    selected: AppThemeMode,
+    onSelected: (AppThemeMode) -> Unit
 ) {
     Surface(
         modifier = Modifier
@@ -1105,21 +1874,172 @@ private fun FeaturePlaceholder(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = title,
+                text = "Appearance",
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 16.sp,
+                fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 0.sp
             )
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+            AppThemeMode.entries.forEach { mode ->
+                SettingsChoiceRow(
+                    title = mode.label,
+                    detail = mode.description,
+                    selected = mode == selected,
+                    onClick = { onSelected(mode) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LocalDataSettingsCard(feedState: FeedState) {
+    val sourceCounts = feedState.transactions.groupingBy { it.source }.eachCount().toSortedMap()
+    val monthBreakdown = feedState.transactions.monthBreakdown()
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = body,
+                text = "Local data",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            SettingsInfoRow("Transactions", feedState.transactions.size.toString())
+            SettingsInfoRow("Current month", monthBreakdown.monthKey ?: "Unknown")
+            SettingsInfoRow("Month outflow", monthBreakdown.totalDebits.formatInr())
+            if (sourceCounts.isEmpty()) {
+                SettingsInfoRow("Sources", "None")
+            } else {
+                sourceCounts.forEach { (source, count) ->
+                    SettingsInfoRow(source, "$count")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SourceSettingsCard(
+    feedState: FeedState,
+    gmailState: GmailUiState
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Sources",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            SettingsInfoRow("SMS", if (feedState.needsSmsPermission) "Permission needed" else "Enabled")
+            SettingsInfoRow("Gmail", gmailState.error ?: gmailState.label)
+            gmailState.autoSyncLabel?.let { SettingsInfoRow("Auto sync", it) }
+            SettingsInfoRow("Storage", "On this phone")
+        }
+    }
+}
+
+@Composable
+private fun SettingsChoiceRow(
+    title: String,
+    detail: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .clip(CircleShape)
+                .background(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            if (selected) {
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onPrimary)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp
+            )
+            Text(
+                text = detail,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp,
-                lineHeight = 18.sp,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 letterSpacing = 0.sp
             )
         }
+    }
+}
+
+@Composable
+private fun SettingsInfoRow(
+    label: String,
+    value: String
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.width(112.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 13.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 0.sp
+        )
+        Text(
+            text = value,
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.End,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 0.sp
+        )
     }
 }
 
@@ -1596,10 +2516,14 @@ private fun List<TransactionUi>.monthCategoryGroups(): List<SummaryGroup> {
 private fun List<TransactionUi>.feedSourceLabel(): String {
     val sourceSet = map { it.source }.toSet()
     return when {
-        "SMS" in sourceSet && "Gmail" in sourceSet -> "SMS + Gmail"
-        "Gmail" in sourceSet -> "Gmail"
-        "SMS" in sourceSet -> "device SMS"
-        else -> "sample SMS"
+        sourceSet.isEmpty() -> "sample SMS"
+        sourceSet.size == 1 && "SMS" in sourceSet -> "device SMS"
+        sourceSet.size == 1 -> sourceSet.first()
+        sourceSet.containsAll(listOf("SMS", "Gmail", "Manual")) -> "SMS + Gmail + Manual"
+        sourceSet.containsAll(listOf("SMS", "Gmail")) -> "SMS + Gmail"
+        sourceSet.containsAll(listOf("SMS", "Manual")) -> "SMS + Manual"
+        sourceSet.containsAll(listOf("Gmail", "Manual")) -> "Gmail + Manual"
+        else -> sourceSet.sorted().joinToString(" + ")
     }
 }
 
@@ -2097,7 +3021,7 @@ private fun CategoryDot(category: String) {
 
 @Composable
 private fun categoryColor(category: String): Color {
-    val darkMode = isSystemInDarkTheme()
+    val darkMode = MaterialTheme.colorScheme.background == Color(0xFF000000)
     return if (darkMode) {
         when (category) {
             "Food" -> Color(0xFFFFC857)
@@ -2291,6 +3215,19 @@ private fun ImportSource.displayLabel(): String {
 
 private fun TransactionType.countsAsSpend(): Boolean {
     return this == TransactionType.EXPENSE || this == TransactionType.SUBSCRIPTION
+}
+
+private fun TransactionType.displayName(): String {
+    return when (this) {
+        TransactionType.EXPENSE -> "Spend"
+        TransactionType.INCOME -> "Income"
+        TransactionType.REFUND -> "Refund"
+        TransactionType.TRANSFER -> "Transfer"
+        TransactionType.INVESTMENT -> "Investment"
+        TransactionType.SUBSCRIPTION -> "Subscription"
+        TransactionType.REWARD -> "Reward"
+        TransactionType.UNKNOWN -> "Other"
+    }
 }
 
 private fun String.monthOutflowLabel(): String {
