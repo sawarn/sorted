@@ -134,26 +134,27 @@ class MainActivity : ComponentActivity() {
             var showOpening by remember { mutableStateOf(true) }
 
             LaunchedEffect(Unit) {
-                delay(2300)
+                delay(1200)
                 showOpening = false
             }
 
             SortedTheme(themeMode = themeMode) {
-                Crossfade(
-                    targetState = showOpening,
-                    animationSpec = tween(durationMillis = 420),
-                    label = "opening_crossfade"
-                ) { opening ->
-                    if (opening) {
-                        SortedOpeningScreen()
-                    } else {
-                        SortedHome(
-                            themeMode = themeMode,
-                            onThemeModeChange = { mode ->
-                                appPreferences.setThemeMode(mode)
-                                themeMode = mode
-                            }
-                        )
+                Box(modifier = Modifier.fillMaxSize()) {
+                    SortedHome(
+                        themeMode = themeMode,
+                        onThemeModeChange = { mode ->
+                            appPreferences.setThemeMode(mode)
+                            themeMode = mode
+                        }
+                    )
+                    Crossfade(
+                        targetState = showOpening,
+                        animationSpec = tween(durationMillis = 280),
+                        label = "opening_crossfade"
+                    ) { opening ->
+                        if (opening) {
+                            SortedOpeningScreen()
+                        }
                     }
                 }
             }
@@ -863,11 +864,12 @@ private fun SortedHome(
     var gmailState by remember {
         mutableStateOf(GmailUiState(autoSyncLabel = gmailSyncPreferences.statusLabel()))
     }
+    var feedLoaded by remember { mutableStateOf(false) }
     var feedState by remember {
         mutableStateOf(
             FeedState(
-                transactions = parsedSampleTransactions(),
-                label = "sample SMS",
+                transactions = emptyList(),
+                label = "Loading",
                 needsSmsPermission = !hasPermission
             )
         )
@@ -903,6 +905,7 @@ private fun SortedHome(
                     label = transactions.feedSourceLabel(),
                     needsSmsPermission = !hasPermission
                 )
+                feedLoaded = true
                 manualSaveState = ManualSaveState(message = "Added ${draft.merchant.trim()}")
             } catch (error: Throwable) {
                 manualSaveState = ManualSaveState(
@@ -936,6 +939,7 @@ private fun SortedHome(
                     label = transactions.feedSourceLabel(),
                     needsSmsPermission = !hasPermission
                 )
+                feedLoaded = true
                 gmailState = gmailStateWithAutoSync(label = summary.displayLabel())
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
@@ -1079,9 +1083,12 @@ private fun SortedHome(
     }
 
     LaunchedEffect(hasPermission) {
-        feedState = withContext(Dispatchers.IO) {
+        feedLoaded = false
+        val loadedFeedState = withContext(Dispatchers.IO) {
             loadFeedState(appContext, hasPermission)
         }
+        feedState = loadedFeedState
+        feedLoaded = true
     }
 
     val activeDrilldown = drilldown
@@ -1128,6 +1135,7 @@ private fun SortedHome(
                 when (selectedTab) {
                     SortedTab.Home -> HomeTabContent(
                         feedState = feedState,
+                        isFeedLoading = !feedLoaded,
                         modifier = Modifier.padding(padding),
                         onSettings = { settingsOpen = true },
                         onMerchantClick = { group ->
@@ -1204,6 +1212,7 @@ private fun SortedHome(
 @Composable
 private fun HomeTabContent(
     feedState: FeedState,
+    isFeedLoading: Boolean,
     modifier: Modifier,
     onSettings: () -> Unit,
     onMerchantClick: (SummaryGroup) -> Unit,
@@ -1216,22 +1225,28 @@ private fun HomeTabContent(
         item {
             Header(title = "Sorted", onSettings = onSettings)
         }
-        item {
-            MonthSummary(feedState)
-        }
-        item {
-            SummaryRail(
-                title = "By merchant",
-                groups = feedState.transactions.monthMerchantGroups().take(5),
-                onGroupClick = onMerchantClick
-            )
-        }
-        item {
-            SummaryRail(
-                title = "By category",
-                groups = feedState.transactions.monthCategoryGroups().take(5),
-                onGroupClick = onCategoryClick
-            )
+        if (isFeedLoading) {
+            item {
+                HomeLoadingSummary()
+            }
+        } else {
+            item {
+                MonthSummary(feedState)
+            }
+            item {
+                SummaryRail(
+                    title = "By merchant",
+                    groups = feedState.transactions.monthMerchantGroups().take(5),
+                    onGroupClick = onMerchantClick
+                )
+            }
+            item {
+                SummaryRail(
+                    title = "By category",
+                    groups = feedState.transactions.monthCategoryGroups().take(5),
+                    onGroupClick = onCategoryClick
+                )
+            }
         }
         item {
             Spacer(modifier = Modifier.height(104.dp))
@@ -2877,6 +2892,110 @@ private fun SortedNavGlyph(
                 drawLine(color, Offset(w * 0.82f, h * 0.5f), Offset(w * 0.96f, h * 0.5f), strokeWidth, StrokeCap.Round)
             }
         }
+    }
+}
+
+@Composable
+private fun HomeLoadingSummary() {
+    val blockColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+    val softBlockColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Loading",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Box(
+                modifier = Modifier
+                    .width(210.dp)
+                    .height(34.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(blockColor)
+            )
+            Spacer(modifier = Modifier.height(18.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(14.dp)
+                    .clip(RoundedCornerShape(8.dp))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1.2f)
+                        .height(14.dp)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.68f))
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(0.8f)
+                        .height(14.dp)
+                        .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.58f))
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(0.55f)
+                        .height(14.dp)
+                        .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.52f))
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                HomeLoadingTile(
+                    blockColor = blockColor,
+                    softBlockColor = softBlockColor,
+                    modifier = Modifier.weight(1f)
+                )
+                HomeLoadingTile(
+                    blockColor = blockColor,
+                    softBlockColor = softBlockColor,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeLoadingTile(
+    blockColor: Color,
+    softBlockColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(softBlockColor)
+            .padding(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.42f)
+                .height(10.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(blockColor)
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.82f)
+                .height(18.dp)
+                .clip(RoundedCornerShape(7.dp))
+                .background(blockColor)
+        )
     }
 }
 
