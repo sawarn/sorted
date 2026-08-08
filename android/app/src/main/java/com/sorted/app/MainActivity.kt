@@ -86,6 +86,8 @@ import com.sorted.app.data.stableHash
 import com.sorted.app.gmail.GmailImportPlan
 import com.sorted.app.gmail.GmailImportSummary
 import com.sorted.app.gmail.GmailImporter
+import com.sorted.app.gmail.GmailSyncPreferences
+import com.sorted.app.gmail.GmailSyncScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -130,7 +132,8 @@ private data class FeedState(
 private data class GmailUiState(
     val label: String = "Not connected",
     val isImporting: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val autoSyncLabel: String? = null
 )
 
 private data class GmailSetupInfo(
@@ -219,6 +222,12 @@ private fun loadPersistedTransactions(context: Context): List<TransactionUi> {
         .listRates()
         .associateBy { it.key }
     return TransactionRepository(context).listTransactions().map { it.toTransactionUi(fxRates) }
+}
+
+private fun hasPersistedGmailTransactions(context: Context): Boolean {
+    return TransactionRepository(context)
+        .listTransactions(limit = 2_000)
+        .any { it.source == ImportSource.GMAIL }
 }
 
 private fun ParsedTransaction.toTransactionUi(
@@ -446,9 +455,12 @@ private fun SortedHome() {
     val appContext = context.applicationContext
     val scope = rememberCoroutineScope()
     val gmailSetupInfo = remember { gmailSetupInfo(appContext) }
+    val gmailSyncPreferences = remember { GmailSyncPreferences(appContext) }
     var selected by remember { mutableStateOf<TransactionUi?>(null) }
     var hasPermission by remember { mutableStateOf(hasReadSmsPermission(context)) }
-    var gmailState by remember { mutableStateOf(GmailUiState()) }
+    var gmailState by remember {
+        mutableStateOf(GmailUiState(autoSyncLabel = gmailSyncPreferences.statusLabel()))
+    }
     var feedState by remember {
         mutableStateOf(
             FeedState(
@@ -463,20 +475,35 @@ private fun SortedHome() {
     ) { granted ->
         hasPermission = granted
     }
-    fun runGmailImport(accessToken: String?) {
+    fun gmailStateWithAutoSync(
+        label: String,
+        isImporting: Boolean = false,
+        error: String? = null
+    ): GmailUiState {
+        return GmailUiState(
+            label = label,
+            isImporting = isImporting,
+            error = error,
+            autoSyncLabel = gmailSyncPreferences.statusLabel()
+        )
+    }
+
+    fun runGmailImport(accessToken: String?, startLabel: String = "Reading Gmail") {
         if (accessToken.isNullOrBlank()) {
-            gmailState = GmailUiState(
+            gmailState = gmailStateWithAutoSync(
                 label = "Gmail import failed",
                 error = "Google did not return an access token."
             )
             return
         }
 
-        gmailState = GmailUiState(label = "Reading Gmail", isImporting = true)
+        gmailState = gmailStateWithAutoSync(label = startLabel, isImporting = true)
         scope.launch {
             try {
                 val (summary, transactions) = withContext(Dispatchers.IO) {
                     val summary = GmailImporter(appContext).importLatest(accessToken)
+                    GmailSyncScheduler.schedule(appContext)
+                    gmailSyncPreferences.markSyncSuccess(summary)
                     val transactions = loadPersistedTransactions(appContext)
                     summary to transactions
                 }
@@ -485,9 +512,10 @@ private fun SortedHome() {
                     label = transactions.feedSourceLabel(),
                     needsSmsPermission = !hasPermission
                 )
-                gmailState = GmailUiState(label = summary.displayLabel())
+                gmailState = gmailStateWithAutoSync(label = summary.displayLabel())
             } catch (error: Throwable) {
-                gmailState = GmailUiState(
+                gmailSyncPreferences.markSyncError(error.message ?: error.javaClass.simpleName)
+                gmailState = gmailStateWithAutoSync(
                     label = "Gmail import failed",
                     error = error.message?.take(180) ?: error.javaClass.simpleName
                 )
@@ -495,11 +523,45 @@ private fun SortedHome() {
         }
     }
 
+    fun requestSilentGmailImport() {
+        val request = AuthorizationRequest.builder()
+            .setRequestedScopes(listOf(Scope(GmailImportPlan.RequiredScope)))
+            .build()
+
+        gmailState = gmailStateWithAutoSync(label = "Auto syncing Gmail", isImporting = true)
+        Identity.getAuthorizationClient(context)
+            .authorize(request)
+            .addOnSuccessListener { authorizationResult ->
+                if (authorizationResult.hasResolution()) {
+                    gmailSyncPreferences.markNeedsManualAuth()
+                    gmailState = gmailStateWithAutoSync(
+                        label = "Gmail auto sync paused",
+                        error = "Tap Import to reconnect Gmail."
+                    )
+                } else {
+                    runGmailImport(authorizationResult.accessToken, startLabel = "Auto syncing Gmail")
+                }
+            }
+            .addOnFailureListener { error ->
+                val apiError = error as? ApiException
+                val message = if (apiError != null) {
+                    gmailAuthErrorMessage(apiError, gmailSetupInfo)
+                } else {
+                    error.localizedMessage ?: "Google authorization failed."
+                }
+                gmailSyncPreferences.markSyncError(message)
+                gmailState = gmailStateWithAutoSync(
+                    label = "Gmail auto sync failed",
+                    error = message
+                )
+            }
+    }
+
     val gmailAuthorizationLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartIntentSenderForResult()
     ) { activityResult ->
         if (activityResult.data == null) {
-            gmailState = GmailUiState(
+            gmailState = gmailStateWithAutoSync(
                 label = "Gmail not connected",
                 error = "Authorization was cancelled or Google returned no result. Check OAuth setup and test-user access."
             )
@@ -511,7 +573,7 @@ private fun SortedHome() {
                 .getAuthorizationResultFromIntent(activityResult.data)
             val grantedScopes = authorizationResult.grantedScopes.toSet()
             if (GmailImportPlan.RequiredScope !in grantedScopes) {
-                gmailState = GmailUiState(
+                gmailState = gmailStateWithAutoSync(
                     label = "Gmail permission missing",
                     error = "Gmail read permission was not granted."
                 )
@@ -520,13 +582,13 @@ private fun SortedHome() {
             runGmailImport(authorizationResult.accessToken)
         } catch (error: ApiException) {
             Log.e(LogTag, "Gmail authorization failed", error)
-            gmailState = GmailUiState(
+            gmailState = gmailStateWithAutoSync(
                 label = "Gmail import failed",
                 error = gmailAuthErrorMessage(error, gmailSetupInfo)
             )
         } catch (error: Throwable) {
             Log.e(LogTag, "Gmail authorization result failed", error)
-            gmailState = GmailUiState(
+            gmailState = gmailStateWithAutoSync(
                 label = "Gmail import failed",
                 error = error.message ?: error.javaClass.simpleName
             )
@@ -536,14 +598,14 @@ private fun SortedHome() {
     fun requestGmailImport() {
         val activity = context.findComponentActivity()
         if (activity == null) {
-            gmailState = GmailUiState(
+            gmailState = gmailStateWithAutoSync(
                 label = "Gmail import failed",
                 error = "Unable to open Google authorization from this screen."
             )
             return
         }
 
-        gmailState = GmailUiState(label = "Opening Google consent", isImporting = true)
+        gmailState = gmailStateWithAutoSync(label = "Opening Google consent", isImporting = true)
         val request = AuthorizationRequest.builder()
             .setRequestedScopes(listOf(Scope(GmailImportPlan.RequiredScope)))
             .build()
@@ -554,7 +616,7 @@ private fun SortedHome() {
                 if (authorizationResult.hasResolution()) {
                     val pendingIntent = authorizationResult.pendingIntent
                     if (pendingIntent == null) {
-                        gmailState = GmailUiState(
+                        gmailState = gmailStateWithAutoSync(
                             label = "Gmail import failed",
                             error = "Google authorization needs consent but returned no prompt."
                         )
@@ -570,7 +632,7 @@ private fun SortedHome() {
             .addOnFailureListener { error ->
                 Log.e(LogTag, "Gmail authorization request failed", error)
                 val apiError = error as? ApiException
-                gmailState = GmailUiState(
+                gmailState = gmailStateWithAutoSync(
                     label = "Gmail import failed",
                     error = if (apiError != null) {
                         gmailAuthErrorMessage(apiError, gmailSetupInfo)
@@ -579,6 +641,16 @@ private fun SortedHome() {
                     }
                 )
             }
+    }
+
+    LaunchedEffect(Unit) {
+        val shouldAutoSync = withContext(Dispatchers.IO) {
+            gmailSyncPreferences.isAutoSyncEnabled() || hasPersistedGmailTransactions(appContext)
+        }
+        if (shouldAutoSync) {
+            GmailSyncScheduler.schedule(appContext)
+            requestSilentGmailImport()
+        }
     }
 
     LaunchedEffect(hasPermission) {
@@ -713,6 +785,17 @@ private fun GmailImportCard(
                     overflow = TextOverflow.Ellipsis,
                     letterSpacing = 0.sp
                 )
+                state.autoSyncLabel?.let { label ->
+                    Spacer(modifier = Modifier.height(5.dp))
+                    Text(
+                        text = label,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        letterSpacing = 0.sp
+                    )
+                }
                 if (state.error != null) {
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
