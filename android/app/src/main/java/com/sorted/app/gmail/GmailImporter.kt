@@ -74,6 +74,7 @@ class GmailImporter(context: Context) {
             existing.sourceHash != sourceHash &&
                 existing.transactionDate == parsedDate &&
                 existing.direction == parsedTransaction.direction &&
+                sameCurrency(existing.currency, parsedTransaction.currency) &&
                 sameAmount(existing.amount, parsedAmount) &&
                 (
                     sameMerchant(existing.merchantNormalized ?: existing.merchantRaw, parsedMerchant) ||
@@ -85,6 +86,10 @@ class GmailImporter(context: Context) {
 
     private fun sameAmount(existingAmount: Double?, parsedAmount: Double): Boolean {
         return existingAmount != null && abs(existingAmount - parsedAmount) < 0.01
+    }
+
+    private fun sameCurrency(existingCurrency: String?, parsedCurrency: String?): Boolean {
+        return existingCurrency.normalizedCurrency() == parsedCurrency.normalizedCurrency()
     }
 
     private fun sameMerchant(left: String?, right: String): Boolean {
@@ -113,5 +118,9 @@ class GmailImporter(context: Context) {
 
     private fun String?.normalizedMerchantKey(): String {
         return orEmpty().uppercase().replace(Regex("""[^A-Z0-9]"""), "")
+    }
+
+    private fun String?.normalizedCurrency(): String {
+        return orEmpty().ifBlank { "INR" }.uppercase()
     }
 }

@@ -109,6 +109,7 @@ private data class TransactionUi(
     val detail: String,
     val amount: String,
     val amountValue: Double,
+    val currency: String,
     val category: String,
     val direction: DirectionUi,
     val transactionType: TransactionType,
@@ -161,6 +162,7 @@ private data class SummaryGroup(
     val label: String,
     val count: Int,
     val total: Double,
+    val currency: String,
     val category: String
 )
 
@@ -210,6 +212,7 @@ private fun loadPersistedTransactions(context: Context): List<TransactionUi> {
 
 private fun ParsedTransaction.toTransactionUi(source: String = "Parsed SMS"): TransactionUi {
     val amountNumber = amount ?: 0.0
+    val currencyCode = currency.normalizedCurrency()
     val payment = paymentMode.displayName()
     val misc = miscCategory ?: "Uncategorized"
     val category = departmentCategory ?: "Other"
@@ -219,8 +222,9 @@ private fun ParsedTransaction.toTransactionUi(source: String = "Parsed SMS"): Tr
     return TransactionUi(
         merchant = merchantNormalized ?: merchantRaw ?: "Unknown",
         detail = "$payment • $misc • $date",
-        amount = amountNumber.formatInr(),
+        amount = amountNumber.formatMoney(currencyCode),
         amountValue = amountNumber,
+        currency = currencyCode,
         category = category,
         direction = directionUi,
         transactionType = transactionType,
@@ -231,6 +235,7 @@ private fun ParsedTransaction.toTransactionUi(source: String = "Parsed SMS"): Tr
 
 private fun TransactionEntity.toTransactionUi(): TransactionUi {
     val amountNumber = amount ?: 0.0
+    val currencyCode = currency.normalizedCurrency()
     val payment = paymentMode.displayName()
     val misc = miscCategory ?: "Uncategorized"
     val category = departmentCategory ?: "Other"
@@ -240,8 +245,9 @@ private fun TransactionEntity.toTransactionUi(): TransactionUi {
     return TransactionUi(
         merchant = merchantNormalized ?: merchantRaw ?: "Unknown",
         detail = "$payment • $misc • $date",
-        amount = amountNumber.formatInr(),
+        amount = amountNumber.formatMoney(currencyCode),
         amountValue = amountNumber,
+        currency = currencyCode,
         category = category,
         direction = directionUi,
         transactionType = transactionType,
@@ -787,7 +793,10 @@ private fun MonthSummary(feedState: FeedState) {
 
 private fun List<TransactionUi>.monthBreakdown(): MonthBreakdown {
     val monthKey = mapNotNull { it.transactionDate?.take(7) }.maxOrNull()
-    val monthTransactions = filter { monthKey == null || it.transactionDate?.startsWith(monthKey) == true }
+    val monthTransactions = filter {
+        it.countsInInrTotals() &&
+            (monthKey == null || it.transactionDate?.startsWith(monthKey) == true)
+    }
     val debitTransactions = monthTransactions.filter { it.direction == DirectionUi.Debit }
     val spends = debitTransactions
         .filter { it.transactionType.countsAsSpend() }
@@ -819,12 +828,13 @@ private fun List<TransactionUi>.latestMonthDebitTransactions(): List<Transaction
 
 private fun List<TransactionUi>.monthMerchantGroups(): List<SummaryGroup> {
     return latestMonthDebitTransactions()
-        .groupBy { it.merchant }
-        .map { (merchant, transactions) ->
+        .groupBy { it.merchant to it.currency }
+        .map { (merchantCurrency, transactions) ->
             SummaryGroup(
-                label = merchant,
+                label = merchantCurrency.first,
                 count = transactions.size,
                 total = transactions.sumOf { it.amountValue },
+                currency = merchantCurrency.second,
                 category = transactions.firstOrNull()?.category ?: "Other"
             )
         }
@@ -834,13 +844,14 @@ private fun List<TransactionUi>.monthMerchantGroups(): List<SummaryGroup> {
 
 private fun List<TransactionUi>.monthCategoryGroups(): List<SummaryGroup> {
     return latestMonthDebitTransactions()
-        .groupBy { it.category }
-        .map { (category, transactions) ->
+        .groupBy { it.category to it.currency }
+        .map { (categoryCurrency, transactions) ->
             SummaryGroup(
-                label = category,
+                label = categoryCurrency.first,
                 count = transactions.size,
                 total = transactions.sumOf { it.amountValue },
-                category = category
+                currency = categoryCurrency.second,
+                category = categoryCurrency.first
             )
         }
         .sortedByDescending { it.total }
@@ -910,7 +921,7 @@ private fun SummaryGroupCard(group: SummaryGroup) {
             }
             Spacer(modifier = Modifier.height(10.dp))
             Text(
-                text = group.total.formatInr(),
+                text = group.total.formatMoney(group.currency),
                 color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -1206,6 +1217,23 @@ private fun DetailChip(label: String) {
 
 private fun Double.formatInr(): String {
     return "INR " + String.format(Locale.US, "%,.2f", this)
+}
+
+private fun Double.formatMoney(currency: String?): String {
+    val currencyCode = currency.normalizedCurrency()
+    return when (currencyCode) {
+        "INR" -> formatInr()
+        "USD" -> "USD " + String.format(Locale.US, "%,.2f", this)
+        else -> "$currencyCode " + String.format(Locale.US, "%,.2f", this)
+    }
+}
+
+private fun TransactionUi.countsInInrTotals(): Boolean {
+    return currency.equals("INR", ignoreCase = true)
+}
+
+private fun String?.normalizedCurrency(): String {
+    return orEmpty().ifBlank { "INR" }.uppercase(Locale.US)
 }
 
 private fun PaymentMode.displayName(): String {

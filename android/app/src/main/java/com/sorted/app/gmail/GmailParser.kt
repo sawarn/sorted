@@ -10,6 +10,11 @@ import com.sorted.app.engine.TransactionStatus
 import com.sorted.app.engine.TransactionType
 
 object GmailParser {
+    private data class MoneyAmount(
+        val amount: Double,
+        val currency: String
+    )
+
     fun parse(message: GmailRawMessage): ParsedTransaction {
         val text = clean(
             listOfNotNull(message.subject, message.snippet, message.bodyText)
@@ -18,7 +23,7 @@ object GmailParser {
 
         ignoreReason(message, text)?.let { return ignored(it) }
 
-        val amount = parseAmount(text) ?: return ignored("amount_missing")
+        val money = parseMoney(text) ?: return ignored("amount_missing")
         val direction = parseDirection(text)
         if (direction == Direction.UNKNOWN) return ignored("direction_missing")
 
@@ -27,8 +32,8 @@ object GmailParser {
             ?: merchantFromKnownSubject(message.subject)
 
         val facts = ParserFacts(
-            amount = amount,
-            currency = "INR",
+            amount = money.amount,
+            currency = money.currency,
             direction = direction,
             merchantRaw = merchant,
             paymentMode = parsePaymentMode(text),
@@ -59,33 +64,64 @@ object GmailParser {
         )
     }
 
-    private fun parseAmount(text: String): Double? {
-        val patterns = listOf(
-            Regex("""(?is)\b(?:debited|spent|deducted|paid|payment|purchase|charged|sent|transaction)[^.]{0,120}\b(?:INR|Rs\.?)\s*([\d,]+(?:\.\d+)?)"""),
-            Regex("""(?is)\b(?:credited|refund|reversal|cashback|received)[^.]{0,120}\b(?:INR|Rs\.?)\s*([\d,]+(?:\.\d+)?)"""),
-            Regex("""(?is)\b(?:INR|Rs\.?)\s*([\d,]+(?:\.\d+)?)[^.]{0,120}\b(?:debited|spent|deducted|paid|payment|purchase|charged|sent|transaction)"""),
-            Regex("""(?is)\b(?:INR|Rs\.?)\s*([\d,]+(?:\.\d+)?)[^.]{0,120}\b(?:credited|refund|reversal|cashback|received)"""),
-            Regex("""(?i)\b(?:INR|Rs\.?)\s*([\d,]+(?:\.\d+)?)""")
-        )
+    private fun parseMoney(text: String): MoneyAmount? {
+        firstAmount(
+            text,
+            listOf(
+                Regex("""(?is)\b(?:debited|spent|deducted|paid|payment|purchase|charged|sent|transaction)[^.]{0,120}\b(?:INR|Rs\.?|\x{20B9})\s*([\d,]+(?:\.\d+)?)"""),
+                Regex("""(?is)\b(?:credited|refund|reversal|cashback|received)[^.]{0,120}\b(?:INR|Rs\.?|\x{20B9})\s*([\d,]+(?:\.\d+)?)"""),
+                Regex("""(?is)\b(?:INR|Rs\.?|\x{20B9})\s*([\d,]+(?:\.\d+)?)[^.]{0,120}\b(?:debited|spent|deducted|paid|payment|purchase|charged|sent|transaction)"""),
+                Regex("""(?is)\b(?:INR|Rs\.?|\x{20B9})\s*([\d,]+(?:\.\d+)?)[^.]{0,120}\b(?:credited|refund|reversal|cashback|received)"""),
+                Regex("""(?i)(?:\bINR\b|\bRs\.?|\x{20B9})\s*([\d,]+(?:\.\d+)?)""")
+            )
+        )?.let { return MoneyAmount(it, "INR") }
+
+        firstAmount(
+            text,
+            listOf(
+                Regex("""(?is)\bcurrency\s*:\s*USD.{0,120}\bamount\s*:\s*([\d,]+(?:[.,]\d+)?)"""),
+                Regex("""(?is)\b(?:remittance|lrs|transferred|transfer|transaction|approved)[^.]{0,120}\b(?:USD|US\$)\s*([\d,]+(?:[.,]\d+)?)"""),
+                Regex("""(?is)\b(?:remittance|lrs|transferred|transfer|transaction|approved)[^.]{0,120}(?<![A-Za-z])\$\s*([\d,]+(?:\.\d+)?)"""),
+                Regex("""(?is)\b(?:USD|US\$)\s*([\d,]+(?:[.,]\d+)?)[^.]{0,120}\b(?:remittance|lrs|transferred|transfer|transaction|approved)"""),
+                Regex("""(?i)\b(?:USD|US\$)\s*([\d,]+(?:[.,]\d+)?)"""),
+                Regex("""(?i)(?<![A-Za-z])\$\s*([\d,]+(?:\.\d+)?)""")
+            )
+        )?.let { return MoneyAmount(it, "USD") }
+
+        return null
+    }
+
+    private fun firstAmount(text: String, patterns: List<Regex>): Double? {
         return patterns
             .firstNotNullOfOrNull { pattern -> pattern.find(text)?.groupValues?.get(1) }
-            ?.replace(",", "")
-            ?.toDoubleOrNull()
+            ?.parseFlexibleAmount()
     }
 
     private fun parseDirection(text: String): Direction {
         val lower = text.lowercase()
         val creditWords = listOf("credited", "refund", "reversal", "cashback", "received")
         val debitWords = listOf("debited", "spent", "deducted", "paid", "payment", "purchase", "charged", "sent")
+        val remittanceDebitWords = listOf(
+            "lrs remittance",
+            "cross-border remittance",
+            "remittance request",
+            "funds will be transferred to your vested account"
+        )
 
         return when {
             creditWords.any { it in lower } -> Direction.CREDIT
+            remittanceDebitWords.any { it in lower } -> Direction.DEBIT
             debitWords.any { it in lower } -> Direction.DEBIT
             else -> Direction.UNKNOWN
         }
     }
 
     private fun parseMerchant(text: String): String? {
+        val lower = text.lowercase()
+        if ("vested" in lower && ("remittance" in lower || "hdfc transaction on vested" in lower)) {
+            return "Vested"
+        }
+
         val patterns = listOf(
             Regex("""(?is)\btowards\s+VPA\s+\S+\s*\(([^)]+)\)"""),
             Regex("""(?is)\btowards\s+(.+?)(?:\s+on\s+\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\s+with\s+ref|\s+with\s+reference|[.;,]|$)"""),
@@ -100,6 +136,7 @@ object GmailParser {
     private fun parsePaymentMode(text: String): PaymentMode {
         val lower = text.lowercase()
         return when {
+            "lrs" in lower || "swift" in lower || "remittance" in lower || "cross-border" in lower -> PaymentMode.BANK_TRANSFER
             "upi mandate" in lower -> PaymentMode.UPI_MANDATE
             "upi" in lower || "vpa" in lower -> PaymentMode.UPI
             "card" in lower -> PaymentMode.CARD
@@ -150,12 +187,15 @@ object GmailParser {
             "refund",
             "payment",
             "purchase",
-            "charged"
+            "charged",
+            "remittance",
+            "lrs"
         ).any { it in lower }
 
         return when {
             "one-time password" in lower || Regex("""\botp\b""").containsMatchIn(lower) -> "otp"
             "failed" in lower || "declined" in lower || "unsuccessful" in lower -> "failed_transaction"
+            ("swift copy" in subject || "swift copy" in lower) && "cross-border remittance" in lower -> "remittance_document"
             "groww digest" in subject || "all you need to know about the day" in lower -> "newsletter"
             "newsletter" in lower && !financialAction -> "newsletter"
             "annual general meeting" in lower || "integrated annual report" in lower -> "company_notice"
@@ -184,7 +224,12 @@ object GmailParser {
             "invoice",
             "receipt",
             "upi",
-            "card"
+            "card",
+            "usd",
+            "$",
+            "remittance",
+            "lrs",
+            "vested"
         )
         return markers.any { it in lower }
     }
@@ -213,6 +258,7 @@ object GmailParser {
             "uber" in lower -> "Uber"
             "groww" in lower -> "Groww"
             "zerodha" in lower -> "Zerodha"
+            "vested" in lower -> "Vested"
             "google" in lower || "youtube" in lower -> "Google"
             "openai" in lower || "chatgpt" in lower -> "OpenAI ChatGPT"
             else -> null
@@ -285,6 +331,21 @@ object GmailParser {
             "transaction details"
         )
         return candidate.takeIf { it.length >= 2 && blocked.none { blockedValue -> lower == blockedValue || lower.startsWith("$blockedValue ") } }
+    }
+
+    private fun String.parseFlexibleAmount(): Double? {
+        val trimmed = trim()
+        val normalized = if ("," in trimmed && "." !in trimmed) {
+            val parts = trimmed.split(",")
+            if (parts.size == 2 && parts.last().length == 2 && parts.first().length <= 3) {
+                parts.first() + "." + parts.last()
+            } else {
+                trimmed.replace(",", "")
+            }
+        } else {
+            trimmed.replace(",", "")
+        }
+        return normalized.toDoubleOrNull()
     }
 
     private fun String.pad2(): String = padStart(2, '0')

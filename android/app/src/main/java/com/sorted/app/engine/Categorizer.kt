@@ -132,6 +132,7 @@ object Categorizer {
             key.contains("KFIN") -> rule("KFintech", "Mutual Fund", "Investment", TransactionType.INVESTMENT)
             key.contains("GROWW") -> rule("Groww", "Investment", "Investment", TransactionType.INVESTMENT)
             key.contains("ZERODHA") -> rule("Zerodha", "Investment", "Investment", TransactionType.INVESTMENT)
+            key.contains("VESTED") -> rule("Vested", "US Investment", "Investment", TransactionType.INVESTMENT)
             key.contains("UPSTOX") -> rule("Upstox", "Investment", "Investment", TransactionType.INVESTMENT)
             key.contains("ANGEL ONE") || key.contains("ANGELONE") -> rule("Angel One", "Investment", "Investment", TransactionType.INVESTMENT)
             key == "INCOME TAX REFUND" -> rule("Income Tax Refund", "Tax Refund", "Refund", TransactionType.REFUND)
