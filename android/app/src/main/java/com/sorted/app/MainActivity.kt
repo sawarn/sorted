@@ -77,6 +77,9 @@ import com.sorted.app.engine.SmsParser
 import com.sorted.app.engine.TransactionType
 import com.sorted.app.data.ImportRecord
 import com.sorted.app.data.ImportSource
+import com.sorted.app.data.FxRateEntity
+import com.sorted.app.data.FxRateKey
+import com.sorted.app.data.FxRateRepository
 import com.sorted.app.data.TransactionEntity
 import com.sorted.app.data.TransactionRepository
 import com.sorted.app.data.stableHash
@@ -110,6 +113,7 @@ private data class TransactionUi(
     val amount: String,
     val amountValue: Double,
     val currency: String,
+    val inrAmountValue: Double?,
     val category: String,
     val direction: DirectionUi,
     val transactionType: TransactionType,
@@ -156,13 +160,7 @@ private data class MonthBreakdown(
     val spends: Double,
     val transfers: Double,
     val investments: Double,
-    val foreignDebits: List<CurrencyTotal>
-)
-
-private data class CurrencyTotal(
-    val currency: String,
-    val count: Int,
-    val total: Double
+    val fxConverted: Double
 )
 
 private data class SummaryGroup(
@@ -210,28 +208,44 @@ private fun loadRealSmsTransactions(context: Context): List<TransactionUi> {
             )
         }
     )
-    return repository.listTransactions().map { it.toTransactionUi() }
+    val fxRates = FxRateRepository(context)
+        .listRates()
+        .associateBy { it.key }
+    return repository.listTransactions().map { it.toTransactionUi(fxRates) }
 }
 
 private fun loadPersistedTransactions(context: Context): List<TransactionUi> {
-    return TransactionRepository(context).listTransactions().map { it.toTransactionUi() }
+    val fxRates = FxRateRepository(context)
+        .listRates()
+        .associateBy { it.key }
+    return TransactionRepository(context).listTransactions().map { it.toTransactionUi(fxRates) }
 }
 
-private fun ParsedTransaction.toTransactionUi(source: String = "Parsed SMS"): TransactionUi {
+private fun ParsedTransaction.toTransactionUi(
+    source: String = "Parsed SMS",
+    fxRates: Map<FxRateKey, FxRateEntity> = emptyMap()
+): TransactionUi {
     val amountNumber = amount ?: 0.0
     val currencyCode = currency.normalizedCurrency()
+    val fxRate = fxRateFor(transactionDate, currencyCode, fxRates)
+    val inrEquivalent = inrEquivalentValue(amountNumber, currencyCode, fxRate)
     val payment = paymentMode.displayName()
     val misc = miscCategory ?: "Uncategorized"
     val category = departmentCategory ?: "Other"
     val date = transactionDate ?: "Date unknown"
     val directionUi = if (direction == Direction.CREDIT) DirectionUi.Credit else DirectionUi.Debit
+    val fxDetail = fxRate?.let { rate ->
+        "FX ${rate.rateDate} @ ${rate.rate.formatFxRate()} = ${inrEquivalent?.formatInr()}"
+    }
+    val detail = listOfNotNull(payment, misc, date, fxDetail).joinToString(" • ")
 
     return TransactionUi(
         merchant = merchantNormalized ?: merchantRaw ?: "Unknown",
-        detail = "$payment • $misc • $date",
+        detail = detail,
         amount = amountNumber.formatMoney(currencyCode),
         amountValue = amountNumber,
         currency = currencyCode,
+        inrAmountValue = inrEquivalent,
         category = category,
         direction = directionUi,
         transactionType = transactionType,
@@ -240,21 +254,30 @@ private fun ParsedTransaction.toTransactionUi(source: String = "Parsed SMS"): Tr
     )
 }
 
-private fun TransactionEntity.toTransactionUi(): TransactionUi {
+private fun TransactionEntity.toTransactionUi(
+    fxRates: Map<FxRateKey, FxRateEntity> = emptyMap()
+): TransactionUi {
     val amountNumber = amount ?: 0.0
     val currencyCode = currency.normalizedCurrency()
+    val fxRate = fxRateFor(transactionDate, currencyCode, fxRates)
+    val inrEquivalent = inrEquivalentValue(amountNumber, currencyCode, fxRate)
     val payment = paymentMode.displayName()
     val misc = miscCategory ?: "Uncategorized"
     val category = departmentCategory ?: "Other"
     val date = transactionDate ?: "Date unknown"
     val directionUi = if (direction == Direction.CREDIT) DirectionUi.Credit else DirectionUi.Debit
+    val fxDetail = fxRate?.let { rate ->
+        "FX ${rate.rateDate} @ ${rate.rate.formatFxRate()} = ${inrEquivalent?.formatInr()}"
+    }
+    val detail = listOfNotNull(payment, misc, date, fxDetail).joinToString(" • ")
 
     return TransactionUi(
         merchant = merchantNormalized ?: merchantRaw ?: "Unknown",
-        detail = "$payment • $misc • $date",
+        detail = detail,
         amount = amountNumber.formatMoney(currencyCode),
         amountValue = amountNumber,
         currency = currencyCode,
+        inrAmountValue = inrEquivalent,
         category = category,
         direction = directionUi,
         transactionType = transactionType,
@@ -794,8 +817,8 @@ private fun MonthSummary(feedState: FeedState) {
             SummaryBreakdownRow("Spends", breakdown.spends)
             SummaryBreakdownRow("Transfers", breakdown.transfers)
             SummaryBreakdownRow("Investments", breakdown.investments)
-            breakdown.foreignDebits.forEach { total ->
-                SummaryBreakdownRow("${total.currency} outflow", total.total, total.currency)
+            if (breakdown.fxConverted > 0.0) {
+                SummaryBreakdownRow("FX converted", breakdown.fxConverted)
             }
         }
     }
@@ -807,39 +830,31 @@ private fun List<TransactionUi>.monthBreakdown(): MonthBreakdown {
         monthKey == null || it.transactionDate?.startsWith(monthKey) == true
     }
     val monthTransactions = allMonthTransactions.filter {
-        it.countsInInrTotals() &&
+        it.inrAmountValue != null &&
             (monthKey == null || it.transactionDate?.startsWith(monthKey) == true)
     }
     val debitTransactions = monthTransactions.filter { it.direction == DirectionUi.Debit }
-    val foreignDebits = allMonthTransactions
-        .filter { it.direction == DirectionUi.Debit && !it.countsInInrTotals() }
-        .groupBy { it.currency }
-        .map { (currency, transactions) ->
-            CurrencyTotal(
-                currency = currency,
-                count = transactions.size,
-                total = transactions.sumOf { it.amountValue }
-            )
-        }
-        .sortedByDescending { it.total }
+    val fxConverted = debitTransactions
+        .filter { !it.countsInInrTotals() }
+        .sumOf { it.inrAmountValue ?: 0.0 }
     val spends = debitTransactions
         .filter { it.transactionType.countsAsSpend() }
-        .sumOf { it.amountValue }
+        .sumOf { it.inrAmountValue ?: 0.0 }
     val transfers = debitTransactions
         .filter { it.transactionType == TransactionType.TRANSFER }
-        .sumOf { it.amountValue }
+        .sumOf { it.inrAmountValue ?: 0.0 }
     val investments = debitTransactions
         .filter { it.transactionType == TransactionType.INVESTMENT }
-        .sumOf { it.amountValue }
+        .sumOf { it.inrAmountValue ?: 0.0 }
 
     return MonthBreakdown(
         monthKey = monthKey,
         debitCount = debitTransactions.size,
-        totalDebits = debitTransactions.sumOf { it.amountValue },
+        totalDebits = debitTransactions.sumOf { it.inrAmountValue ?: 0.0 },
         spends = spends,
         transfers = transfers,
         investments = investments,
-        foreignDebits = foreignDebits
+        fxConverted = fxConverted
     )
 }
 
@@ -853,13 +868,14 @@ private fun List<TransactionUi>.latestMonthDebitTransactions(): List<Transaction
 
 private fun List<TransactionUi>.monthMerchantGroups(): List<SummaryGroup> {
     return latestMonthDebitTransactions()
-        .groupBy { it.merchant to it.currency }
-        .map { (merchantCurrency, transactions) ->
+        .filter { it.inrAmountValue != null }
+        .groupBy { it.merchant }
+        .map { (merchant, transactions) ->
             SummaryGroup(
-                label = merchantCurrency.first,
+                label = merchant,
                 count = transactions.size,
-                total = transactions.sumOf { it.amountValue },
-                currency = merchantCurrency.second,
+                total = transactions.sumOf { it.inrAmountValue ?: 0.0 },
+                currency = "INR",
                 category = transactions.firstOrNull()?.category ?: "Other"
             )
         }
@@ -869,14 +885,15 @@ private fun List<TransactionUi>.monthMerchantGroups(): List<SummaryGroup> {
 
 private fun List<TransactionUi>.monthCategoryGroups(): List<SummaryGroup> {
     return latestMonthDebitTransactions()
-        .groupBy { it.category to it.currency }
-        .map { (categoryCurrency, transactions) ->
+        .filter { it.inrAmountValue != null }
+        .groupBy { it.category }
+        .map { (category, transactions) ->
             SummaryGroup(
-                label = categoryCurrency.first,
+                label = category,
                 count = transactions.size,
-                total = transactions.sumOf { it.amountValue },
-                currency = categoryCurrency.second,
-                category = categoryCurrency.first
+                total = transactions.sumOf { it.inrAmountValue ?: 0.0 },
+                currency = "INR",
+                category = category
             )
         }
         .sortedByDescending { it.total }
@@ -893,7 +910,12 @@ private fun List<TransactionUi>.feedSourceLabel(): String {
 }
 
 private fun GmailImportSummary.displayLabel(): String {
-    return "Imported $importedTransactions of $transactionsDetected detected. $skippedDuplicates matched SMS."
+    val fxLabel = when {
+        fxRateFailures > 0 -> " FX lookup failed for $fxRateFailures."
+        fxRatesUpdated > 0 -> " FX updated for $fxRatesUpdated."
+        else -> ""
+    }
+    return "Imported $importedTransactions of $transactionsDetected detected. $skippedDuplicates matched SMS.$fxLabel"
 }
 
 @Composable
@@ -1255,6 +1277,31 @@ private fun Double.formatMoney(currency: String?): String {
         "USD" -> "USD " + String.format(Locale.US, "%,.2f", this)
         else -> "$currencyCode " + String.format(Locale.US, "%,.2f", this)
     }
+}
+
+private fun fxRateFor(
+    transactionDate: String?,
+    currency: String,
+    fxRates: Map<FxRateKey, FxRateEntity>
+): FxRateEntity? {
+    if (transactionDate.isNullOrBlank() || currency.equals("INR", ignoreCase = true)) return null
+    return fxRates[FxRateKey(transactionDate, currency.uppercase(Locale.US), "INR")]
+}
+
+private fun inrEquivalentValue(
+    amount: Double,
+    currency: String,
+    fxRate: FxRateEntity?
+): Double? {
+    return when {
+        currency.equals("INR", ignoreCase = true) -> amount
+        fxRate != null -> amount * fxRate.rate
+        else -> null
+    }
+}
+
+private fun Double.formatFxRate(): String {
+    return String.format(Locale.US, "%,.4f", this)
 }
 
 private fun TransactionUi.countsInInrTotals(): Boolean {

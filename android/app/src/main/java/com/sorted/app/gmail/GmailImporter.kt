@@ -7,6 +7,7 @@ import com.sorted.app.data.TransactionEntity
 import com.sorted.app.data.TransactionRepository
 import com.sorted.app.engine.ParsedTransaction
 import com.sorted.app.engine.TransactionType
+import com.sorted.app.fx.FxRateImporter
 import kotlin.math.abs
 
 data class GmailImportSummary(
@@ -14,7 +15,9 @@ data class GmailImportSummary(
     val transactionsDetected: Int,
     val importedTransactions: Int,
     val skippedLowConfidence: Int,
-    val skippedDuplicates: Int
+    val skippedDuplicates: Int,
+    val fxRatesUpdated: Int,
+    val fxRateFailures: Int
 )
 
 class GmailImporter(context: Context) {
@@ -52,13 +55,18 @@ class GmailImporter(context: Context) {
                 )
             }
         )
+        val fxResult = FxRateImporter(appContext).refreshRatesFor(
+            importableRecords.map { it.parsed }
+        )
 
         return GmailImportSummary(
             messagesScanned = rawMessages.size,
             transactionsDetected = transactionRecords.size,
             importedTransactions = importableRecords.size,
             skippedLowConfidence = transactionRecords.size - highConfidenceRecords.size,
-            skippedDuplicates = highConfidenceRecords.size - importableRecords.size
+            skippedDuplicates = highConfidenceRecords.size - importableRecords.size,
+            fxRatesUpdated = fxResult.ratesUpdated,
+            fxRateFailures = fxResult.failures
         )
     }
 

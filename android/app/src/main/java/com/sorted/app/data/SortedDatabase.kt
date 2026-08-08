@@ -11,6 +11,11 @@ class SortedDatabase(context: Context) : SQLiteOpenHelper(
     DatabaseVersion
 ) {
     override fun onCreate(db: SQLiteDatabase) {
+        createTransactionsTable(db)
+        createFxRatesTable(db)
+    }
+
+    private fun createTransactionsTable(db: SQLiteDatabase) {
         db.execSQL(
             """
             CREATE TABLE transactions (
@@ -44,13 +49,39 @@ class SortedDatabase(context: Context) : SQLiteOpenHelper(
         db.execSQL("CREATE INDEX idx_transactions_source ON transactions(source)")
     }
 
+    private fun createFxRatesTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS fx_rates (
+                requested_date TEXT NOT NULL,
+                base_currency TEXT NOT NULL,
+                quote_currency TEXT NOT NULL,
+                rate_date TEXT NOT NULL,
+                rate REAL NOT NULL,
+                provider TEXT NOT NULL,
+                fetched_at INTEGER NOT NULL,
+                PRIMARY KEY (requested_date, base_currency, quote_currency, provider)
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_fx_rates_lookup ON fx_rates(requested_date, base_currency, quote_currency)")
+    }
+
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS transactions")
-        onCreate(db)
+        if (oldVersion < 2) {
+            db.execSQL("DROP TABLE IF EXISTS transactions")
+            db.execSQL("DROP TABLE IF EXISTS fx_rates")
+            onCreate(db)
+            return
+        }
+
+        if (oldVersion < 3) {
+            createFxRatesTable(db)
+        }
     }
 
     private companion object {
         const val DatabaseName = "sorted.db"
-        const val DatabaseVersion = 2
+        const val DatabaseVersion = 3
     }
 }
