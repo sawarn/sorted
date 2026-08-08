@@ -2901,7 +2901,7 @@ private fun HomeCategoryMixStrip(
                         modifier = Modifier
                             .weight(weight)
                             .height(14.dp)
-                            .background(categoryColor(group.category))
+                            .background(homeMixColor(group.category))
                     )
                 }
             }
@@ -2922,11 +2922,16 @@ private fun HomeLegendChip(group: SummaryGroup) {
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(categoryContainerColor(group.category))
+            .background(homeMixContainerColor(group.category))
             .padding(horizontal = 9.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        CategoryMiniDot(group.category)
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .clip(CircleShape)
+                .background(homeMixColor(group.category))
+        )
         Spacer(modifier = Modifier.width(6.dp))
         Text(
             text = group.label,
@@ -3644,6 +3649,34 @@ private fun categoryColor(category: String): Color {
 private fun categoryContainerColor(category: String): Color {
     val color = categoryColor(category)
     return color.copy(alpha = if (isDarkModeActive()) 0.16f else 0.11f)
+}
+
+@Composable
+private fun homeMixColor(category: String): Color {
+    return if (isDarkModeActive()) {
+        when (category) {
+            "Investment" -> Color(0xFFFFC857)
+            "Transfer" -> Color(0xFFB9832A)
+            "Shopping" -> Color(0xFFFF8A70)
+            "Groceries" -> Color(0xFFA7C957)
+            "Food" -> Color(0xFFFFB84D)
+            "Utilities" -> Color(0xFFFF9F45)
+            "Subscriptions" -> Color(0xFFB9A7FF)
+            "Health" -> Color(0xFFFFD08A)
+            "Refund" -> Color(0xFFFFE08A)
+            "Reward" -> Color(0xFFEAD86B)
+            "Transport" -> Color(0xFFD19A3A)
+            "Fuel" -> Color(0xFFFFAD33)
+            else -> Color(0xFFC9B889)
+        }
+    } else {
+        categoryColor(category)
+    }
+}
+
+@Composable
+private fun homeMixContainerColor(category: String): Color {
+    return homeMixColor(category).copy(alpha = if (isDarkModeActive()) 0.18f else 0.11f)
 }
 
 @Composable
