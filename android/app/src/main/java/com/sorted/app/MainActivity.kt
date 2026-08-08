@@ -20,6 +20,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -40,11 +42,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +51,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -65,8 +65,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -187,6 +195,24 @@ private data class DrilldownState(
 private enum class DrilldownKind {
     Merchant,
     Category
+}
+
+private enum class SortedTab(
+    val label: String,
+    val icon: SortedNavIcon
+) {
+    Home("Home", SortedNavIcon.Home),
+    Insights("Insights", SortedNavIcon.Insights),
+    Capture("Capture", SortedNavIcon.Capture),
+    Sources("Sources", SortedNavIcon.Sources)
+}
+
+private enum class SortedNavIcon {
+    Home,
+    Insights,
+    Capture,
+    Sources,
+    Settings
 }
 
 private enum class DirectionUi {
@@ -445,6 +471,21 @@ private fun Context.signingCertificateSha1(): String? {
 @Composable
 private fun SortedTheme(content: @Composable () -> Unit) {
     val darkMode = isSystemInDarkTheme()
+    val appFontFamily = if (darkMode) {
+        FontFamily(
+            Font(R.font.balsamiq_sans_regular, FontWeight.Normal),
+            Font(R.font.balsamiq_sans_bold, FontWeight.Medium),
+            Font(R.font.balsamiq_sans_bold, FontWeight.SemiBold),
+            Font(R.font.balsamiq_sans_bold, FontWeight.Bold)
+        )
+    } else {
+        FontFamily(
+            Font(R.font.comic_neue_regular, FontWeight.Normal),
+            Font(R.font.comic_neue_regular, FontWeight.Medium),
+            Font(R.font.comic_neue_bold, FontWeight.SemiBold),
+            Font(R.font.comic_neue_bold, FontWeight.Bold)
+        )
+    }
     val colors = if (darkMode) {
         darkColorScheme(
             background = Color(0xFF000000),
@@ -475,7 +516,28 @@ private fun SortedTheme(content: @Composable () -> Unit) {
 
     MaterialTheme(
         colorScheme = colors,
+        typography = Typography().withFontFamily(appFontFamily),
         content = content
+    )
+}
+
+private fun Typography.withFontFamily(fontFamily: FontFamily): Typography {
+    return copy(
+        displayLarge = displayLarge.copy(fontFamily = fontFamily),
+        displayMedium = displayMedium.copy(fontFamily = fontFamily),
+        displaySmall = displaySmall.copy(fontFamily = fontFamily),
+        headlineLarge = headlineLarge.copy(fontFamily = fontFamily),
+        headlineMedium = headlineMedium.copy(fontFamily = fontFamily),
+        headlineSmall = headlineSmall.copy(fontFamily = fontFamily),
+        titleLarge = titleLarge.copy(fontFamily = fontFamily),
+        titleMedium = titleMedium.copy(fontFamily = fontFamily),
+        titleSmall = titleSmall.copy(fontFamily = fontFamily),
+        bodyLarge = bodyLarge.copy(fontFamily = fontFamily),
+        bodyMedium = bodyMedium.copy(fontFamily = fontFamily),
+        bodySmall = bodySmall.copy(fontFamily = fontFamily),
+        labelLarge = labelLarge.copy(fontFamily = fontFamily),
+        labelMedium = labelMedium.copy(fontFamily = fontFamily),
+        labelSmall = labelSmall.copy(fontFamily = fontFamily)
     )
 }
 
@@ -489,6 +551,8 @@ private fun SortedHome() {
     val gmailSyncPreferences = remember { GmailSyncPreferences(appContext) }
     var selected by remember { mutableStateOf<TransactionUi?>(null) }
     var drilldown by remember { mutableStateOf<DrilldownState?>(null) }
+    var selectedTab by remember { mutableStateOf(SortedTab.Home) }
+    var settingsOpen by remember { mutableStateOf(false) }
     var hasPermission by remember { mutableStateOf(hasReadSmsPermission(context)) }
     var gmailState by remember {
         mutableStateOf(GmailUiState(autoSyncLabel = gmailSyncPreferences.statusLabel()))
@@ -703,70 +767,53 @@ private fun SortedHome() {
     }
 
     val activeDrilldown = drilldown
-    BackHandler(enabled = activeDrilldown != null) {
-        drilldown = null
+    BackHandler(
+        enabled = activeDrilldown != null || settingsOpen || selectedTab != SortedTab.Home
+    ) {
+        when {
+            activeDrilldown != null -> drilldown = null
+            settingsOpen -> settingsOpen = false
+            selectedTab != SortedTab.Home -> selectedTab = SortedTab.Home
+        }
     }
 
-    if (activeDrilldown == null) {
-        Scaffold(
-            containerColor = MaterialTheme.colorScheme.background,
-            floatingActionButton = {
-                FloatingActionButton(
-                    onClick = {},
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    shape = CircleShape
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "Add transaction")
-                }
-            }
-        ) { padding ->
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                item {
-                    Header()
-                }
-                item {
-                    MonthSummary(feedState)
-                }
-                if (feedState.needsSmsPermission) {
-                    item {
-                        PermissionPrompt(
-                            onRequestPermission = {
-                                smsPermissionLauncher.launch(Manifest.permission.READ_SMS)
-                            }
-                        )
-                    }
-                }
-                item {
-                    GmailImportCard(
-                        state = gmailState,
-                        setupInfo = gmailSetupInfo,
-                        onImport = { requestGmailImport() }
+    when {
+        activeDrilldown != null -> {
+            DrilldownScreen(
+                state = activeDrilldown,
+                allTransactions = feedState.transactions,
+                onBack = { drilldown = null },
+                onTransactionClick = { selected = it }
+            )
+        }
+
+        settingsOpen -> {
+            SettingsScreen(onBack = { settingsOpen = false })
+        }
+
+        else -> {
+            Scaffold(
+                containerColor = MaterialTheme.colorScheme.background,
+                bottomBar = {
+                    SortedBottomBar(
+                        selectedTab = selectedTab,
+                        onTabSelected = { selectedTab = it }
                     )
                 }
-                item {
-                    SummaryRail(
-                        title = "By merchant",
-                        groups = feedState.transactions.monthMerchantGroups(),
-                        onGroupClick = { group ->
+            ) { padding ->
+                when (selectedTab) {
+                    SortedTab.Home -> HomeTabContent(
+                        feedState = feedState,
+                        modifier = Modifier.padding(padding),
+                        onSettings = { settingsOpen = true },
+                        onMerchantClick = { group ->
                             drilldown = DrilldownState(
                                 title = group.label,
                                 kind = DrilldownKind.Merchant,
                                 group = group
                             )
-                        }
-                    )
-                }
-                item {
-                    SummaryRail(
-                        title = "By category",
-                        groups = feedState.transactions.monthCategoryGroups(),
-                        onGroupClick = { group ->
+                        },
+                        onCategoryClick = { group ->
                             drilldown = DrilldownState(
                                 title = group.label,
                                 kind = DrilldownKind.Category,
@@ -774,28 +821,33 @@ private fun SortedHome() {
                             )
                         }
                     )
-                }
-                item {
-                    SectionLabel("Recent")
-                }
-                items(feedState.transactions) { transaction ->
-                    TransactionRow(
-                        transaction = transaction,
-                        onClick = { selected = transaction }
+
+                    SortedTab.Insights -> InsightsTabContent(
+                        feedState = feedState,
+                        modifier = Modifier.padding(padding),
+                        onSettings = { settingsOpen = true },
+                        onTransactionClick = { selected = it }
                     )
-                }
-                item {
-                    Spacer(modifier = Modifier.height(80.dp))
+
+                    SortedTab.Capture -> CaptureTabContent(
+                        modifier = Modifier.padding(padding),
+                        onSettings = { settingsOpen = true }
+                    )
+
+                    SortedTab.Sources -> SourcesTabContent(
+                        feedState = feedState,
+                        gmailState = gmailState,
+                        gmailSetupInfo = gmailSetupInfo,
+                        modifier = Modifier.padding(padding),
+                        onSettings = { settingsOpen = true },
+                        onRequestSmsPermission = {
+                            smsPermissionLauncher.launch(Manifest.permission.READ_SMS)
+                        },
+                        onImportGmail = { requestGmailImport() }
+                    )
                 }
             }
         }
-    } else {
-        DrilldownScreen(
-            state = activeDrilldown,
-            allTransactions = feedState.transactions,
-            onBack = { drilldown = null },
-            onTransactionClick = { selected = it }
-        )
     }
 
     selected?.let { transaction ->
@@ -805,6 +857,327 @@ private fun SortedHome() {
             shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)
         ) {
             TransactionDetail(transaction = transaction)
+        }
+    }
+}
+
+@Composable
+private fun HomeTabContent(
+    feedState: FeedState,
+    modifier: Modifier,
+    onSettings: () -> Unit,
+    onMerchantClick: (SummaryGroup) -> Unit,
+    onCategoryClick: (SummaryGroup) -> Unit
+) {
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Header(title = "Sorted", onSettings = onSettings)
+        }
+        item {
+            MonthSummary(feedState)
+        }
+        item {
+            SummaryRail(
+                title = "By merchant",
+                groups = feedState.transactions.monthMerchantGroups(),
+                onGroupClick = onMerchantClick
+            )
+        }
+        item {
+            SummaryRail(
+                title = "By category",
+                groups = feedState.transactions.monthCategoryGroups(),
+                onGroupClick = onCategoryClick
+            )
+        }
+        item {
+            Spacer(modifier = Modifier.height(104.dp))
+        }
+    }
+}
+
+@Composable
+private fun InsightsTabContent(
+    feedState: FeedState,
+    modifier: Modifier,
+    onSettings: () -> Unit,
+    onTransactionClick: (TransactionUi) -> Unit
+) {
+    val recentTransactions = remember(feedState.transactions) {
+        feedState.transactions.sortedByDescending { transaction ->
+            transaction.transactionDate.orEmpty()
+        }
+    }
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Header(title = "Insights", onSettings = onSettings)
+        }
+        item {
+            SectionIntroCard(
+                title = "Recent transactions",
+                body = "${recentTransactions.size} transactions from ${feedState.label}",
+                accent = MaterialTheme.colorScheme.primary
+            )
+        }
+        items(recentTransactions) { transaction ->
+            TransactionRow(
+                transaction = transaction,
+                onClick = { onTransactionClick(transaction) }
+            )
+        }
+        item {
+            Spacer(modifier = Modifier.height(104.dp))
+        }
+    }
+}
+
+@Composable
+private fun CaptureTabContent(
+    modifier: Modifier,
+    onSettings: () -> Unit
+) {
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Header(title = "Capture", onSettings = onSettings)
+        }
+        item {
+            SectionIntroCard(
+                title = "Manual add",
+                body = "Fast transaction entry will live here. This tab replaces the floating add button.",
+                accent = MaterialTheme.colorScheme.primary
+            )
+        }
+        item {
+            FeaturePlaceholder(
+                title = "Next build",
+                body = "Amount, merchant, category, payment mode, date, and note in one low-friction sheet."
+            )
+        }
+        item {
+            Spacer(modifier = Modifier.height(104.dp))
+        }
+    }
+}
+
+@Composable
+private fun SourcesTabContent(
+    feedState: FeedState,
+    gmailState: GmailUiState,
+    gmailSetupInfo: GmailSetupInfo,
+    modifier: Modifier,
+    onSettings: () -> Unit,
+    onRequestSmsPermission: () -> Unit,
+    onImportGmail: () -> Unit
+) {
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Header(title = "Sources", onSettings = onSettings)
+        }
+        item {
+            SourceStatusCard(feedState = feedState)
+        }
+        if (feedState.needsSmsPermission) {
+            item {
+                PermissionPrompt(onRequestPermission = onRequestSmsPermission)
+            }
+        }
+        item {
+            GmailImportCard(
+                state = gmailState,
+                setupInfo = gmailSetupInfo,
+                onImport = onImportGmail
+            )
+        }
+        item {
+            Spacer(modifier = Modifier.height(104.dp))
+        }
+    }
+}
+
+@Composable
+private fun SettingsScreen(onBack: () -> Unit) {
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            item {
+                Header(
+                    title = "Settings",
+                    onSettings = {},
+                    onBack = onBack,
+                    showActions = false
+                )
+            }
+            item {
+                SectionIntroCard(
+                    title = "Settings and privacy",
+                    body = "Theme, local data controls, exports, parser diagnostics, and source permissions will be grouped here.",
+                    accent = MaterialTheme.colorScheme.primary
+                )
+            }
+            item {
+                FeaturePlaceholder(
+                    title = "Local-first controls",
+                    body = "No backend. The important settings are import sources, database controls, export/delete, and parser debugging."
+                )
+            }
+            item {
+                Spacer(modifier = Modifier.height(60.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionIntroCard(
+    title: String,
+    body: String,
+    accent: Color
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(accent)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = body,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    letterSpacing = 0.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeaturePlaceholder(
+    title: String,
+    body: String
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = title,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = body,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+                letterSpacing = 0.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun SourceStatusCard(feedState: FeedState) {
+    val sourceCounts = feedState.transactions
+        .groupingBy { it.source }
+        .eachCount()
+        .toSortedMap()
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Connected data",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            if (sourceCounts.isEmpty()) {
+                Text(
+                    text = "No transactions imported yet.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    letterSpacing = 0.sp
+                )
+            } else {
+                sourceCounts.forEach { (source, count) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = source,
+                            modifier = Modifier.weight(1f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp,
+                            letterSpacing = 0.sp
+                        )
+                        Text(
+                            text = "$count transaction${if (count == 1) "" else "s"}",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 0.sp
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -879,33 +1252,211 @@ private fun GmailImportCard(
 }
 
 @Composable
-private fun Header() {
+private fun Header(
+    title: String,
+    onSettings: () -> Unit,
+    onBack: (() -> Unit)? = null,
+    showActions: Boolean = true
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 20.dp, end = 12.dp, top = 18.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Sorted",
-                color = MaterialTheme.colorScheme.onBackground,
-                fontSize = 30.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.sp
-            )
-            Text(
-                text = "Transactions categorized privately",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 14.sp,
-                letterSpacing = 0.sp
-            )
+        if (onBack != null) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            }
+            Spacer(modifier = Modifier.width(4.dp))
         }
-        IconButton(onClick = {}) {
-            Icon(Icons.Default.Search, contentDescription = "Search")
+        Text(
+            text = title,
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.onBackground,
+            fontSize = 31.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 0.sp
+        )
+        if (showActions) {
+            IconButton(onClick = {}) {
+                Icon(Icons.Default.Search, contentDescription = "Search")
+            }
+            IconButton(onClick = onSettings) {
+                SettingsGlyph(
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
-        IconButton(onClick = {}) {
-            Icon(Icons.Default.Menu, contentDescription = "Filters")
+    }
+}
+
+@Composable
+private fun SortedBottomBar(
+    selectedTab: SortedTab,
+    onTabSelected: (SortedTab) -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(22.dp),
+        tonalElevation = 1.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 6.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SortedTab.entries.forEach { tab ->
+                val selected = tab == selectedTab
+                val contentColor = if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+                val itemBackground = if (selected) {
+                    MaterialTheme.colorScheme.surfaceVariant
+                } else {
+                    Color.Transparent
+                }
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(itemBackground)
+                        .clickable { onTabSelected(tab) }
+                        .padding(vertical = 7.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    SortedNavGlyph(
+                        icon = tab.icon,
+                        color = contentColor,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = tab.label,
+                        color = contentColor,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        letterSpacing = 0.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsGlyph(
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    SortedNavGlyph(
+        icon = SortedNavIcon.Settings,
+        color = color,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun SortedNavGlyph(
+    icon: SortedNavIcon,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val strokeWidth = 2.1.dp.toPx()
+        val stroke = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+        val w = size.width
+        val h = size.height
+
+        when (icon) {
+            SortedNavIcon.Home -> {
+                drawLine(color, Offset(w * 0.18f, h * 0.48f), Offset(w * 0.50f, h * 0.22f), strokeWidth, StrokeCap.Round)
+                drawLine(color, Offset(w * 0.50f, h * 0.22f), Offset(w * 0.82f, h * 0.48f), strokeWidth, StrokeCap.Round)
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(w * 0.28f, h * 0.48f),
+                    size = Size(w * 0.44f, h * 0.34f),
+                    cornerRadius = CornerRadius(w * 0.07f, w * 0.07f)
+                )
+                drawRoundRect(
+                    color = Color.Transparent,
+                    topLeft = Offset(w * 0.42f, h * 0.62f),
+                    size = Size(w * 0.16f, h * 0.20f),
+                    cornerRadius = CornerRadius(w * 0.03f, w * 0.03f)
+                )
+            }
+
+            SortedNavIcon.Insights -> {
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(w * 0.18f, h * 0.55f),
+                    size = Size(w * 0.14f, h * 0.30f),
+                    cornerRadius = CornerRadius(w * 0.04f, w * 0.04f)
+                )
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(w * 0.43f, h * 0.36f),
+                    size = Size(w * 0.14f, h * 0.49f),
+                    cornerRadius = CornerRadius(w * 0.04f, w * 0.04f)
+                )
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(w * 0.68f, h * 0.20f),
+                    size = Size(w * 0.14f, h * 0.65f),
+                    cornerRadius = CornerRadius(w * 0.04f, w * 0.04f)
+                )
+            }
+
+            SortedNavIcon.Capture -> {
+                drawCircle(
+                    color = color,
+                    radius = w * 0.36f,
+                    center = Offset(w * 0.5f, h * 0.5f),
+                    style = stroke
+                )
+                drawLine(color, Offset(w * 0.34f, h * 0.5f), Offset(w * 0.66f, h * 0.5f), strokeWidth, StrokeCap.Round)
+                drawLine(color, Offset(w * 0.5f, h * 0.34f), Offset(w * 0.5f, h * 0.66f), strokeWidth, StrokeCap.Round)
+            }
+
+            SortedNavIcon.Sources -> {
+                drawCircle(color, radius = w * 0.10f, center = Offset(w * 0.24f, h * 0.33f))
+                drawCircle(color, radius = w * 0.10f, center = Offset(w * 0.24f, h * 0.68f))
+                drawLine(color, Offset(w * 0.42f, h * 0.33f), Offset(w * 0.78f, h * 0.33f), strokeWidth, StrokeCap.Round)
+                drawLine(color, Offset(w * 0.42f, h * 0.68f), Offset(w * 0.78f, h * 0.68f), strokeWidth, StrokeCap.Round)
+            }
+
+            SortedNavIcon.Settings -> {
+                drawCircle(
+                    color = color,
+                    radius = w * 0.32f,
+                    center = Offset(w * 0.5f, h * 0.5f),
+                    style = stroke
+                )
+                drawCircle(
+                    color = color,
+                    radius = w * 0.10f,
+                    center = Offset(w * 0.5f, h * 0.5f),
+                    style = stroke
+                )
+                drawLine(color, Offset(w * 0.5f, h * 0.04f), Offset(w * 0.5f, h * 0.18f), strokeWidth, StrokeCap.Round)
+                drawLine(color, Offset(w * 0.5f, h * 0.82f), Offset(w * 0.5f, h * 0.96f), strokeWidth, StrokeCap.Round)
+                drawLine(color, Offset(w * 0.04f, h * 0.5f), Offset(w * 0.18f, h * 0.5f), strokeWidth, StrokeCap.Round)
+                drawLine(color, Offset(w * 0.82f, h * 0.5f), Offset(w * 0.96f, h * 0.5f), strokeWidth, StrokeCap.Round)
+            }
         }
     }
 }
@@ -1261,8 +1812,8 @@ private fun DrilldownState.filteredTransactions(
 
 private fun DrilldownKind.label(): String {
     return when (this) {
-        DrilldownKind.Merchant -> "Merchant"
-        DrilldownKind.Category -> "Category"
+        DrilldownKind.Merchant -> "Merchant transactions"
+        DrilldownKind.Category -> "Category transactions"
     }
 }
 
@@ -1303,22 +1854,29 @@ private fun SummaryGroupCard(
 ) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.width(168.dp),
+        modifier = Modifier.width(176.dp),
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(8.dp)
     ) {
         Column(
-            modifier = Modifier.padding(13.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 CategoryMiniDot(group.category)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = group.displayLabel(),
-                    modifier = Modifier.weight(1f),
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     letterSpacing = 0.sp
@@ -1327,17 +1885,23 @@ private fun SummaryGroupCard(
             Spacer(modifier = Modifier.height(10.dp))
             Text(
                 text = group.total.formatMoney(group.currency),
+                modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 letterSpacing = 0.sp
             )
             Spacer(modifier = Modifier.height(3.dp))
             Text(
                 text = "${group.count} transaction${if (group.count == 1) "" else "s"}",
+                modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
                 maxLines = 1,
                 letterSpacing = 0.sp
             )
@@ -1582,7 +2146,8 @@ private fun SourcePill(source: String) {
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 11.sp,
-            fontWeight = FontWeight.Medium,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
             letterSpacing = 0.sp
         )
     }
@@ -1638,7 +2203,8 @@ private fun DetailChip(label: String) {
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
             color = MaterialTheme.colorScheme.onSurface,
             fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
             letterSpacing = 0.sp
         )
     }
