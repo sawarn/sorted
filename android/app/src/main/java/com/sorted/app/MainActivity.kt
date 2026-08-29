@@ -102,6 +102,7 @@ import com.sorted.app.engine.PaymentMode
 import com.sorted.app.engine.SmsParser
 import com.sorted.app.engine.TransactionStatus
 import com.sorted.app.engine.TransactionType
+import com.sorted.app.data.CategoryRuleEntity
 import com.sorted.app.data.ImportRecord
 import com.sorted.app.data.ImportSource
 import com.sorted.app.data.FxRateEntity
@@ -227,7 +228,18 @@ private data class MonthBreakdown(
     val spends: Double,
     val transfers: Double,
     val investments: Double,
+    val refunds: Double,
+    val income: Double,
+    val rewards: Double,
     val fxConverted: Double
+)
+
+private data class ExplainBucket(
+    val title: String,
+    val amount: Double,
+    val count: Int,
+    val description: String,
+    val transactions: List<TransactionUi>
 )
 
 private data class SummaryGroup(
@@ -243,6 +255,37 @@ private data class RecentDateGroup(
     val label: String,
     val transactions: List<TransactionUi>,
     val outflow: Double
+)
+
+private data class ReviewFilter(
+    val label: String,
+    val predicate: (TransactionUi) -> Boolean
+)
+
+private data class MonthStoryItem(
+    val label: String,
+    val value: String,
+    val detail: String,
+    val category: String
+)
+
+private data class RecurringCandidate(
+    val merchant: String,
+    val expectedAmount: Double,
+    val count: Int,
+    val lastSeenDate: String?,
+    val category: String,
+    val transactionType: TransactionType,
+    val confidenceLabel: String
+)
+
+private data class SourceHealthRow(
+    val source: String,
+    val totalCount: Int,
+    val spendCount: Int,
+    val reviewCount: Int,
+    val fxCount: Int,
+    val totalAmount: Double
 )
 
 private data class ManualTransactionDraft(
@@ -898,6 +941,9 @@ private fun SortedHome(
     var drilldown by remember { mutableStateOf<DrilldownState?>(null) }
     var selectedTab by remember { mutableStateOf(SortedTab.Home) }
     var settingsOpen by remember { mutableStateOf(false) }
+    var explainOpen by remember { mutableStateOf(false) }
+    var sortInboxOpen by remember { mutableStateOf(false) }
+    var ruleCenterOpen by remember { mutableStateOf(false) }
     var manualSaveState by remember { mutableStateOf(ManualSaveState()) }
     var correctionSaveState by remember { mutableStateOf(CorrectionSaveState()) }
     var hasPermission by remember { mutableStateOf(hasReadSmsPermission(context)) }
@@ -1198,9 +1244,17 @@ private fun SortedHome(
 
     val activeDrilldown = drilldown
     BackHandler(
-        enabled = activeDrilldown != null || settingsOpen || selectedTab != SortedTab.Home
+        enabled = activeDrilldown != null ||
+            settingsOpen ||
+            explainOpen ||
+            sortInboxOpen ||
+            ruleCenterOpen ||
+            selectedTab != SortedTab.Home
     ) {
         when {
+            ruleCenterOpen -> ruleCenterOpen = false
+            sortInboxOpen -> sortInboxOpen = false
+            explainOpen -> explainOpen = false
             activeDrilldown != null -> drilldown = null
             settingsOpen -> settingsOpen = false
             selectedTab != SortedTab.Home -> selectedTab = SortedTab.Home
@@ -1217,13 +1271,40 @@ private fun SortedHome(
             )
         }
 
+        explainOpen -> {
+            SpendExplanationScreen(
+                feedState = feedState,
+                onBack = { explainOpen = false },
+                onTransactionClick = { openTransaction(it) },
+                onOpenReview = { sortInboxOpen = true }
+            )
+        }
+
+        sortInboxOpen -> {
+            SortInboxScreen(
+                feedState = feedState,
+                onBack = { sortInboxOpen = false },
+                onTransactionClick = { openTransaction(it) }
+            )
+        }
+
+        ruleCenterOpen -> {
+            RuleCenterScreen(
+                onBack = { ruleCenterOpen = false }
+            )
+        }
+
         settingsOpen -> {
             SettingsScreen(
                 themeMode = themeMode,
                 feedState = feedState,
                 gmailState = gmailState,
                 onThemeModeChange = onThemeModeChange,
-                onBack = { settingsOpen = false }
+                onBack = { settingsOpen = false },
+                onOpenRuleCenter = {
+                    settingsOpen = false
+                    ruleCenterOpen = true
+                }
             )
         }
 
@@ -1243,6 +1324,7 @@ private fun SortedHome(
                         isFeedLoading = !feedLoaded,
                         modifier = Modifier.padding(padding),
                         onSettings = { settingsOpen = true },
+                        onExplainSpend = { explainOpen = true },
                         onMerchantClick = { group ->
                             drilldown = DrilldownState(
                                 title = group.label,
@@ -1279,10 +1361,12 @@ private fun SortedHome(
                                 group = group
                             )
                         },
-                        onTransactionClick = { openTransaction(it) }
+                        onTransactionClick = { openTransaction(it) },
+                        onOpenReview = { sortInboxOpen = true }
                     )
 
                     SortedTab.Capture -> CaptureTabContent(
+                        feedState = feedState,
                         modifier = Modifier.padding(padding),
                         saveState = manualSaveState,
                         onSettings = { settingsOpen = true },
@@ -1330,6 +1414,7 @@ private fun HomeTabContent(
     isFeedLoading: Boolean,
     modifier: Modifier,
     onSettings: () -> Unit,
+    onExplainSpend: () -> Unit,
     onMerchantClick: (SummaryGroup) -> Unit,
     onCategoryClick: (SummaryGroup) -> Unit
 ) {
@@ -1346,7 +1431,10 @@ private fun HomeTabContent(
             }
         } else {
             item {
-                MonthSummary(feedState)
+                MonthSummary(
+                    feedState = feedState,
+                    onExplainSpend = onExplainSpend
+                )
             }
             item {
                 SummaryRail(
@@ -1376,7 +1464,8 @@ private fun InsightsTabContent(
     onSettings: () -> Unit,
     onMerchantClick: (SummaryGroup) -> Unit,
     onCategoryClick: (SummaryGroup) -> Unit,
-    onTransactionClick: (TransactionUi) -> Unit
+    onTransactionClick: (TransactionUi) -> Unit,
+    onOpenReview: () -> Unit
 ) {
     val recentTransactions = remember(feedState.transactions) {
         feedState.transactions.sortedByDescending { transaction ->
@@ -1419,6 +1508,15 @@ private fun InsightsTabContent(
     }
     val reviewTransactions = remember(feedState.transactions) {
         feedState.transactions.reviewCandidates()
+    }
+    val storyItems = remember(feedState.transactions) {
+        feedState.transactions.monthStoryItems()
+    }
+    val refundSignals = remember(feedState.transactions) {
+        feedState.transactions.monthRefundSignals()
+    }
+    val recurringCandidates = remember(feedState.transactions) {
+        feedState.transactions.recurringCandidates()
     }
     val sourceGroups = remember(monthTransactions) {
         monthTransactions
@@ -1467,8 +1565,21 @@ private fun InsightsTabContent(
         item {
             ReviewQueueCard(
                 transactions = reviewTransactions,
+                onTransactionClick = onTransactionClick,
+                onOpenInbox = onOpenReview
+            )
+        }
+        item {
+            MonthStoryCard(items = storyItems)
+        }
+        item {
+            RefundSignalsCard(
+                transactions = refundSignals,
                 onTransactionClick = onTransactionClick
             )
+        }
+        item {
+            RecurringRadarCard(candidates = recurringCandidates)
         }
         item {
             InsightBreakdownCard(
@@ -1516,9 +1627,544 @@ private fun InsightsTabContent(
 }
 
 @Composable
-private fun ReviewQueueCard(
+private fun SpendExplanationScreen(
+    feedState: FeedState,
+    onBack: () -> Unit,
+    onTransactionClick: (TransactionUi) -> Unit,
+    onOpenReview: () -> Unit
+) {
+    val breakdown = remember(feedState.transactions) { feedState.transactions.monthBreakdown() }
+    val buckets = remember(feedState.transactions) { feedState.transactions.explainBuckets() }
+    val reviewTransactions = remember(feedState.transactions) { feedState.transactions.reviewCandidates() }
+    val sourceRows = remember(feedState.transactions) { feedState.transactions.sourceHealthRows() }
+
+    Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            item {
+                Header(
+                    title = "Why this number",
+                    onSettings = {},
+                    onBack = onBack,
+                    showActions = false
+                )
+            }
+            item {
+                SpendExplanationHero(breakdown = breakdown, feedLabel = feedState.label)
+            }
+            items(
+                buckets.filter { it.count > 0 || it.title == "Included spend" },
+                key = { it.title }
+            ) { bucket ->
+                ExplainBucketCard(
+                    bucket = bucket,
+                    onTransactionClick = onTransactionClick
+                )
+            }
+            item {
+                SourceHealthMiniCard(sourceRows = sourceRows)
+            }
+            if (reviewTransactions.isNotEmpty()) {
+                item {
+                    ReviewQueueCard(
+                        transactions = reviewTransactions,
+                        onTransactionClick = onTransactionClick,
+                        onOpenInbox = onOpenReview
+                    )
+                }
+            }
+            item {
+                Spacer(modifier = Modifier.height(80.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpendExplanationHero(
+    breakdown: MonthBreakdown,
+    feedLabel: String
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = breakdown.monthKey?.monthSpendLabel() ?: "Current spend",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = breakdown.spends.formatInr(),
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 31.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                MiniMetric(
+                    label = "Included",
+                    value = "${breakdown.spendCount} spends",
+                    modifier = Modifier.weight(1f)
+                )
+                MiniMetric(
+                    label = "Source",
+                    value = feedLabel,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                MiniMetric(
+                    label = "Moved",
+                    value = breakdown.totalDebits.formatInr(),
+                    modifier = Modifier.weight(1f)
+                )
+                MiniMetric(
+                    label = "Excluded",
+                    value = (breakdown.transfers + breakdown.investments).formatInr(),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExplainBucketCard(
+    bucket: ExplainBucket,
+    onTransactionClick: (TransactionUi) -> Unit
+) {
+    val previewRows = bucket.transactions
+        .sortedByDescending { it.inrAmountValue ?: 0.0 }
+        .take(5)
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = bucket.title,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 0.sp
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = bucket.description,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        letterSpacing = 0.sp
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = bucket.amount.formatInr(),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        letterSpacing = 0.sp
+                    )
+                    Text(
+                        text = "${bucket.count} rows",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        letterSpacing = 0.sp
+                    )
+                }
+            }
+            if (previewRows.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                previewRows.forEachIndexed { index, transaction ->
+                    RecentInlineTransactionRow(
+                        transaction = transaction,
+                        onClick = { onTransactionClick(transaction) }
+                    )
+                    if (index != previewRows.lastIndex) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SortInboxScreen(
+    feedState: FeedState,
+    onBack: () -> Unit,
+    onTransactionClick: (TransactionUi) -> Unit
+) {
+    val reviewTransactions = remember(feedState.transactions) { feedState.transactions.reviewCandidates() }
+    val filters = remember {
+        listOf(
+            ReviewFilter("All") { true },
+            ReviewFilter("Other") { it.category == "Other" || it.miscCategory == "Uncategorized" },
+            ReviewFilter("Confidence") { it.confidence < 0.70 || it.categorySource == CategorySource.FALLBACK },
+            ReviewFilter("Merchant") { it.merchant.looksLikeRawPaymentHandle() },
+            ReviewFilter("Gmail") { it.source == "Gmail" },
+            ReviewFilter("FX") { !it.countsInInrTotals() }
+        )
+    }
+    var selectedFilter by remember { mutableStateOf(filters.first().label) }
+    val activeFilter = filters.firstOrNull { it.label == selectedFilter } ?: filters.first()
+    val filteredTransactions = remember(reviewTransactions, selectedFilter) {
+        reviewTransactions.filter(activeFilter.predicate)
+    }
+    val total = filteredTransactions.sumOf { it.inrAmountValue ?: 0.0 }
+
+    Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            item {
+                Header(
+                    title = "Sort Inbox",
+                    onSettings = {},
+                    onBack = onBack,
+                    showActions = false
+                )
+            }
+            item {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "${filteredTransactions.size} review rows",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 21.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 0.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = total.formatInr(),
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            letterSpacing = 0.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        ChoiceRail(
+                            title = "Filter",
+                            choices = filters.map { it.label },
+                            selected = selectedFilter,
+                            onSelected = { selectedFilter = it }
+                        )
+                    }
+                }
+            }
+            if (filteredTransactions.isEmpty()) {
+                item {
+                    EmptyStateCard(
+                        title = "Nothing to review",
+                        detail = "Current month transactions look sorted."
+                    )
+                }
+            } else {
+                items(filteredTransactions, key = { it.sourceHash }) { transaction ->
+                    ReviewCandidateRow(
+                        transaction = transaction,
+                        reason = transaction.reviewReason(),
+                        onClick = { onTransactionClick(transaction) }
+                    )
+                }
+            }
+            item {
+                Spacer(modifier = Modifier.height(80.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun MonthStoryCard(items: List<MonthStoryItem>) {
+    if (items.isEmpty()) return
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Month story",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(items) { story ->
+                    MonthStoryTile(item = story)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MonthStoryTile(item: MonthStoryItem) {
+    Column(
+        modifier = Modifier
+            .width(152.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(categoryContainerColor(item.category))
+            .padding(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .width(32.dp)
+                .height(4.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(categoryColor(item.category))
+        )
+        Spacer(modifier = Modifier.height(9.dp))
+        Text(
+            text = item.label,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 0.sp
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = item.value,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 0.sp
+        )
+        Spacer(modifier = Modifier.height(3.dp))
+        Text(
+            text = item.detail,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 0.sp
+        )
+    }
+}
+
+@Composable
+private fun RefundSignalsCard(
     transactions: List<TransactionUi>,
     onTransactionClick: (TransactionUi) -> Unit
+) {
+    val total = transactions.sumOf { it.inrAmountValue ?: 0.0 }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Refund signals",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 0.sp
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = "${transactions.size} candidate${if (transactions.size == 1) "" else "s"}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        letterSpacing = 0.sp
+                    )
+                }
+                Text(
+                    text = total.formatInr(),
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    letterSpacing = 0.sp
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            if (transactions.isEmpty()) {
+                Text(
+                    text = "No refund signals this month",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    letterSpacing = 0.sp
+                )
+            } else {
+                transactions.take(5).forEachIndexed { index, transaction ->
+                    ReviewCandidateRow(
+                        transaction = transaction,
+                        reason = "Credit signal",
+                        onClick = { onTransactionClick(transaction) }
+                    )
+                    if (index != transactions.take(5).lastIndex) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecurringRadarCard(candidates: List<RecurringCandidate>) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Recurring radar",
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.sp
+                )
+                Text(
+                    text = "${candidates.size} found",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    letterSpacing = 0.sp
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            if (candidates.isEmpty()) {
+                Text(
+                    text = "No repeated patterns yet",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    letterSpacing = 0.sp
+                )
+            } else {
+                candidates.take(5).forEach { candidate ->
+                    RecurringCandidateRow(candidate = candidate)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecurringCandidateRow(candidate: RecurringCandidate) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        CategoryMiniDot(candidate.category)
+        Spacer(modifier = Modifier.width(9.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = candidate.merchant,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "${candidate.transactionType.displayName()} • ${candidate.count} rows • ${candidate.lastSeenDate ?: "Unknown"}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                letterSpacing = 0.sp
+            )
+        }
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = candidate.expectedAmount.formatInr(),
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                letterSpacing = 0.sp
+            )
+            Text(
+                text = candidate.confidenceLabel,
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                letterSpacing = 0.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReviewQueueCard(
+    transactions: List<TransactionUi>,
+    onTransactionClick: (TransactionUi) -> Unit,
+    onOpenInbox: () -> Unit
 ) {
     val previewRows = transactions.take(6)
     val total = transactions.sumOf { it.inrAmountValue ?: 0.0 }
@@ -1576,6 +2222,12 @@ private fun ReviewQueueCard(
                     }
                 }
             }
+            if (transactions.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                TextButton(onClick = onOpenInbox) {
+                    Text("Open Sort Inbox")
+                }
+            }
         }
     }
 }
@@ -1583,6 +2235,7 @@ private fun ReviewQueueCard(
 @Composable
 private fun ReviewCandidateRow(
     transaction: TransactionUi,
+    reason: String? = null,
     onClick: () -> Unit
 ) {
     Row(
@@ -1608,7 +2261,7 @@ private fun ReviewCandidateRow(
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = "${transaction.miscCategory} • ${transaction.source}",
+                text = reason ?: "${transaction.miscCategory} • ${transaction.source}",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
                 maxLines = 1,
@@ -2108,6 +2761,7 @@ private fun CompactAmountRow(group: SummaryGroup) {
 
 @Composable
 private fun CaptureTabContent(
+    feedState: FeedState,
     modifier: Modifier,
     saveState: ManualSaveState,
     onSettings: () -> Unit,
@@ -2122,6 +2776,7 @@ private fun CaptureTabContent(
         }
         item {
             ManualAddCard(
+                feedState = feedState,
                 saveState = saveState,
                 onSave = onSave
             )
@@ -2134,6 +2789,7 @@ private fun CaptureTabContent(
 
 @Composable
 private fun ManualAddCard(
+    feedState: FeedState,
     saveState: ManualSaveState,
     onSave: (ManualTransactionDraft) -> Unit
 ) {
@@ -2176,8 +2832,16 @@ private fun ManualAddCard(
         TransactionType.SUBSCRIPTION,
         TransactionType.TRANSFER,
         TransactionType.INVESTMENT,
-        TransactionType.INCOME
+        TransactionType.INCOME,
+        TransactionType.REFUND,
+        TransactionType.REWARD
     )
+    val recentMerchants = remember(feedState.transactions) {
+        feedState.transactions
+            .filter { it.merchant != "Unknown" }
+            .distinctBy { it.merchant.uppercase(Locale.US) }
+            .take(10)
+    }
 
     Surface(
         modifier = Modifier
@@ -2195,6 +2859,27 @@ private fun ManualAddCard(
                 letterSpacing = 0.sp
             )
             Spacer(modifier = Modifier.height(12.dp))
+            if (recentMerchants.isNotEmpty()) {
+                ChoiceRail(
+                    title = "Recent merchants",
+                    choices = recentMerchants.map { it.merchant },
+                    selected = merchant,
+                    onSelected = { selectedMerchant ->
+                        val template = recentMerchants.firstOrNull { it.merchant == selectedMerchant }
+                        merchant = selectedMerchant
+                        if (template != null) {
+                            category = template.category
+                            miscCategory = template.miscCategory
+                            paymentMode = PaymentMode.entries.firstOrNull {
+                                it.displayName() == template.paymentMode
+                            } ?: paymentMode
+                            transactionType = template.transactionType
+                            direction = if (template.direction == DirectionUi.Credit) Direction.CREDIT else Direction.DEBIT
+                        }
+                    }
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SelectableChip(
                     label = "Debit",
@@ -2257,6 +2942,9 @@ private fun ManualAddCard(
                     category = when (transactionType) {
                         TransactionType.INVESTMENT -> "Investment"
                         TransactionType.TRANSFER -> "Transfer"
+                        TransactionType.INCOME -> "Income"
+                        TransactionType.REFUND -> "Refund"
+                        TransactionType.REWARD -> "Reward"
                         else -> category
                     }
                 }
@@ -2421,7 +3109,10 @@ private fun SourcesTabContent(
             Header(title = "Sources", onSettings = onSettings)
         }
         item {
-            SourceStatusCard(feedState = feedState)
+            SourceHealthCard(
+                feedState = feedState,
+                gmailState = gmailState
+            )
         }
         if (feedState.needsSmsPermission) {
             item {
@@ -2447,6 +3138,7 @@ private fun SettingsScreen(
     feedState: FeedState,
     gmailState: GmailUiState,
     onThemeModeChange: (AppThemeMode) -> Unit,
+    onOpenRuleCenter: () -> Unit,
     onBack: () -> Unit
 ) {
     Scaffold(
@@ -2480,6 +3172,9 @@ private fun SettingsScreen(
                     feedState = feedState,
                     gmailState = gmailState
                 )
+            }
+            item {
+                RuleCenterEntryCard(onOpenRuleCenter = onOpenRuleCenter)
             }
             item {
                 Spacer(modifier = Modifier.height(60.dp))
@@ -2730,6 +3425,249 @@ private fun SourceSettingsCard(
 }
 
 @Composable
+private fun RuleCenterEntryCard(onOpenRuleCenter: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onOpenRuleCenter),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Rule Center",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Learned merchant corrections and category overrides.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    letterSpacing = 0.sp
+                )
+            }
+            Text(
+                text = "Open",
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun RuleCenterScreen(onBack: () -> Unit) {
+    val appContext = LocalContext.current.applicationContext
+    val scope = rememberCoroutineScope()
+    var rules by remember { mutableStateOf<List<CategoryRuleEntity>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var message by remember { mutableStateOf<String?>(null) }
+
+    fun reloadRules() {
+        isLoading = true
+        scope.launch {
+            rules = withContext(Dispatchers.IO) {
+                TransactionRepository(appContext).listCategoryRules(limit = 300)
+            }
+            isLoading = false
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        reloadRules()
+    }
+
+    Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            item {
+                Header(
+                    title = "Rule Center",
+                    onSettings = {},
+                    onBack = onBack,
+                    showActions = false
+                )
+            }
+            item {
+                RuleCenterSummaryCard(
+                    rules = rules,
+                    isLoading = isLoading,
+                    message = message
+                )
+            }
+            if (!isLoading && rules.isEmpty()) {
+                item {
+                    EmptyStateCard(
+                        title = "No learned rules yet",
+                        detail = "Corrections saved with Remember will appear here."
+                    )
+                }
+            } else {
+                items(rules, key = { it.id }) { rule ->
+                    RuleRow(
+                        rule = rule,
+                        onDisable = {
+                            scope.launch {
+                                val disabled = withContext(Dispatchers.IO) {
+                                    TransactionRepository(appContext)
+                                        .setCategoryRuleEnabled(rule.id, enabled = false)
+                                }
+                                message = if (disabled) "Rule disabled" else "Rule was not updated"
+                                reloadRules()
+                            }
+                        }
+                    )
+                }
+            }
+            item {
+                Spacer(modifier = Modifier.height(80.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun RuleCenterSummaryCard(
+    rules: List<CategoryRuleEntity>,
+    isLoading: Boolean,
+    message: String?
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = if (isLoading) "Loading rules" else "${rules.size} active rules",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = message ?: "Local rules override parser defaults during SMS and Gmail imports.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                letterSpacing = 0.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun RuleRow(
+    rule: CategoryRuleEntity,
+    onDisable: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CategoryMiniDot(rule.departmentCategory ?: "Other")
+                Spacer(modifier = Modifier.width(9.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = rule.merchantNormalized ?: rule.pattern,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        letterSpacing = 0.sp
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = "${rule.pattern} • ${rule.matchType} • ${rule.source}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        letterSpacing = 0.sp
+                    )
+                }
+                TextButton(onClick = onDisable) {
+                    Text("Disable")
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(
+                    listOfNotNull(
+                        rule.departmentCategory,
+                        rule.miscCategory,
+                        rule.transactionType.displayName()
+                    )
+                ) { label ->
+                    DetailChip(label)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SourceHealthMiniCard(sourceRows: List<SourceHealthRow>) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Coverage",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            if (sourceRows.isEmpty()) {
+                Text(
+                    text = "No source rows yet",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    letterSpacing = 0.sp
+                )
+            } else {
+                sourceRows.forEach { row ->
+                    SourceHealthInlineRow(row = row)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SettingsInfoRow(
     label: String,
     value: String
@@ -2761,6 +3699,140 @@ private fun SettingsInfoRow(
             overflow = TextOverflow.Ellipsis,
             letterSpacing = 0.sp
         )
+    }
+}
+
+@Composable
+private fun SourceHealthCard(
+    feedState: FeedState,
+    gmailState: GmailUiState
+) {
+    val sourceRows = feedState.transactions.sourceHealthRows()
+    val reviewCount = feedState.transactions.reviewCandidates().size
+    val gmailRows = feedState.transactions.latestMonthTransactions().count { it.source == "Gmail" }
+    val fxRows = feedState.transactions.latestMonthTransactions().count { !it.countsInInrTotals() }
+    val gmailLabel = if (gmailState.error != null) "Needs attention" else gmailState.label
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Source health",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(11.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                MiniMetric(
+                    label = "Review",
+                    value = reviewCount.toString(),
+                    modifier = Modifier.weight(1f)
+                )
+                MiniMetric(
+                    label = "Gmail",
+                    value = gmailRows.toString(),
+                    modifier = Modifier.weight(1f)
+                )
+                MiniMetric(
+                    label = "FX",
+                    value = fxRows.toString(),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            SettingsInfoRow("SMS", if (feedState.needsSmsPermission) "Permission needed" else "Enabled")
+            SettingsInfoRow("Gmail", gmailLabel)
+            SettingsInfoRow("Storage", "Local only")
+            if (sourceRows.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                sourceRows.forEach { row ->
+                    SourceHealthInlineRow(row = row)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SourceHealthInlineRow(row: SourceHealthRow) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        CategoryMiniDot(row.source)
+        Spacer(modifier = Modifier.width(9.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = row.source,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                letterSpacing = 0.sp
+            )
+            Text(
+                text = "${row.spendCount} spends • ${row.reviewCount} review • ${row.fxCount} FX",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                letterSpacing = 0.sp
+            )
+        }
+        Text(
+            text = "${row.totalCount}",
+            color = MaterialTheme.colorScheme.primary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            letterSpacing = 0.sp
+        )
+    }
+}
+
+@Composable
+private fun EmptyStateCard(
+    title: String,
+    detail: String
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = title,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = detail,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                letterSpacing = 0.sp
+            )
+        }
     }
 }
 
@@ -3247,7 +4319,10 @@ private fun HomeLoadingTile(
 }
 
 @Composable
-private fun MonthSummary(feedState: FeedState) {
+private fun MonthSummary(
+    feedState: FeedState,
+    onExplainSpend: () -> Unit
+) {
     val breakdown = feedState.transactions.monthBreakdown()
     val monthTransactions = feedState.transactions.latestMonthSpendTransactions()
         .filter { it.inrAmountValue != null }
@@ -3259,7 +4334,9 @@ private fun MonthSummary(feedState: FeedState) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp),
+            .padding(horizontal = 20.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onExplainSpend),
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(8.dp)
     ) {
@@ -3535,6 +4612,16 @@ private fun List<TransactionUi>.monthBreakdown(): MonthBreakdown {
     val investments = debitTransactions
         .filter { it.transactionType == TransactionType.INVESTMENT }
         .sumOf { it.inrAmountValue ?: 0.0 }
+    val creditTransactions = monthTransactions.filter { it.direction == DirectionUi.Credit }
+    val refunds = creditTransactions
+        .filter { it.transactionType == TransactionType.REFUND || it.category == "Refund" }
+        .sumOf { it.inrAmountValue ?: 0.0 }
+    val income = creditTransactions
+        .filter { it.transactionType == TransactionType.INCOME || it.category == "Income" }
+        .sumOf { it.inrAmountValue ?: 0.0 }
+    val rewards = creditTransactions
+        .filter { it.transactionType == TransactionType.REWARD || it.category == "Reward" }
+        .sumOf { it.inrAmountValue ?: 0.0 }
 
     return MonthBreakdown(
         monthKey = monthKey,
@@ -3544,6 +4631,9 @@ private fun List<TransactionUi>.monthBreakdown(): MonthBreakdown {
         spends = spends,
         transfers = transfers,
         investments = investments,
+        refunds = refunds,
+        income = income,
+        rewards = rewards,
         fxConverted = fxConverted
     )
 }
@@ -3556,6 +4646,19 @@ private fun List<TransactionUi>.latestMonthDebitTransactions(): List<Transaction
     }
 }
 
+private fun List<TransactionUi>.latestMonthTransactions(): List<TransactionUi> {
+    val monthKey = selectedMonthKey()
+    return filter { it.isInSelectedMonth(monthKey) }
+}
+
+private fun List<TransactionUi>.latestMonthCreditTransactions(): List<TransactionUi> {
+    val monthKey = selectedMonthKey()
+    return filter {
+        it.direction == DirectionUi.Credit &&
+            it.isInSelectedMonth(monthKey)
+    }
+}
+
 private fun List<TransactionUi>.latestMonthSpendTransactions(): List<TransactionUi> {
     val monthKey = selectedMonthKey()
     return filter {
@@ -3563,6 +4666,85 @@ private fun List<TransactionUi>.latestMonthSpendTransactions(): List<Transaction
             it.transactionType.countsAsSpend() &&
             it.isInSelectedMonth(monthKey)
     }
+}
+
+private fun List<TransactionUi>.explainBuckets(): List<ExplainBucket> {
+    val monthTransactions = latestMonthTransactions()
+        .filter { it.inrAmountValue != null }
+    val debitTransactions = monthTransactions.filter { it.direction == DirectionUi.Debit }
+    val spendTransactions = debitTransactions.filter { it.transactionType.countsAsSpend() }
+    val transferTransactions = debitTransactions.filter { it.transactionType == TransactionType.TRANSFER }
+    val investmentTransactions = debitTransactions.filter { it.transactionType == TransactionType.INVESTMENT }
+    val otherDebitTransactions = debitTransactions.filter {
+        !it.transactionType.countsAsSpend() &&
+            it.transactionType != TransactionType.TRANSFER &&
+            it.transactionType != TransactionType.INVESTMENT
+    }
+    val refundTransactions = monthRefundSignals()
+    val incomeTransactions = latestMonthCreditTransactions()
+        .filter { it.transactionType == TransactionType.INCOME || it.category == "Income" }
+    val rewardTransactions = latestMonthCreditTransactions()
+        .filter { it.transactionType == TransactionType.REWARD || it.category == "Reward" }
+    val fxTransactions = monthTransactions.filter { !it.countsInInrTotals() }
+
+    return listOf(
+        ExplainBucket(
+            title = "Included spend",
+            amount = spendTransactions.sumOf { it.inrAmountValue ?: 0.0 },
+            count = spendTransactions.size,
+            description = "Expense and subscription debits.",
+            transactions = spendTransactions
+        ),
+        ExplainBucket(
+            title = "Investments",
+            amount = investmentTransactions.sumOf { it.inrAmountValue ?: 0.0 },
+            count = investmentTransactions.size,
+            description = "SIPs, broker transfers, mutual funds, and investment deductions.",
+            transactions = investmentTransactions
+        ),
+        ExplainBucket(
+            title = "Transfers",
+            amount = transferTransactions.sumOf { it.inrAmountValue ?: 0.0 },
+            count = transferTransactions.size,
+            description = "Money moved between people, cards, wallets, and accounts.",
+            transactions = transferTransactions
+        ),
+        ExplainBucket(
+            title = "Other debits",
+            amount = otherDebitTransactions.sumOf { it.inrAmountValue ?: 0.0 },
+            count = otherDebitTransactions.size,
+            description = "Debits that are not trusted as spend yet.",
+            transactions = otherDebitTransactions
+        ),
+        ExplainBucket(
+            title = "Refund signals",
+            amount = refundTransactions.sumOf { it.inrAmountValue ?: 0.0 },
+            count = refundTransactions.size,
+            description = "Credits that look like refunds or reversals. Not netted yet.",
+            transactions = refundTransactions
+        ),
+        ExplainBucket(
+            title = "Income",
+            amount = incomeTransactions.sumOf { it.inrAmountValue ?: 0.0 },
+            count = incomeTransactions.size,
+            description = "Salary, interest, payouts, or other income-like credits.",
+            transactions = incomeTransactions
+        ),
+        ExplainBucket(
+            title = "Rewards",
+            amount = rewardTransactions.sumOf { it.inrAmountValue ?: 0.0 },
+            count = rewardTransactions.size,
+            description = "Cashback, rewards, or loyalty credits.",
+            transactions = rewardTransactions
+        ),
+        ExplainBucket(
+            title = "FX converted",
+            amount = fxTransactions.sumOf { it.inrAmountValue ?: 0.0 },
+            count = fxTransactions.size,
+            description = "Non-INR transactions converted using stored daily FX rates.",
+            transactions = fxTransactions
+        )
+    )
 }
 
 private fun List<TransactionUi>.monthMerchantGroups(): List<SummaryGroup> {
@@ -3630,18 +4812,211 @@ private fun List<TransactionUi>.monthSpendCategoryGroups(): List<SummaryGroup> {
 }
 
 private fun List<TransactionUi>.reviewCandidates(): List<TransactionUi> {
-    return latestMonthSpendTransactions()
+    return latestMonthTransactions()
         .filter { it.inrAmountValue != null }
         .filter(TransactionUi::needsReview)
         .sortedByDescending { it.inrAmountValue ?: 0.0 }
 }
 
 private fun TransactionUi.needsReview(): Boolean {
+    val amount = inrAmountValue ?: 0.0
     return category == "Other" ||
         miscCategory == "Uncategorized" ||
         categorySource == CategorySource.FALLBACK ||
         confidence < 0.70 ||
-        merchant.looksLikeRawPaymentHandle()
+        merchant.looksLikeRawPaymentHandle() ||
+        (source == "Gmail" && amount >= 10_000.0) ||
+        (!countsInInrTotals() && amount > 0.0)
+}
+
+private fun TransactionUi.reviewReason(): String {
+    val amount = inrAmountValue ?: 0.0
+    return when {
+        category == "Other" -> "Category needs sorting"
+        miscCategory == "Uncategorized" -> "Merchant tag missing"
+        categorySource == CategorySource.FALLBACK -> "Fallback categorization"
+        confidence < 0.70 -> "Low parser confidence"
+        merchant.looksLikeRawPaymentHandle() -> "Merchant needs cleanup"
+        source == "Gmail" && amount >= 10_000.0 -> "High-value Gmail row"
+        !countsInInrTotals() && amount > 0.0 -> "FX conversion review"
+        else -> "Review"
+    }
+}
+
+private fun List<TransactionUi>.monthRefundSignals(): List<TransactionUi> {
+    return latestMonthCreditTransactions()
+        .filter { it.inrAmountValue != null }
+        .filter { transaction ->
+            transaction.transactionType == TransactionType.REFUND ||
+                transaction.transactionType == TransactionType.REWARD ||
+                transaction.category == "Refund" ||
+                transaction.category == "Reward" ||
+                transaction.merchant.contains("refund", ignoreCase = true) ||
+                transaction.detail.contains("refund", ignoreCase = true) ||
+                transaction.detail.contains("reversal", ignoreCase = true) ||
+                transaction.detail.contains("cashback", ignoreCase = true)
+        }
+        .sortedByDescending { it.inrAmountValue ?: 0.0 }
+}
+
+private fun List<TransactionUi>.recurringCandidates(): List<RecurringCandidate> {
+    return filter {
+        it.direction == DirectionUi.Debit &&
+            it.inrAmountValue != null &&
+            !it.transactionDate.isNullOrBlank()
+    }
+        .groupBy { it.merchant.uppercase(Locale.US).trim() }
+        .mapNotNull { (_, rows) ->
+            val datedRows = rows.sortedByDescending { it.transactionDate.orEmpty() }
+            if (datedRows.size < 2) return@mapNotNull null
+
+            val amounts = datedRows.mapNotNull { it.inrAmountValue }
+            val averageAmount = amounts.average()
+            val closeAmountCount = amounts.count { amount ->
+                kotlin.math.abs(amount - averageAmount) <= maxOf(20.0, averageAmount * 0.12)
+            }
+            val distinctMonths = datedRows.mapNotNull { it.transactionDate?.take(7) }.distinct().size
+            val subscriptionSignal = datedRows.any {
+                it.transactionType == TransactionType.SUBSCRIPTION ||
+                    it.transactionType == TransactionType.INVESTMENT ||
+                    it.paymentMode.contains("mandate", ignoreCase = true) ||
+                    it.paymentMode == PaymentMode.NACH.displayName() ||
+                    it.merchant.contains("netflix", ignoreCase = true) ||
+                    it.merchant.contains("mutual", ignoreCase = true) ||
+                    it.merchant.contains("clearing", ignoreCase = true)
+            }
+            val shouldShow = subscriptionSignal || distinctMonths >= 2 || closeAmountCount >= 2
+            if (!shouldShow) return@mapNotNull null
+
+            val confidence = when {
+                subscriptionSignal && datedRows.size >= 3 -> "High"
+                distinctMonths >= 2 && closeAmountCount >= 2 -> "Medium"
+                subscriptionSignal -> "Medium"
+                else -> "Watch"
+            }
+            val latest = datedRows.first()
+            RecurringCandidate(
+                merchant = latest.merchant,
+                expectedAmount = averageAmount,
+                count = datedRows.size,
+                lastSeenDate = latest.transactionDate,
+                category = latest.category,
+                transactionType = latest.transactionType,
+                confidenceLabel = confidence
+            )
+        }
+        .sortedWith(
+            compareByDescending<RecurringCandidate> {
+                when (it.confidenceLabel) {
+                    "High" -> 3
+                    "Medium" -> 2
+                    else -> 1
+                }
+            }.thenByDescending { it.expectedAmount }
+        )
+        .take(8)
+}
+
+private fun List<TransactionUi>.sourceHealthRows(): List<SourceHealthRow> {
+    return latestMonthTransactions()
+        .filter { it.inrAmountValue != null }
+        .groupBy { it.source }
+        .map { (source, rows) ->
+            SourceHealthRow(
+                source = source,
+                totalCount = rows.size,
+                spendCount = rows.count { it.direction == DirectionUi.Debit && it.transactionType.countsAsSpend() },
+                reviewCount = rows.count(TransactionUi::needsReview),
+                fxCount = rows.count { !it.countsInInrTotals() },
+                totalAmount = rows
+                    .filter { it.direction == DirectionUi.Debit }
+                    .sumOf { it.inrAmountValue ?: 0.0 }
+            )
+        }
+        .sortedByDescending { it.totalCount }
+}
+
+private fun List<TransactionUi>.monthStoryItems(): List<MonthStoryItem> {
+    val breakdown = monthBreakdown()
+    val spendTransactions = latestMonthSpendTransactions()
+        .filter { it.inrAmountValue != null }
+    val topMerchant = monthSpendMerchantGroups().firstOrNull()
+    val topCategory = monthSpendCategoryGroups().firstOrNull()
+    val biggestDay = spendTransactions
+        .groupBy { it.transactionDate ?: "Unknown" }
+        .mapValues { entry -> entry.value.sumOf { it.inrAmountValue ?: 0.0 } }
+        .maxByOrNull { it.value }
+    val largestSpend = spendTransactions.maxByOrNull { it.inrAmountValue ?: 0.0 }
+    val reviewCount = reviewCandidates().size
+    val gmailOnlyCount = latestMonthTransactions().count { it.source == "Gmail" }
+    val refundTotal = monthRefundSignals().sumOf { it.inrAmountValue ?: 0.0 }
+
+    return listOfNotNull(
+        topMerchant?.let {
+            MonthStoryItem(
+                label = "Top merchant",
+                value = it.label,
+                detail = it.total.formatInr(),
+                category = it.category
+            )
+        },
+        topCategory?.let {
+            MonthStoryItem(
+                label = "Top category",
+                value = it.label,
+                detail = it.total.formatInr(),
+                category = it.category
+            )
+        },
+        biggestDay?.let {
+            MonthStoryItem(
+                label = "Biggest day",
+                value = it.key.recentDateLabel(),
+                detail = it.value.formatInr(),
+                category = largestSpend?.category ?: "Other"
+            )
+        },
+        if (breakdown.investments > 0.0) {
+            MonthStoryItem(
+                label = "Kept separate",
+                value = "Investments",
+                detail = breakdown.investments.formatInr(),
+                category = "Investment"
+            )
+        } else {
+            null
+        },
+        if (refundTotal > 0.0) {
+            MonthStoryItem(
+                label = "Signals",
+                value = "Refunds",
+                detail = refundTotal.formatInr(),
+                category = "Refund"
+            )
+        } else {
+            null
+        },
+        if (gmailOnlyCount > 0) {
+            MonthStoryItem(
+                label = "Coverage",
+                value = "Gmail rows",
+                detail = "$gmailOnlyCount found",
+                category = "Utilities"
+            )
+        } else {
+            null
+        },
+        if (reviewCount > 0) {
+            MonthStoryItem(
+                label = "Needs review",
+                value = "$reviewCount rows",
+                detail = reviewCandidates().sumOf { it.inrAmountValue ?: 0.0 }.formatInr(),
+                category = "Other"
+            )
+        } else {
+            null
+        }
+    )
 }
 
 private fun String.looksLikeRawPaymentHandle(): Boolean {
@@ -3716,6 +5091,12 @@ private fun DrilldownScreen(
                 )
             }
             item {
+                DrilldownIntelligenceCard(
+                    transactions = transactions,
+                    kind = state.kind
+                )
+            }
+            item {
                 DrilldownBreakdown(transactions = transactions, kind = state.kind)
             }
             item {
@@ -3785,6 +5166,87 @@ private fun DrilldownHeader(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp,
                 letterSpacing = 0.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun DrilldownIntelligenceCard(
+    transactions: List<TransactionUi>,
+    kind: DrilldownKind
+) {
+    val amountRows = transactions.filter { it.inrAmountValue != null }
+    val total = amountRows.sumOf { it.inrAmountValue ?: 0.0 }
+    val average = if (amountRows.isNotEmpty()) total / amountRows.size else 0.0
+    val largest = amountRows.maxByOrNull { it.inrAmountValue ?: 0.0 }
+    val reviewCount = amountRows.count(TransactionUi::needsReview)
+    val paymentMode = amountRows
+        .groupingBy { it.paymentMode }
+        .eachCount()
+        .maxByOrNull { it.value }
+        ?.key
+        ?: "None"
+    val sourceMix = amountRows
+        .groupingBy { it.source }
+        .eachCount()
+        .entries
+        .sortedByDescending { it.value }
+        .joinToString(" / ") { "${it.key} ${it.value}" }
+        .ifBlank { "None" }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = if (kind == DrilldownKind.Merchant) "Merchant intelligence" else "Category intelligence",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                MiniMetric(
+                    label = "Average",
+                    value = average.formatInr(),
+                    modifier = Modifier.weight(1f)
+                )
+                MiniMetric(
+                    label = "Largest",
+                    value = largest?.inrAmountValue?.formatInr() ?: "None",
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                MiniMetric(
+                    label = "Payment",
+                    value = paymentMode,
+                    modifier = Modifier.weight(1f)
+                )
+                MiniMetric(
+                    label = "Review",
+                    value = reviewCount.toString(),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            MiniMetric(
+                label = "Sources",
+                value = sourceMix,
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }

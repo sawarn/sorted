@@ -56,6 +56,11 @@ The Android prototype currently includes:
 - Local SQLite persistence
 - Monthly totals and merchant grouping
 - Gmail readonly import prototype hooks
+- Sort Inbox for uncertain transactions
+- Local correction rules and ignored transactions
+- Spend explanation screen for included and excluded money movement
+- Refund signals, recurring radar, source health, and rule center basics
+- Recent merchant suggestions for manual capture
 
 ## Local Development
 

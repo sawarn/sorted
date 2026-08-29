@@ -198,6 +198,20 @@ class TransactionRepository(context: Context) {
         return categoryRules(database.readableDatabase, limit)
     }
 
+    fun setCategoryRuleEnabled(id: Long, enabled: Boolean): Boolean {
+        if (id <= 0L) return false
+        val values = ContentValues().apply {
+            put("enabled", if (enabled) 1 else 0)
+            put("updated_at", System.currentTimeMillis())
+        }
+        return database.writableDatabase.update(
+            "category_rules",
+            values,
+            "id = ?",
+            arrayOf(id.toString())
+        ) > 0
+    }
+
     private fun findTransaction(id: Long): TransactionEntity? {
         return querySingleTransaction("id = ?", arrayOf(id.toString()))
     }
