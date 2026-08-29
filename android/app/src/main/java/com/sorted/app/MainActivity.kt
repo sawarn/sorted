@@ -27,6 +27,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -106,6 +108,7 @@ import com.sorted.app.data.FxRateEntity
 import com.sorted.app.data.FxRateKey
 import com.sorted.app.data.FxRateRepository
 import com.sorted.app.data.TransactionEntity
+import com.sorted.app.data.TransactionCorrection
 import com.sorted.app.data.TransactionRepository
 import com.sorted.app.data.stableHash
 import com.sorted.app.fx.FxRateImporter
@@ -164,6 +167,8 @@ class MainActivity : ComponentActivity() {
 }
 
 private data class TransactionUi(
+    val id: Long?,
+    val sourceHash: String,
     val merchant: String,
     val detail: String,
     val amount: String,
@@ -176,7 +181,9 @@ private data class TransactionUi(
     val direction: DirectionUi,
     val transactionType: TransactionType,
     val transactionDate: String?,
-    val source: String
+    val source: String,
+    val categorySource: CategorySource,
+    val confidence: Double
 )
 
 private data class FeedState(
@@ -255,10 +262,26 @@ private data class ManualSaveState(
     val error: String? = null
 )
 
+private data class CorrectionSaveState(
+    val isSaving: Boolean = false,
+    val message: String? = null,
+    val error: String? = null
+)
+
+private data class TransactionCorrectionDraft(
+    val transaction: TransactionUi,
+    val merchant: String,
+    val miscCategory: String,
+    val category: String,
+    val transactionType: TransactionType,
+    val rememberRule: Boolean
+)
+
 private data class DrilldownState(
     val title: String,
     val kind: DrilldownKind,
-    val group: SummaryGroup
+    val group: SummaryGroup,
+    val spendOnly: Boolean = false
 )
 
 private enum class DrilldownKind {
@@ -435,6 +458,7 @@ private fun saveManualTransaction(context: Context, draft: ManualTransactionDraf
 
 private fun ParsedTransaction.toTransactionUi(
     source: String = "Parsed SMS",
+    sourceHash: String = "sample:${merchantNormalized ?: merchantRaw}:${amount}:${transactionDate}".stableHash(),
     fxRates: Map<FxRateKey, FxRateEntity> = emptyMap()
 ): TransactionUi {
     val amountNumber = amount ?: 0.0
@@ -452,6 +476,8 @@ private fun ParsedTransaction.toTransactionUi(
     val detail = listOfNotNull(payment, misc, date, fxDetail).joinToString(" • ")
 
     return TransactionUi(
+        id = null,
+        sourceHash = sourceHash,
         merchant = merchantNormalized ?: merchantRaw ?: "Unknown",
         detail = detail,
         amount = amountNumber.formatMoney(currencyCode),
@@ -464,7 +490,9 @@ private fun ParsedTransaction.toTransactionUi(
         direction = directionUi,
         transactionType = transactionType,
         transactionDate = transactionDate,
-        source = source
+        source = source,
+        categorySource = categorySource,
+        confidence = confidence
     )
 }
 
@@ -486,6 +514,8 @@ private fun TransactionEntity.toTransactionUi(
     val detail = listOfNotNull(payment, misc, date, fxDetail).joinToString(" • ")
 
     return TransactionUi(
+        id = id,
+        sourceHash = sourceHash,
         merchant = merchantNormalized ?: merchantRaw ?: "Unknown",
         detail = detail,
         amount = amountNumber.formatMoney(currencyCode),
@@ -498,7 +528,9 @@ private fun TransactionEntity.toTransactionUi(
         direction = directionUi,
         transactionType = transactionType,
         transactionDate = transactionDate,
-        source = source.displayLabel()
+        source = source.displayLabel(),
+        categorySource = categorySource,
+        confidence = confidence
     )
 }
 
@@ -867,6 +899,7 @@ private fun SortedHome(
     var selectedTab by remember { mutableStateOf(SortedTab.Home) }
     var settingsOpen by remember { mutableStateOf(false) }
     var manualSaveState by remember { mutableStateOf(ManualSaveState()) }
+    var correctionSaveState by remember { mutableStateOf(CorrectionSaveState()) }
     var hasPermission by remember { mutableStateOf(hasReadSmsPermission(context)) }
     var gmailState by remember {
         mutableStateOf(GmailUiState(autoSyncLabel = gmailSyncPreferences.statusLabel()))
@@ -899,6 +932,20 @@ private fun SortedHome(
         )
     }
 
+    fun updateFeed(transactions: List<TransactionUi>) {
+        feedState = FeedState(
+            transactions = transactions,
+            label = transactions.feedSourceLabel(),
+            needsSmsPermission = !hasPermission
+        )
+        feedLoaded = true
+    }
+
+    fun openTransaction(transaction: TransactionUi) {
+        correctionSaveState = CorrectionSaveState()
+        selected = transaction
+    }
+
     fun saveManualDraft(draft: ManualTransactionDraft) {
         manualSaveState = ManualSaveState(isSaving = true)
         scope.launch {
@@ -907,15 +954,71 @@ private fun SortedHome(
                     saveManualTransaction(appContext, draft)
                     loadPersistedTransactions(appContext)
                 }
-                feedState = FeedState(
-                    transactions = transactions,
-                    label = transactions.feedSourceLabel(),
-                    needsSmsPermission = !hasPermission
-                )
-                feedLoaded = true
+                updateFeed(transactions)
                 manualSaveState = ManualSaveState(message = "Added ${draft.merchant.trim()}")
             } catch (error: Throwable) {
                 manualSaveState = ManualSaveState(
+                    error = error.message?.take(160) ?: error.javaClass.simpleName
+                )
+            }
+        }
+    }
+
+    fun saveCorrectionDraft(draft: TransactionCorrectionDraft) {
+        val transactionId = draft.transaction.id
+        if (transactionId == null) {
+            correctionSaveState = CorrectionSaveState(error = "Sample transactions cannot be edited.")
+            return
+        }
+
+        correctionSaveState = CorrectionSaveState(isSaving = true)
+        scope.launch {
+            try {
+                val transactions = withContext(Dispatchers.IO) {
+                    val saved = TransactionRepository(appContext).updateTransaction(
+                        TransactionCorrection(
+                            transactionId = transactionId,
+                            merchantNormalized = draft.merchant.trim(),
+                            miscCategory = draft.miscCategory.trim().ifBlank { "Uncategorized" },
+                            departmentCategory = draft.category,
+                            transactionType = draft.transactionType,
+                            rememberRule = draft.rememberRule
+                        )
+                    )
+                    if (!saved) {
+                        throw IllegalStateException("Transaction was not found.")
+                    }
+                    loadPersistedTransactions(appContext)
+                }
+                updateFeed(transactions)
+                selected = transactions.firstOrNull { it.id == transactionId }
+                correctionSaveState = CorrectionSaveState(message = "Updated locally")
+            } catch (error: Throwable) {
+                correctionSaveState = CorrectionSaveState(
+                    error = error.message?.take(160) ?: error.javaClass.simpleName
+                )
+            }
+        }
+    }
+
+    fun ignoreTransaction(transaction: TransactionUi) {
+        if (transaction.sourceHash.isBlank()) {
+            correctionSaveState = CorrectionSaveState(error = "This transaction cannot be ignored.")
+            return
+        }
+
+        correctionSaveState = CorrectionSaveState(isSaving = true)
+        scope.launch {
+            try {
+                val transactions = withContext(Dispatchers.IO) {
+                    TransactionRepository(appContext).ignoreTransaction(transaction.sourceHash)
+                    loadPersistedTransactions(appContext)
+                }
+                updateFeed(transactions)
+                selected = null
+                correctionSaveState = CorrectionSaveState(message = "Ignored locally")
+            } catch (error: Throwable) {
+                correctionSaveState = CorrectionSaveState(
                     error = error.message?.take(160) ?: error.javaClass.simpleName
                 )
             }
@@ -941,12 +1044,7 @@ private fun SortedHome(
                     val transactions = loadPersistedTransactions(appContext)
                     summary to transactions
                 }
-                feedState = FeedState(
-                    transactions = transactions,
-                    label = transactions.feedSourceLabel(),
-                    needsSmsPermission = !hasPermission
-                )
-                feedLoaded = true
+                updateFeed(transactions)
                 gmailState = gmailStateWithAutoSync(label = summary.displayLabel())
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
@@ -1115,7 +1213,7 @@ private fun SortedHome(
                 state = activeDrilldown,
                 allTransactions = feedState.transactions,
                 onBack = { drilldown = null },
-                onTransactionClick = { selected = it }
+                onTransactionClick = { openTransaction(it) }
             )
         }
 
@@ -1149,14 +1247,16 @@ private fun SortedHome(
                             drilldown = DrilldownState(
                                 title = group.label,
                                 kind = DrilldownKind.Merchant,
-                                group = group
+                                group = group,
+                                spendOnly = true
                             )
                         },
                         onCategoryClick = { group ->
                             drilldown = DrilldownState(
                                 title = group.label,
                                 kind = DrilldownKind.Category,
-                                group = group
+                                group = group,
+                                spendOnly = true
                             )
                         }
                     )
@@ -1179,7 +1279,7 @@ private fun SortedHome(
                                 group = group
                             )
                         },
-                        onTransactionClick = { selected = it }
+                        onTransactionClick = { openTransaction(it) }
                     )
 
                     SortedTab.Capture -> CaptureTabContent(
@@ -1207,11 +1307,19 @@ private fun SortedHome(
 
     selected?.let { transaction ->
         ModalBottomSheet(
-            onDismissRequest = { selected = null },
+            onDismissRequest = {
+                correctionSaveState = CorrectionSaveState()
+                selected = null
+            },
             containerColor = MaterialTheme.colorScheme.surface,
             shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)
         ) {
-            TransactionDetail(transaction = transaction)
+            TransactionDetail(
+                transaction = transaction,
+                saveState = correctionSaveState,
+                onCorrect = { draft -> saveCorrectionDraft(draft) },
+                onIgnore = { ignoreTransaction(transaction) }
+            )
         }
     }
 }
@@ -1309,6 +1417,9 @@ private fun InsightsTabContent(
     val merchantGroups = remember(feedState.transactions) {
         feedState.transactions.monthMerchantGroups()
     }
+    val reviewTransactions = remember(feedState.transactions) {
+        feedState.transactions.reviewCandidates()
+    }
     val sourceGroups = remember(monthTransactions) {
         monthTransactions
             .groupBy { it.source }
@@ -1354,6 +1465,12 @@ private fun InsightsTabContent(
             )
         }
         item {
+            ReviewQueueCard(
+                transactions = reviewTransactions,
+                onTransactionClick = onTransactionClick
+            )
+        }
+        item {
             InsightBreakdownCard(
                 title = "Category split",
                 groups = categoryGroups,
@@ -1395,6 +1512,119 @@ private fun InsightsTabContent(
         item {
             Spacer(modifier = Modifier.height(104.dp))
         }
+    }
+}
+
+@Composable
+private fun ReviewQueueCard(
+    transactions: List<TransactionUi>,
+    onTransactionClick: (TransactionUi) -> Unit
+) {
+    val previewRows = transactions.take(6)
+    val total = transactions.sumOf { it.inrAmountValue ?: 0.0 }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Unsorted",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 0.sp
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = total.formatInr(),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        letterSpacing = 0.sp
+                    )
+                }
+                Text(
+                    text = "${transactions.size} rows",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.sp
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            if (previewRows.isEmpty()) {
+                Text(
+                    text = "No review items",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    letterSpacing = 0.sp
+                )
+            } else {
+                previewRows.forEachIndexed { index, transaction ->
+                    ReviewCandidateRow(
+                        transaction = transaction,
+                        onClick = { onTransactionClick(transaction) }
+                    )
+                    if (index != previewRows.lastIndex) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReviewCandidateRow(
+    transaction: TransactionUi,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
+            .clickable(onClick = onClick)
+            .padding(11.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        CategoryMiniDot(transaction.category)
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = transaction.merchant,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "${transaction.miscCategory} • ${transaction.source}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                letterSpacing = 0.sp
+            )
+        }
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            text = transaction.inrAmountValue?.formatInr() ?: transaction.amount,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            letterSpacing = 0.sp
+        )
     }
 }
 
@@ -1928,6 +2158,9 @@ private fun ManualAddCard(
         "Entertainment",
         "Investment",
         "Transfer",
+        "Income",
+        "Refund",
+        "Reward",
         "Other"
     )
     val paymentModes = listOf(
@@ -2369,6 +2602,7 @@ private fun AppThemeMode.swatchColor(): Color {
 private fun LocalDataSettingsCard(feedState: FeedState) {
     val sourceCounts = feedState.transactions.groupingBy { it.source }.eachCount().toSortedMap()
     val monthBreakdown = feedState.transactions.monthBreakdown()
+    val reviewCount = feedState.transactions.reviewCandidates().size
     val sourceSummary = if (sourceCounts.isEmpty()) {
         "None"
     } else {
@@ -2417,11 +2651,17 @@ private fun LocalDataSettingsCard(feedState: FeedState) {
                     modifier = Modifier.weight(1f)
                 )
                 SettingsMetricCell(
-                    label = "Sources",
-                    value = sourceSummary,
+                    label = "Unsorted",
+                    value = reviewCount.toString(),
                     modifier = Modifier.weight(1f)
                 )
             }
+            Spacer(modifier = Modifier.height(14.dp))
+            SettingsMetricCell(
+                label = "Sources",
+                value = sourceSummary,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
@@ -3389,6 +3629,25 @@ private fun List<TransactionUi>.monthSpendCategoryGroups(): List<SummaryGroup> {
         .sortedByDescending { it.total }
 }
 
+private fun List<TransactionUi>.reviewCandidates(): List<TransactionUi> {
+    return latestMonthSpendTransactions()
+        .filter { it.inrAmountValue != null }
+        .filter(TransactionUi::needsReview)
+        .sortedByDescending { it.inrAmountValue ?: 0.0 }
+}
+
+private fun TransactionUi.needsReview(): Boolean {
+    return category == "Other" ||
+        miscCategory == "Uncategorized" ||
+        categorySource == CategorySource.FALLBACK ||
+        confidence < 0.70 ||
+        merchant.looksLikeRawPaymentHandle()
+}
+
+private fun String.looksLikeRawPaymentHandle(): Boolean {
+    return contains("@") || (any(Char::isDigit) && Regex("""^[A-Za-z0-9._-]{8,}$""").matches(this))
+}
+
 private fun List<TransactionUi>.selectedMonthKey(): String? {
     val validMonths = mapNotNull { transaction ->
         transaction.transactionDate
@@ -3616,8 +3875,13 @@ private fun DrilldownBreakdownRow(label: String, count: Int) {
 private fun DrilldownState.filteredTransactions(
     allTransactions: List<TransactionUi>
 ): List<TransactionUi> {
-    return allTransactions
-        .latestMonthDebitTransactions()
+    val sourceTransactions = if (spendOnly) {
+        allTransactions.latestMonthSpendTransactions()
+    } else {
+        allTransactions.latestMonthDebitTransactions()
+    }
+
+    return sourceTransactions
         .filter { it.inrAmountValue != null }
         .filter { transaction ->
             when (kind) {
@@ -4013,10 +4277,51 @@ private fun SourcePill(source: String) {
 }
 
 @Composable
-private fun TransactionDetail(transaction: TransactionUi) {
+private fun TransactionDetail(
+    transaction: TransactionUi,
+    saveState: CorrectionSaveState,
+    onCorrect: (TransactionCorrectionDraft) -> Unit,
+    onIgnore: () -> Unit
+) {
+    var editing by remember(transaction.id, transaction.sourceHash) { mutableStateOf(false) }
+    var confirmIgnore by remember(transaction.id, transaction.sourceHash) { mutableStateOf(false) }
+    var merchant by remember(transaction.id, transaction.merchant) { mutableStateOf(transaction.merchant) }
+    var category by remember(transaction.id, transaction.category) { mutableStateOf(transaction.category) }
+    var miscCategory by remember(transaction.id, transaction.miscCategory) { mutableStateOf(transaction.miscCategory) }
+    var transactionType by remember(transaction.id, transaction.transactionType) { mutableStateOf(transaction.transactionType) }
+    var rememberRule by remember(transaction.id, transaction.sourceHash) { mutableStateOf(true) }
+    var validationError by remember(transaction.id, transaction.sourceHash) { mutableStateOf<String?>(null) }
+    val categories = listOf(
+        "Food",
+        "Groceries",
+        "Shopping",
+        "Subscriptions",
+        "Transport",
+        "Utilities",
+        "Health",
+        "Entertainment",
+        "Investment",
+        "Transfer",
+        "Income",
+        "Refund",
+        "Reward",
+        "Other"
+    )
+    val transactionTypes = listOf(
+        TransactionType.EXPENSE,
+        TransactionType.SUBSCRIPTION,
+        TransactionType.TRANSFER,
+        TransactionType.INVESTMENT,
+        TransactionType.INCOME,
+        TransactionType.REFUND,
+        TransactionType.REWARD
+    )
+    val statusText = validationError ?: saveState.error ?: saveState.message
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
             .padding(start = 22.dp, end = 22.dp, bottom = 34.dp)
     ) {
         Text(
@@ -4034,10 +4339,20 @@ private fun TransactionDetail(transaction: TransactionUi) {
             letterSpacing = 0.sp
         )
         Spacer(modifier = Modifier.height(18.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DetailChip(transaction.category)
-            DetailChip(transaction.source)
-            DetailChip(if (transaction.direction == DirectionUi.Credit) "Credit" else "Debit")
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(
+                listOf(
+                    transaction.category,
+                    transaction.transactionType.displayName(),
+                    transaction.source,
+                    if (transaction.direction == DirectionUi.Credit) "Credit" else "Debit"
+                )
+            ) { label ->
+                DetailChip(label)
+            }
         }
         AnimatedVisibility(visible = true) {
             Text(
@@ -4045,6 +4360,174 @@ private fun TransactionDetail(transaction: TransactionUi) {
                 modifier = Modifier.padding(top = 18.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 14.sp,
+                letterSpacing = 0.sp
+            )
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextButton(
+                modifier = Modifier.weight(1f),
+                enabled = !saveState.isSaving,
+                onClick = {
+                    editing = !editing
+                    confirmIgnore = false
+                    validationError = null
+                }
+            ) {
+                Text(if (editing) "Close edit" else "Correct")
+            }
+            TextButton(
+                modifier = Modifier.weight(1f),
+                enabled = !saveState.isSaving,
+                onClick = {
+                    confirmIgnore = !confirmIgnore
+                    editing = false
+                }
+            ) {
+                Text(if (confirmIgnore) "Cancel" else "Ignore")
+            }
+        }
+        AnimatedVisibility(visible = confirmIgnore) {
+            Column(modifier = Modifier.padding(top = 10.dp)) {
+                Text(
+                    text = "Hide this transaction from Sorted",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.sp
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "It will stay ignored on future scans.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    letterSpacing = 0.sp
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !saveState.isSaving,
+                    onClick = onIgnore
+                ) {
+                    Text(if (saveState.isSaving) "Saving" else "Ignore transaction")
+                }
+            }
+        }
+        AnimatedVisibility(visible = editing) {
+            Column(modifier = Modifier.padding(top = 12.dp)) {
+                OutlinedTextField(
+                    value = merchant,
+                    onValueChange = { merchant = it.take(48) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Merchant") },
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = miscCategory,
+                    onValueChange = { miscCategory = it.take(36) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Merchant tag") },
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                ChoiceRail(
+                    title = "Category",
+                    choices = categories,
+                    selected = category,
+                    onSelected = { selected ->
+                        category = selected
+                        if (selected == "Investment") transactionType = TransactionType.INVESTMENT
+                        if (selected == "Transfer") transactionType = TransactionType.TRANSFER
+                    }
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                ChoiceRail(
+                    title = "Type",
+                    choices = transactionTypes.map { it.displayName() },
+                    selected = transactionType.displayName(),
+                    onSelected = { selected ->
+                        transactionType = transactionTypes.first { it.displayName() == selected }
+                        category = when (transactionType) {
+                            TransactionType.INVESTMENT -> "Investment"
+                            TransactionType.TRANSFER -> "Transfer"
+                            TransactionType.INCOME -> "Income"
+                            TransactionType.REFUND -> "Refund"
+                            TransactionType.REWARD -> "Reward"
+                            else -> category
+                        }
+                    }
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    SelectableChip(
+                        label = "Remember",
+                        selected = rememberRule,
+                        modifier = Modifier.weight(1f),
+                        onClick = { rememberRule = true }
+                    )
+                    SelectableChip(
+                        label = "This only",
+                        selected = !rememberRule,
+                        modifier = Modifier.weight(1f),
+                        onClick = { rememberRule = false }
+                    )
+                }
+                if (statusText != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = statusText,
+                        color = if (validationError == null && saveState.error == null) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            Color(0xFFFF8E8E)
+                        },
+                        fontSize = 13.sp,
+                        letterSpacing = 0.sp
+                    )
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !saveState.isSaving,
+                    onClick = {
+                        validationError = when {
+                            merchant.isBlank() -> "Enter a merchant."
+                            category.isBlank() -> "Pick a category."
+                            miscCategory.isBlank() -> "Enter a merchant tag."
+                            else -> null
+                        }
+                        if (validationError == null) {
+                            onCorrect(
+                                TransactionCorrectionDraft(
+                                    transaction = transaction,
+                                    merchant = merchant,
+                                    miscCategory = miscCategory,
+                                    category = category,
+                                    transactionType = transactionType,
+                                    rememberRule = rememberRule
+                                )
+                            )
+                        }
+                    }
+                ) {
+                    Text(if (saveState.isSaving) "Saving" else "Save correction")
+                }
+            }
+        }
+        if (!editing && !confirmIgnore && statusText != null) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = statusText,
+                color = if (saveState.error == null) MaterialTheme.colorScheme.primary else Color(0xFFFF8E8E),
+                fontSize = 13.sp,
                 letterSpacing = 0.sp
             )
         }

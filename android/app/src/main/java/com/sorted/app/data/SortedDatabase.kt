@@ -13,6 +13,9 @@ class SortedDatabase(context: Context) : SQLiteOpenHelper(
     override fun onCreate(db: SQLiteDatabase) {
         createTransactionsTable(db)
         createFxRatesTable(db)
+        createCategoryRulesTable(db)
+        createUserCorrectionsTable(db)
+        createIgnoredTransactionsTable(db)
     }
 
     private fun createTransactionsTable(db: SQLiteDatabase) {
@@ -67,6 +70,68 @@ class SortedDatabase(context: Context) : SQLiteOpenHelper(
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_fx_rates_lookup ON fx_rates(requested_date, base_currency, quote_currency)")
     }
 
+    private fun createCategoryRulesTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS category_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pattern TEXT NOT NULL,
+                match_type TEXT NOT NULL,
+                merchant_normalized TEXT,
+                misc_category TEXT,
+                department_category TEXT,
+                transaction_type TEXT NOT NULL,
+                priority INTEGER NOT NULL,
+                source TEXT NOT NULL,
+                enabled INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                UNIQUE(pattern, match_type, source)
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_category_rules_enabled ON category_rules(enabled, priority, updated_at)")
+    }
+
+    private fun createUserCorrectionsTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS user_corrections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                transaction_id INTEGER NOT NULL,
+                source_hash TEXT NOT NULL,
+                old_merchant_normalized TEXT,
+                new_merchant_normalized TEXT,
+                old_misc_category TEXT,
+                new_misc_category TEXT,
+                old_department_category TEXT,
+                new_department_category TEXT,
+                old_transaction_type TEXT,
+                new_transaction_type TEXT,
+                created_rule_id INTEGER,
+                created_at INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_user_corrections_source_hash ON user_corrections(source_hash)")
+    }
+
+    private fun createIgnoredTransactionsTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS ignored_transactions (
+                source_hash TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                merchant_normalized TEXT,
+                amount REAL,
+                currency TEXT,
+                ignored_at INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_ignored_transactions_source ON ignored_transactions(source)")
+    }
+
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) {
             db.execSQL("DROP TABLE IF EXISTS transactions")
@@ -78,10 +143,16 @@ class SortedDatabase(context: Context) : SQLiteOpenHelper(
         if (oldVersion < 3) {
             createFxRatesTable(db)
         }
+
+        if (oldVersion < 4) {
+            createCategoryRulesTable(db)
+            createUserCorrectionsTable(db)
+            createIgnoredTransactionsTable(db)
+        }
     }
 
     private companion object {
         const val DatabaseName = "sorted.db"
-        const val DatabaseVersion = 3
+        const val DatabaseVersion = 4
     }
 }
