@@ -108,6 +108,7 @@ import com.sorted.app.data.FxRateRepository
 import com.sorted.app.data.TransactionEntity
 import com.sorted.app.data.TransactionRepository
 import com.sorted.app.data.stableHash
+import com.sorted.app.fx.FxRateImporter
 import com.sorted.app.gmail.GmailImportPlan
 import com.sorted.app.gmail.GmailImportSummary
 import com.sorted.app.gmail.GmailImporter
@@ -214,6 +215,7 @@ private data class SmsInboxMessage(
 private data class MonthBreakdown(
     val monthKey: String?,
     val debitCount: Int,
+    val spendCount: Int,
     val totalDebits: Double,
     val spends: Double,
     val transfers: Double,
@@ -350,6 +352,11 @@ private fun loadRealSmsTransactions(context: Context): List<TransactionUi> {
             )
         }
     )
+    runCatching {
+        FxRateImporter(context).refreshRatesFor(records.map { it.parsed })
+    }.onFailure { error ->
+        Log.w(LogTag, "SMS FX refresh failed", error)
+    }
     val fxRates = FxRateRepository(context)
         .listRates()
         .associateBy { it.key }
@@ -1236,14 +1243,14 @@ private fun HomeTabContent(
             item {
                 SummaryRail(
                     title = "By merchant",
-                    groups = feedState.transactions.monthMerchantGroups().take(5),
+                    groups = feedState.transactions.monthSpendMerchantGroups().take(5),
                     onGroupClick = onMerchantClick
                 )
             }
             item {
                 SummaryRail(
                     title = "By category",
-                    groups = feedState.transactions.monthCategoryGroups().take(5),
+                    groups = feedState.transactions.monthSpendCategoryGroups().take(5),
                     onGroupClick = onCategoryClick
                 )
             }
@@ -1398,7 +1405,7 @@ private fun InsightPulseCard(
     feedLabel: String
 ) {
     val activeDays = transactions.mapNotNull { it.transactionDate }.map { it.takeLast(2) }.toSet().size
-    val averageDebit = if (transactions.isNotEmpty()) breakdown.totalDebits / transactions.size else 0.0
+    val averageDebit = if (breakdown.debitCount > 0) breakdown.totalDebits / breakdown.debitCount else 0.0
     val largestDebit = transactions.maxByOrNull { it.inrAmountValue ?: 0.0 }
 
     Surface(
@@ -1410,7 +1417,7 @@ private fun InsightPulseCard(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = breakdown.monthKey?.monthOutflowLabel() ?: "Current view",
+                text = breakdown.monthKey?.monthMovementLabel() ?: "Current movement",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp,
                 letterSpacing = 0.sp
@@ -2405,8 +2412,8 @@ private fun LocalDataSettingsCard(feedState: FeedState) {
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 SettingsMetricCell(
-                    label = "Month outflow",
-                    value = monthBreakdown.totalDebits.formatInr(),
+                    label = "Month spend",
+                    value = monthBreakdown.spends.formatInr(),
                     modifier = Modifier.weight(1f)
                 )
                 SettingsMetricCell(
@@ -3002,12 +3009,12 @@ private fun HomeLoadingTile(
 @Composable
 private fun MonthSummary(feedState: FeedState) {
     val breakdown = feedState.transactions.monthBreakdown()
-    val monthTransactions = feedState.transactions.latestMonthDebitTransactions()
+    val monthTransactions = feedState.transactions.latestMonthSpendTransactions()
         .filter { it.inrAmountValue != null }
-    val categoryGroups = feedState.transactions.monthCategoryGroups().take(5)
+    val categoryGroups = feedState.transactions.monthSpendCategoryGroups().take(5)
     val activeDays = monthTransactions.mapNotNull { it.transactionDate }.toSet().size
-    val averageDebit = if (breakdown.debitCount > 0) breakdown.totalDebits / breakdown.debitCount else 0.0
-    val topMerchant = feedState.transactions.monthMerchantGroups().firstOrNull()
+    val averageSpend = if (breakdown.spendCount > 0) breakdown.spends / breakdown.spendCount else 0.0
+    val topMerchant = feedState.transactions.monthSpendMerchantGroups().firstOrNull()
 
     Surface(
         modifier = Modifier
@@ -3022,7 +3029,7 @@ private fun MonthSummary(feedState: FeedState) {
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = breakdown.monthKey?.monthOutflowLabel() ?: "Tracked INR outflow",
+                        text = breakdown.monthKey?.monthSpendLabel() ?: "Tracked INR spend",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
@@ -3030,7 +3037,7 @@ private fun MonthSummary(feedState: FeedState) {
                     )
                     Spacer(modifier = Modifier.height(5.dp))
                     Text(
-                        text = breakdown.totalDebits.formatInr(),
+                        text = breakdown.spends.formatInr(),
                         color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 31.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -3041,7 +3048,7 @@ private fun MonthSummary(feedState: FeedState) {
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = "${breakdown.debitCount} debits",
+                        text = "${breakdown.spendCount} spends",
                         color = MaterialTheme.colorScheme.primary,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium,
@@ -3059,7 +3066,7 @@ private fun MonthSummary(feedState: FeedState) {
             Spacer(modifier = Modifier.height(14.dp))
             HomeCategoryMixStrip(
                 groups = categoryGroups,
-                total = breakdown.totalDebits
+                total = breakdown.spends
             )
             Spacer(modifier = Modifier.height(14.dp))
             Row(
@@ -3067,8 +3074,8 @@ private fun MonthSummary(feedState: FeedState) {
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 HomeMetricTile(
-                    label = "Spends",
-                    value = breakdown.spends.formatInr(),
+                    label = "Money moved",
+                    value = breakdown.totalDebits.formatInr(),
                     accent = categoryColor("Food"),
                     modifier = Modifier.weight(1f)
                 )
@@ -3085,8 +3092,8 @@ private fun MonthSummary(feedState: FeedState) {
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 HomeMetricTile(
-                    label = "Avg debit",
-                    value = averageDebit.formatInr(),
+                    label = "Avg spend",
+                    value = averageSpend.formatInr(),
                     accent = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier.weight(1f)
                 )
@@ -3103,12 +3110,12 @@ private fun MonthSummary(feedState: FeedState) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 HomeSignalChip(
-                    label = "$activeDays active days",
+                    label = "$activeDays days",
                     color = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier.weight(1f)
                 )
                 HomeSignalChip(
-                    label = "${breakdown.debitCount} debits",
+                    label = "${breakdown.debitCount} moves",
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.weight(1f)
                 )
@@ -3272,21 +3279,16 @@ private fun HomeSignalChip(
 }
 
 private fun List<TransactionUi>.monthBreakdown(): MonthBreakdown {
-    val monthKey = mapNotNull { it.transactionDate?.take(7) }.maxOrNull()
-    val allMonthTransactions = filter {
-        monthKey == null || it.transactionDate?.startsWith(monthKey) == true
-    }
-    val monthTransactions = allMonthTransactions.filter {
-        it.inrAmountValue != null &&
-            (monthKey == null || it.transactionDate?.startsWith(monthKey) == true)
+    val monthKey = selectedMonthKey()
+    val monthTransactions = filter {
+        it.inrAmountValue != null && it.isInSelectedMonth(monthKey)
     }
     val debitTransactions = monthTransactions.filter { it.direction == DirectionUi.Debit }
+    val spendTransactions = debitTransactions.filter { it.transactionType.countsAsSpend() }
     val fxConverted = debitTransactions
         .filter { !it.countsInInrTotals() }
         .sumOf { it.inrAmountValue ?: 0.0 }
-    val spends = debitTransactions
-        .filter { it.transactionType.countsAsSpend() }
-        .sumOf { it.inrAmountValue ?: 0.0 }
+    val spends = spendTransactions.sumOf { it.inrAmountValue ?: 0.0 }
     val transfers = debitTransactions
         .filter { it.transactionType == TransactionType.TRANSFER }
         .sumOf { it.inrAmountValue ?: 0.0 }
@@ -3297,6 +3299,7 @@ private fun List<TransactionUi>.monthBreakdown(): MonthBreakdown {
     return MonthBreakdown(
         monthKey = monthKey,
         debitCount = debitTransactions.size,
+        spendCount = spendTransactions.size,
         totalDebits = debitTransactions.sumOf { it.inrAmountValue ?: 0.0 },
         spends = spends,
         transfers = transfers,
@@ -3306,15 +3309,40 @@ private fun List<TransactionUi>.monthBreakdown(): MonthBreakdown {
 }
 
 private fun List<TransactionUi>.latestMonthDebitTransactions(): List<TransactionUi> {
-    val monthKey = mapNotNull { it.transactionDate?.take(7) }.maxOrNull()
+    val monthKey = selectedMonthKey()
     return filter {
         it.direction == DirectionUi.Debit &&
-            (monthKey == null || it.transactionDate?.startsWith(monthKey) == true)
+            it.isInSelectedMonth(monthKey)
+    }
+}
+
+private fun List<TransactionUi>.latestMonthSpendTransactions(): List<TransactionUi> {
+    val monthKey = selectedMonthKey()
+    return filter {
+        it.direction == DirectionUi.Debit &&
+            it.transactionType.countsAsSpend() &&
+            it.isInSelectedMonth(monthKey)
     }
 }
 
 private fun List<TransactionUi>.monthMerchantGroups(): List<SummaryGroup> {
     return latestMonthDebitTransactions()
+        .filter { it.inrAmountValue != null }
+        .groupBy { it.merchant }
+        .map { (merchant, transactions) ->
+            SummaryGroup(
+                label = merchant,
+                count = transactions.size,
+                total = transactions.sumOf { it.inrAmountValue ?: 0.0 },
+                currency = "INR",
+                category = transactions.firstOrNull()?.category ?: "Other"
+            )
+        }
+        .sortedByDescending { it.total }
+}
+
+private fun List<TransactionUi>.monthSpendMerchantGroups(): List<SummaryGroup> {
+    return latestMonthSpendTransactions()
         .filter { it.inrAmountValue != null }
         .groupBy { it.merchant }
         .map { (merchant, transactions) ->
@@ -3343,6 +3371,39 @@ private fun List<TransactionUi>.monthCategoryGroups(): List<SummaryGroup> {
             )
         }
         .sortedByDescending { it.total }
+}
+
+private fun List<TransactionUi>.monthSpendCategoryGroups(): List<SummaryGroup> {
+    return latestMonthSpendTransactions()
+        .filter { it.inrAmountValue != null }
+        .groupBy { it.category }
+        .map { (category, transactions) ->
+            SummaryGroup(
+                label = category,
+                count = transactions.size,
+                total = transactions.sumOf { it.inrAmountValue ?: 0.0 },
+                currency = "INR",
+                category = category
+            )
+        }
+        .sortedByDescending { it.total }
+}
+
+private fun List<TransactionUi>.selectedMonthKey(): String? {
+    val validMonths = mapNotNull { transaction ->
+        transaction.transactionDate
+            ?.take(7)
+            ?.takeIf { Regex("""\d{4}-\d{2}""").matches(it) }
+    }
+    val currentMonth = LocalDate.now().toString().take(7)
+    return when {
+        currentMonth in validMonths -> currentMonth
+        else -> validMonths.maxOrNull()
+    }
+}
+
+private fun TransactionUi.isInSelectedMonth(monthKey: String?): Boolean {
+    return monthKey == null || transactionDate?.startsWith(monthKey) == true
 }
 
 private fun List<TransactionUi>.feedSourceLabel(): String {
@@ -4114,7 +4175,15 @@ private fun TransactionType.displayName(): String {
     }
 }
 
-private fun String.monthOutflowLabel(): String {
+private fun String.monthSpendLabel(): String {
+    return "${monthNameLabel()} INR spend"
+}
+
+private fun String.monthMovementLabel(): String {
+    return "${monthNameLabel()} money moved"
+}
+
+private fun String.monthNameLabel(): String {
     val monthName = when (substringAfter("-")) {
         "01" -> "January"
         "02" -> "February"
@@ -4130,7 +4199,7 @@ private fun String.monthOutflowLabel(): String {
         "12" -> "December"
         else -> "Month"
     }
-    return "$monthName INR outflow"
+    return monthName
 }
 
 private fun String?.recentDateLabel(): String {

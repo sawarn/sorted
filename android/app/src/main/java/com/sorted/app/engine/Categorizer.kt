@@ -140,7 +140,8 @@ object Categorizer {
             key.contains("POPCLUBPAYOUTS") -> rule("Popclub Payouts", "Cashback/Reward", "Reward", TransactionType.REWARD)
             key.contains("MERCHANTPAYOUTS") -> rule("Merchant Payouts", "Cashback/Reward", "Reward", TransactionType.REWARD)
             key.contains("CRED.TELECOM") -> rule("CRED Telecom", "Utility Bill", "Utilities", TransactionType.EXPENSE)
-            key.contains("CRED") -> rule("CRED", "Credit Card Bill", "Utilities", TransactionType.EXPENSE)
+            key.contains("CREDIT CARD") && containsAny(key, "BILL", "PAYMENT", "PAID", "DUE") -> rule("Credit Card Payment", "Credit Card Bill", "Transfer", TransactionType.TRANSFER)
+            key.contains("CRED") -> rule("CRED", "Credit Card Bill", "Transfer", TransactionType.TRANSFER)
             key.contains("BBPS") || key.contains("BHARAT BILL") -> rule("Bharat BillPay", "Bill Payment", "Utilities", TransactionType.EXPENSE)
             key.contains("BILLDESK") -> rule("BillDesk", "Payment Gateway", "Other", TransactionType.EXPENSE)
             key.contains("RAZORPAY") || key.contains("RZP") -> rule("Razorpay", "Payment Gateway", "Other", TransactionType.EXPENSE)
@@ -166,6 +167,9 @@ object Categorizer {
         return when {
             containsAny(key, "MUTUAL FUND", "MF ", "SIP", "NACH MANDATE", "BROKING", "DEMAT", "TRADING", "NPS") ->
                 generic(titleCasePreservingNcl(key), "Investment", "Investment", TransactionType.INVESTMENT)
+
+            containsAny(key, "CREDIT CARD BILL", "CARD BILL PAYMENT", "CC BILL", "CREDIT CARD PAYMENT", "CARD PAYMENT") ->
+                generic("Credit Card Payment", "Credit Card Bill", "Transfer", TransactionType.TRANSFER)
 
             containsAny(key, "INSURANCE", "POLICY", "PREMIUM", "LIC ", "HDFC LIFE", "ICICI PRU", "MAX LIFE", "TATA AIA") ->
                 generic(normalizeUnknownMerchant(key), "Insurance Premium", "Insurance", TransactionType.EXPENSE)

@@ -59,18 +59,18 @@ object SmsParser {
 
     private fun parseIciciCardSpend(message: String): ParserFacts? {
         val regex = Regex(
-            """INR\s+([\d,]+(?:\.\d+)?)\s+spent using ICICI Bank Card\s+(\S+)\s+on\s+(\d{2}-[A-Za-z]{3}-\d{2})\s+on\s+(.+?)(?:\.|$)""",
+            """([A-Z]{3})\s+([\d,]+(?:\.\d+)?)\s+spent using ICICI Bank Card\s+(\S+)\s+on\s+(\d{2}-[A-Za-z]{3}-\d{2})\s+on\s+(.+?)(?:\.|$)""",
             RegexOption.IGNORE_CASE
         )
         val match = regex.find(message) ?: return null
         return ParserFacts(
-            amount = parseAmount(match.groupValues[1]),
-            currency = "INR",
+            amount = parseAmount(match.groupValues[2]),
+            currency = match.groupValues[1].uppercase(),
             direction = Direction.DEBIT,
-            merchantRaw = match.groupValues[4].trim(),
+            merchantRaw = match.groupValues[5].trim(),
             paymentMode = PaymentMode.CARD,
-            accountHint = match.groupValues[2],
-            transactionDate = parseDate(match.groupValues[3]),
+            accountHint = match.groupValues[3],
+            transactionDate = parseDate(match.groupValues[4]),
             transactionTime = null
         )
     }
@@ -404,6 +404,7 @@ object SmsParser {
     }
 
     private fun parseGenericMerchant(message: String, direction: Direction): String? {
+        val searchableMessage = message.withoutSecurityTail()
         val patterns = when (direction) {
             Direction.CREDIT -> listOf(
                 Regex("""(?is)\bfrom\s+(?:VPA\s+)?(.+?)(?:\s+(?:on|via|using|through|thru|ref|rrn|upi|txn|transaction|a/c|account)\b|[.,\n]|$)"""),
@@ -417,7 +418,7 @@ object SmsParser {
         }
 
         return patterns
-            .firstNotNullOfOrNull { pattern -> pattern.find(message)?.groupValues?.get(1)?.cleanMerchant() }
+            .firstNotNullOfOrNull { pattern -> pattern.find(searchableMessage)?.groupValues?.get(1)?.cleanMerchant() }
     }
 
     private fun parseMerchantFromSourceAddress(sourceAddress: String?): String? {
@@ -614,10 +615,24 @@ object SmsParser {
             "a c",
             "vpa"
         )
+        val isSecurityInstruction = "to block" in lower ||
+            "sms block" in lower ||
+            "fwd this sms" in lower ||
+            ("block upi" in lower && Regex("""\d{6,}""").containsMatchIn(candidate))
         return candidate.takeIf {
             it.length >= 2 &&
+                !isSecurityInstruction &&
                 blocked.none { blockedValue -> lower == blockedValue || lower.startsWith("$blockedValue ") }
         }
+    }
+
+    private fun String.withoutSecurityTail(): String {
+        return replace(
+            Regex(
+                """(?is)\b(?:if\s+not\s+you|if\s+not\s+u|not\s+you\??|not\s+u\??|fwd\s+this\s+sms|forward\s+this\s+sms|sms\s+block|call\s+\d{6,}).*$"""
+            ),
+            ""
+        ).trim()
     }
 
     private fun String.pad2(): String = padStart(2, '0')

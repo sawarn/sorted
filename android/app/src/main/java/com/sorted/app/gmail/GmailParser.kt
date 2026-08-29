@@ -24,6 +24,7 @@ object GmailParser {
         ignoreReason(message, text)?.let { return ignored(it) }
 
         val money = parseMoney(text) ?: return ignored("amount_missing")
+        if (money.amount <= 0.0) return ignored("non_positive_amount")
         val direction = parseDirection(text)
         if (direction == Direction.UNKNOWN) return ignored("direction_missing")
 
@@ -182,6 +183,7 @@ object GmailParser {
         val lower = text.lowercase()
         val subject = message.subject.orEmpty().lowercase()
         val from = message.from.orEmpty().lowercase()
+        val supportedTransactionEmail = isSupportedTransactionEmail(message, lower)
         val financialAction = listOf(
             "debited",
             "credited",
@@ -198,6 +200,10 @@ object GmailParser {
         return when {
             "one-time password" in lower || Regex("""\botp\b""").containsMatchIn(lower) -> "otp"
             "failed" in lower || "declined" in lower || "unsuccessful" in lower -> "failed_transaction"
+            !supportedTransactionEmail -> "unsupported_sender"
+            "itinerary" in subject || "booking confirmation" in lower || "flight details" in lower -> "merchant_receipt"
+            "order was delivered" in subject || "order was successfully delivered" in subject || "bill details" in lower -> "merchant_receipt"
+            ("invoice" in lower || "receipt" in lower) && !isAuthoritativeFinancialSender(message) -> "merchant_receipt"
             ("swift copy" in subject || "swift copy" in lower) && "cross-border remittance" in lower -> "remittance_document"
             "buy order is complete" in subject || "sell order is complete" in subject -> "broker_order"
             "payment reminder" in subject || "bill payment is due" in lower || "payment is due" in lower -> "payment_reminder"
@@ -216,6 +222,55 @@ object GmailParser {
             !looksFinancial(lower) -> "unsupported"
             else -> null
         }
+    }
+
+    private fun isSupportedTransactionEmail(message: GmailRawMessage, lowerText: String): Boolean {
+        if (isAuthoritativeFinancialSender(message)) return true
+
+        val fromSubject = "${message.from.orEmpty()} ${message.subject.orEmpty()}".lowercase()
+        val remittanceSignals = listOf(
+            "lrs remittance",
+            "cross-border remittance",
+            "remittance request",
+            "funds will be transferred",
+            "transaction on vested"
+        )
+        val investingSignals = listOf(
+            "remittance",
+            "lrs",
+            "funds will be transferred",
+            "transfer successful",
+            "transaction successful"
+        )
+
+        return when {
+            "vested" in fromSubject && remittanceSignals.any { it in lowerText } -> true
+            "global investing" in fromSubject && investingSignals.any { it in lowerText } -> true
+            else -> false
+        }
+    }
+
+    private fun isAuthoritativeFinancialSender(message: GmailRawMessage): Boolean {
+        val fromSubject = "${message.from.orEmpty()} ${message.subject.orEmpty()}".uppercase()
+        return listOf(
+            "HDFC",
+            "ICICI",
+            "SBI",
+            "PNB",
+            "AXIS",
+            "KOTAK",
+            "CANARA",
+            "YESBANK",
+            "IDFC",
+            "INDUSIND",
+            "FEDERAL",
+            "RBL",
+            "NACH",
+            "PHONEPE",
+            "GOOGLE PAY",
+            "GPAY",
+            "PAYTM"
+        ).any { it in fromSubject }
     }
 
     private fun looksFinancial(lower: String): Boolean {
