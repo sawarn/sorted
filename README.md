@@ -91,16 +91,23 @@ sdk.dir=/Users/you/Library/Android/sdk
 
 ## Design Direction
 
+Sorted's design philosophy is:
+
+> Sorted is a private money tape.
+
+The app should feel like a continuous, local receipt of the user's money life. Transactions print as lines, categories and sources appear as stamps, corrections behave like amendments, and every important total can reveal the lines that created it.
+
 Sorted should feel:
 
 - Simple
 - Fast
 - Premium
 - Calm
-- Lightweight
+- Tactile
+- Inspectable
 - Privacy-first
 
-The main screen should probably be a clean transaction feed, not a complex dashboard.
+The main screen should be the live monthly tape, not a complex dashboard. See `docs/design-philosophy.md`, `docs/design-section-scaffold.md`, and `docs/ai-design-guidance.md`.
 
 ## Early MVP Boundary
 

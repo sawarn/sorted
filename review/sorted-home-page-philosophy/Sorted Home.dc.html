@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/nocturne-705cd29e-b9b5-4ee3-9365-975cd1ccc3ab/styles.css">
+  <script src="_ds/nocturne-705cd29e-b9b5-4ee3-9365-975cd1ccc3ab/_ds_bundle.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+  <style>
+    @keyframes sortedDrift { 0%,100% { transform:translate(0,0); } 33% { transform:translate(2px,-4px); } 66% { transform:translate(-2px,3px); } }
+    @keyframes sortedDriftPlay { 0%,100% { transform:translate(0,0) rotate(0deg); } 30% { transform:translate(4px,-7px) rotate(-1deg); } 65% { transform:translate(-4px,5px) rotate(0.9deg); } }
+    @keyframes sortedHero { from { opacity:0; transform:translateY(8px); letter-spacing:0.02em; } to { opacity:1; transform:translateY(0); } }
+    @keyframes sortedLabelIn { from { opacity:0; transform:translateY(7px) scale(0.96); } to { opacity:1; transform:translateY(0) scale(1); } }
+    @keyframes sortedFade { from { opacity:0; transform:translateY(7px); } to { opacity:1; transform:translateY(0); } }
+    * { box-sizing: border-box; }
+  </style>
+</helmet>
+<div style="{{ pageOuterStyle }}">
+  <x-import component-from-global-scope="AndroidDevice" from="./android-frame.jsx" dark="{{ isDark }}" hint-size="412px,892px">
+    <div style="{{ appRootStyle }}">
+
+      <div style="{{ headerStyle }}">
+        <div style="display:flex;align-items:center;gap:9px">
+          <div style="{{ markStyle }}"><div style="{{ markCoreStyle }}"></div></div>
+          <span style="font-size:16.5px;letter-spacing:-0.01em;font-weight:500">Sorted</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="{{ monthPillStyle }}">{{ monthLabel }}</div>
+          <button style="{{ toggleBtnStyle }}" onClick="{{ toggleTheme }}"><i class="{{ themeIconClass }}" style="font-size:15px"></i></button>
+        </div>
+      </div>
+
+      <div style="{{ stageStyle }}">
+        <canvas ref="{{ setCanvasRef }}" width="384" height="650" style="{{ canvasStyle }}"></canvas>
+        <div style="{{ backdropStyle }}" onClick="{{ clearActive }}"></div>
+
+        <div style="{{ heroStyle }}" onClick="{{ hero.onToggle }}">
+          <div style="{{ heroRestStyle }}">
+            <div style="{{ kickerStyle }}">August spend</div>
+            <div style="{{ amountStyle }}">₹52,561.88</div>
+            <div style="font-size:12px;color:var(--s-text-dim);margin-top:7px">68 transactions</div>
+            <div style="{{ whyStyle }}">
+              <i class="ph ph-question" style="font-size:12px"></i>
+              Why this number?
+            </div>
+          </div>
+        </div>
+
+        <div style="{{ hero.cardStyle }}">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+            <div>
+              <div style="{{ kickerStyle }}">Why this number?</div>
+              <div style="font-size:30px;font-weight:500;letter-spacing:-0.03em;margin-top:6px;font-variant-numeric:tabular-nums">₹52,561.88</div>
+              <div style="font-size:11.5px;color:var(--s-text-dim);margin-top:3px">68 transactions · 1–31 Aug</div>
+            </div>
+            <i class="ph ph-x" style="{{ closeIconStyle }}" onClick="{{ clearActive }}"></i>
+          </div>
+          <div style="font-size:12px;color:var(--s-text-dim);margin:14px 0 6px;line-height:1.55">{{ hero.explain }}</div>
+          <div style="{{ listStyle }}">
+            <sc-for list="{{ hero.items }}" as="it" hint-placeholder-count="6">
+              <div style="{{ rowStyle }}">
+                <span style="opacity:0.92">{{ it.label }}</span>
+                <span style="color:var(--s-text-dim);white-space:nowrap;font-variant-numeric:tabular-nums">{{ it.value }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <sc-for list="{{ nodes }}" as="o" hint-placeholder-count="5">
+          <div style="{{ o.outerStyle }}" onClick="{{ o.onToggle }}">
+            <div style="{{ o.pillStyle }}">
+              <span style="{{ o.dotStyle }}"></span>
+              <span style="white-space:nowrap">{{ o.label }}</span>
+              <span style="{{ o.valueStyle }}">{{ o.value }}</span>
+            </div>
+            <div style="{{ o.cardInnerStyle }}">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+                <div style="display:flex;align-items:center;gap:11px">
+                  <div style="{{ o.iconWrapStyle }}"><i class="{{ o.icon }}" style="{{ o.iconBigStyle }}"></i></div>
+                  <div>
+                    <div style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--s-text-dim)">{{ o.title }}</div>
+                    <div style="font-size:26px;font-weight:500;letter-spacing:-0.025em;margin-top:3px;font-variant-numeric:tabular-nums">{{ o.amount }}</div>
+                    <div style="font-size:11.5px;color:var(--s-text-dim);margin-top:2px">{{ o.meta }}</div>
+                  </div>
+                </div>
+                <i class="ph ph-x" style="{{ closeIconStyle }}"></i>
+              </div>
+              <div style="font-size:12px;color:var(--s-text-dim);margin:14px 0 6px;line-height:1.55">{{ o.explain }}</div>
+              <div style="{{ listStyle }}">
+                <sc-for list="{{ o.items }}" as="it" hint-placeholder-count="3">
+                  <div style="{{ rowStyle }}">
+                    <span style="opacity:0.92">{{ it.label }}</span>
+                    <span style="color:var(--s-text-dim);white-space:nowrap;font-variant-numeric:tabular-nums">{{ it.value }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+
+        <div style="{{ edge.outerStyle }}" onClick="{{ edge.onToggle }}">
+          <div style="{{ edge.pillStyle }}">
+            <span style="{{ edge.dotStyle }}"></span>
+            <span style="white-space:nowrap">{{ edge.label }}</span>
+          </div>
+          <div style="{{ edge.cardInnerStyle }}">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+              <div>
+                <div style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--s-text-dim)">{{ edge.title }}</div>
+                <div style="font-size:23px;font-weight:500;margin-top:4px">{{ edge.amount }}</div>
+              </div>
+              <i class="ph ph-x" style="{{ closeIconStyle }}"></i>
+            </div>
+            <div style="font-size:12px;color:var(--s-text-dim);margin:12px 0 6px;line-height:1.55">{{ edge.explain }}</div>
+            <div style="{{ listStyle }}">
+              <sc-for list="{{ edge.items }}" as="it" hint-placeholder-count="3">
+                <div style="{{ rowStyle }}">
+                  <span style="opacity:0.92">{{ it.label }}</span>
+                  <span style="color:var(--s-text-dim);white-space:nowrap">{{ it.value }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="{{ navStyle }}">
+        <sc-for list="{{ tabs }}" as="tb" hint-placeholder-count="4">
+          <div style="{{ tb.wrapStyle }}" onClick="{{ tb.onSelect }}">
+            <div style="{{ tb.iconWrapStyle }}"><i class="{{ tb.icon }}" style="{{ tb.iconStyle }}"></i></div>
+            <span style="{{ tb.labelStyle }}">{{ tb.label }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </x-import>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { theme: 'dark', activeId: null, tab: 'Home', labels: false };
+
+  W = 384; H = 650; fx = 192; fy = 300; ring = 190;
+
+  hero_ = {
+    id:'spend',
+    explain:'Only debits that look like real spend. Transfers to your own accounts and investments are held out, and three unclear ones are waiting for you.',
+    items:[
+      {label:'Food & Dining', value:'₹14,230.00'},
+      {label:'Shopping', value:'₹11,800.00'},
+      {label:'Bills & Utilities', value:'₹9,120.00'},
+      {label:'Transport', value:'₹6,450.00'},
+      {label:'Entertainment', value:'₹4,300.00'},
+      {label:'Other', value:'₹6,661.88'},
+      {label:'Recurring inside this', value:'₹6,840.00'},
+      {label:'Possible refunds found', value:'3 · not subtracted'},
+    ],
+  };
+
+  nodes_ = [
+    { id:'review', dark:'#ffd977', light:'#e8622f', pulse:true, x:284, y:236, icon:'ph ph-scales',
+      label:'To review', value:'3', title:'To review', amount:'3', meta:'₹4,200 Sorted is unsure about',
+      explain:"Sorted would rather ask than guess. Tell it what these are and the month re-sorts itself.",
+      items:[
+        {label:'UPI · 998211xxxx', value:'₹1,200'},
+        {label:'IMPS transfer', value:'₹2,000'},
+        {label:'POS purchase', value:'₹1,000'},
+      ]},
+    { id:'merchant', dark:'#f2c14e', light:'#0f8f7a', x:96, y:250, icon:'ph ph-storefront',
+      label:'Swiggy', value:'₹6,200', title:'Top merchant', amount:'Swiggy', meta:'₹6,200 · 14 orders · top of 24',
+      explain:'Where the month concentrated. Five places hold about a quarter of your spend.',
+      items:[
+        {label:'Swiggy', value:'₹6,200.00'},
+        {label:'Amazon', value:'₹5,800.00'},
+        {label:'Zomato', value:'₹3,100.00'},
+        {label:'BigBasket', value:'₹2,900.00'},
+        {label:'Uber', value:'₹2,400.00'},
+      ]},
+    { id:'category', dark:'#f7f4ea', light:'#7a4fd8', x:118, y:374, icon:'ph ph-circles-three',
+      label:'Food', value:'27%', title:'Top category', amount:'Food', meta:'₹14,230 · 27% of spend',
+      explain:'Food and shopping together are about half of this month.',
+      items:[
+        {label:'Food & Dining', value:'₹14,230.00'},
+        {label:'Shopping', value:'₹11,800.00'},
+        {label:'Bills & Utilities', value:'₹9,120.00'},
+        {label:'Transport', value:'₹6,450.00'},
+      ]},
+    { id:'invest', dark:'#e7dcc0', light:'#0f9a54', outside:true, x:272, y:480, icon:'ph ph-chart-line-up',
+      label:'Invested', value:'₹25,000', title:'Invested', amount:'₹25,000', meta:'3 orders · held out of spend',
+      explain:'Money into funds and stocks. You still own it, so it never touches spend.',
+      items:[
+        {label:'SIP · Axis Bluechip', value:'₹10,000'},
+        {label:'SIP · Parag Parikh', value:'₹5,000'},
+        {label:'Zerodha · Stocks', value:'₹10,000'},
+      ]},
+    { id:'moved', dark:'#f7f4ea', light:'#1f74c7', outside:true, x:112, y:520, icon:'ph ph-arrows-left-right',
+      label:'Money moved', value:'₹38,200', title:'Money moved', amount:'₹38,200', meta:'9 transfers · held out of spend',
+      explain:'Transfers between your own accounts, or to people you send money to often. Movement, not spend — so it sits outside the field.',
+      items:[
+        {label:'To Savings ×3', value:'₹20,000'},
+        {label:'UPI · Dad', value:'₹8,200'},
+        {label:'UPI · Mom', value:'₹10,000'},
+      ]},
+  ];
+
+  edge_ = {
+    id:'sources', dark:'#9a9284', light:'#6b6353', x:192, y:600,
+    label:'84 SMS · 12 Gmail · synced 2m ago',
+    title:'Source health', amount:'96 messages read',
+    explain:'Sorted reads transaction alerts on this phone only. No bank login, no server, no account.',
+    items:[
+      {label:'SMS', value:'84 parsed · 0 skipped'},
+      {label:'Gmail', value:'12 parsed'},
+      {label:'Last synced', value:'2 minutes ago'},
+    ],
+  };
+
+  tabs_ = [
+    { label:'Home', icon:'ph-fill ph-house' },
+    { label:'Insights', icon:'ph ph-chart-donut' },
+    { label:'Capture', icon:'ph ph-plus', accent:true },
+    { label:'Sources', icon:'ph ph-tray' },
+  ];
+
+  buckets = {
+    dark:  ['#f7f4ea','#ffffff','#f2c14e','#ffd977','#c99a2e','#fff6d6'],
+    light: ['#e8622f','#0f8f7a','#7a4fd8','#1f74c7','#0f9a54','#e0940f'],
+  };
+
+  componentDidMount() {
+    this.labelTimer = setTimeout(() => this.setState({ labels: true }), 1000);
+  }
+  componentWillUnmount() {
+    if (this.raf) cancelAnimationFrame(this.raf);
+    if (this.labelTimer) clearTimeout(this.labelTimer);
+  }
+
+  toggleTheme = () => this.setState(s => ({ theme: s.theme === 'dark' ? 'light' : 'dark' }));
+  toggle = (id) => this.setState(s => ({ activeId: s.activeId === id ? null : id }));
+  clearActive = () => this.setState({ activeId: null });
+  selectTab = (label) => this.setState({ tab: label });
+
+  setCanvasRef = (el) => {
+    if (!el || this.canvasEl === el) return;
+    this.canvasEl = el;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    el.width = this.W * dpr; el.height = this.H * dpr; this.dpr = dpr;
+    this.gather = 1;
+    this.generate();
+    this.start();
+  };
+
+  generate() {
+    const R = 250, list = [];
+    for (let i = 0; i < 1000; i++) {
+      const a0 = Math.random() * Math.PI * 2;
+      const shape = 0.8 + 0.16 * Math.sin(3 * a0 + 1.1) + 0.07 * Math.sin(7 * a0 + 0.4);
+      const maxR = R * shape;
+      const r0 = maxR * Math.pow(Math.random(), 0.5);
+      const spark = Math.random() < 0.05;
+      list.push({
+        a0, r0, norm: r0 / maxR,
+        base: spark ? 0.55 + Math.random() * 0.3 : 0.06 + Math.random() * 0.2,
+        rad: spark ? 1.1 + Math.random() * 0.7 : 0.4 + Math.random() * 0.7,
+        spark, wob: 1 + Math.random() * 3,
+        ph: Math.random() * Math.PI * 2, tw: Math.random() * Math.PI * 2,
+        twSpeed: 0.4 + Math.random() * 1.2,
+        bucket: Math.floor(Math.random() * 6),
+      });
+    }
+    this.particles = list;
+    // faint web: pair up neighbours once, then draw their live positions
+    const pairs = [];
+    for (let i = 0; i < list.length; i += 3) {
+      const a = list[i];
+      const ax = this.fx + a.r0 * Math.cos(a.a0), ay = this.fy + a.r0 * Math.sin(a.a0);
+      let best = -1, bestD = 42;
+      for (let j = i + 1; j < Math.min(i + 40, list.length); j++) {
+        const b = list[j];
+        const bx = this.fx + b.r0 * Math.cos(b.a0), by = this.fy + b.r0 * Math.sin(b.a0);
+        const d = Math.hypot(ax - bx, ay - by);
+        if (d < bestD) { bestD = d; best = j; }
+      }
+      if (best > -1) pairs.push([i, best]);
+    }
+    this.pairs = pairs;
+  }
+
+  start() {
+    if (this.raf) return;
+    this.t0 = performance.now();
+    const loop = (now) => { this.frame((now - this.t0) / 1000); this.raf = requestAnimationFrame(loop); };
+    this.raf = requestAnimationFrame(loop);
+  }
+
+  rgb(hex) {
+    this._c = this._c || {};
+    if (this._c[hex]) return this._c[hex];
+    const n = parseInt(hex.slice(1), 16);
+    return (this._c[hex] = `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`);
+  }
+
+  hexOf(id, isDark) {
+    const all = [...this.nodes_, this.edge_];
+    const f = all.find(o => o.id === id);
+    if (!f) return isDark ? '#f2c14e' : '#e0940f';
+    return isDark ? f.dark : f.light;
+  }
+
+  nodePoint(o) {
+    const dx = this.fx - o.x, dy = this.fy - o.y;
+    const len = Math.hypot(dx, dy) || 1;
+    return { x: o.x + (dx / len) * 34, y: o.y + (dy / len) * 34 };
+  }
+
+  frame(t) {
+    if (!this.canvasEl || !this.particles) return;
+    const ctx = this.canvasEl.getContext('2d');
+    const dpr = this.dpr || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, this.W, this.H);
+
+    const isDark = this.state.theme === 'dark';
+    const buckets = isDark ? this.buckets.dark : this.buckets.light;
+    const active = this.state.activeId;
+    const activeRgb = active ? this.rgb(this.hexOf(active, isDark)) : null;
+    const cx = this.fx, cy = this.fy;
+
+    // entrance: field forms after the number lands
+    const form = Math.max(0, Math.min(1, (t - 0.35) / 1.3));
+    const ease = 1 - Math.pow(1 - form, 3);
+    if (ease <= 0) return;
+
+    const gTarget = active ? 0.76 : 1;
+    this.gather += (gTarget - this.gather) * 0.06;
+    const scale = (0.72 + 0.28 * ease) * this.gather;
+    const drift = t * (isDark ? 0.045 : 0.075);
+    const breathe = 1 + (isDark ? 0.018 : 0.03) * Math.sin(t * (isDark ? 0.4 : 0.6));
+    const dimAll = active ? 0.4 : 1;
+
+    const pos = (p) => {
+      const ang = p.a0 + drift * (1.3 - 0.7 * p.norm);
+      const rr = p.r0 * breathe * scale;
+      return {
+        x: cx + rr * Math.cos(ang) + p.wob * Math.sin(t * 0.5 + p.ph),
+        y: cy + rr * Math.sin(ang) + p.wob * Math.cos(t * 0.44 + p.ph * 1.3),
+      };
+    };
+
+    // orbit paths + the held-out boundary
+    ctx.save();
+    const ringA = ease * (active ? 0.35 : 1);
+    ctx.strokeStyle = isDark ? `rgba(247,244,234,${0.05 * ringA})` : `rgba(34,28,18,${0.09 * ringA})`;
+    ctx.lineWidth = 1;
+    [96, 142].forEach((r, i) => {
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, r * scale, r * scale * 0.94, t * 0.05 * (i ? -1 : 1), 0, Math.PI * 2);
+      ctx.stroke();
+    });
+    ctx.setLineDash([2, 8]);
+    ctx.strokeStyle = isDark ? `rgba(247,244,234,${0.075 * ringA})` : `rgba(34,28,18,${0.13 * ringA})`;
+    ctx.beginPath(); ctx.arc(cx, cy, this.ring * (0.9 + 0.1 * ease), 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+
+    ctx.globalCompositeOperation = isDark ? 'lighter' : 'source-over';
+
+    // the faint web between neighbours
+    ctx.lineWidth = 0.6;
+    const webBase = isDark ? 0.055 : 0.075;
+    for (const [i, j] of this.pairs) {
+      const a = pos(this.particles[i]), b = pos(this.particles[j]);
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (d > 46) continue;
+      const al = webBase * (1 - d / 46) * ease * dimAll;
+      ctx.strokeStyle = isDark ? `rgba(247,244,234,${al})` : `rgba(34,28,18,${al * 1.5})`;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+
+    // particles
+    for (const p of this.particles) {
+      const { x, y } = pos(p);
+      if (x < -8 || x > this.W + 8 || y < -8 || y > this.H + 8) continue;
+      let alpha = p.base * (0.6 + 0.4 * Math.sin(t * p.twSpeed + p.tw)) * ease * (isDark ? 1 : 2) * dimAll;
+      let col = this.rgb(buckets[p.bucket]);
+      let radius = p.rad * (isDark ? 1 : 1.12);
+      if (active) {
+        const d = Math.hypot(x - cx, y - cy);
+        if (d < 155) {
+          const boost = 1 - d / 155;
+          alpha = Math.min(1, alpha + boost * 0.5);
+          col = activeRgb; radius += boost * 0.45;
+        }
+      }
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(${col},${alpha})`;
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      if (p.spark) {
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(${col},${alpha * 0.1})`;
+        ctx.arc(x, y, radius * 3.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // highlighted nodes + their tethers to the capsules
+    if (this.state.labels) {
+      for (const o of this.nodes_) {
+        const n = this.nodePoint(o);
+        const hex = isDark ? o.dark : o.light;
+        const col = this.rgb(hex);
+        const on = active === o.id;
+        const off = active && !on;
+        const pulse = o.pulse ? 0.72 + 0.28 * Math.sin(t * 1.9) : 1;
+        const a = (off ? 0.14 : 1) * pulse * ease;
+        ctx.strokeStyle = isDark ? `rgba(${col},${0.2 * a})` : `rgba(${col},${0.3 * a})`;
+        ctx.lineWidth = 0.8;
+        ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(o.x, o.y); ctx.stroke();
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(${col},${0.16 * a})`;
+        ctx.arc(n.x, n.y, o.pulse ? 9 : 7, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(${col},${0.95 * a})`;
+        ctx.arc(n.x, n.y, o.pulse ? 2.6 : 2.1, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  renderVals() {
+    const isDark = this.state.theme === 'dark';
+    const activeId = this.state.activeId;
+    const showLabels = this.state.labels;
+    const vars = isDark ? {
+      '--s-bg':'#000000', '--s-glass':'rgba(255,252,240,0.045)', '--s-glass-2':'rgba(18,17,14,0.92)',
+      '--s-text':'#f7f4ea', '--s-text-dim':'rgba(247,244,234,0.6)', '--s-text-faint':'rgba(247,244,234,0.42)',
+      '--s-border':'rgba(247,244,234,0.13)',
+    } : {
+      '--s-bg':'#fdf8ee', '--s-glass':'rgba(255,255,255,0.7)', '--s-glass-2':'#ffffff',
+      '--s-text':'#221c12', '--s-text-dim':'rgba(34,28,18,0.62)', '--s-text-faint':'rgba(34,28,18,0.45)',
+      '--s-border':'rgba(34,28,18,0.13)',
+    };
+    const accent = isDark ? '#f2c14e' : '#e0940f';
+    const cardBox = { left: 15, top: 176, width: this.W - 30 };
+    const blur = 'blur(14px)';
+    const driftName = isDark ? 'sortedDrift' : 'sortedDriftPlay';
+    const pillRadius = isDark ? '999px' : '999px';
+
+    const cardStyle = (hex, active) => ({
+      position:'absolute', left:`${cardBox.left}px`, top:`${cardBox.top}px`, width:`${cardBox.width}px`,
+      padding:'18px', borderRadius:'22px', zIndex:9,
+      background:'var(--s-glass-2)', border:`1px solid color-mix(in srgb, ${hex} 45%, transparent)`,
+      boxShadow:`0 0 44px -10px color-mix(in srgb, ${hex} 38%, transparent), 0 26px 60px rgba(0,0,0,${isDark ? 0.82 : 0.14})`,
+      backdropFilter: blur, WebkitBackdropFilter: blur, overflow:'hidden',
+      display: active ? 'block' : 'none',
+      animation: active ? 'sortedFade .42s cubic-bezier(.22,1,.36,1) both' : 'none',
+    });
+
+    const capsule = (o, i) => {
+      const active = activeId === o.id;
+      const others = !!activeId && !active;
+      const hex = isDark ? o.dark : o.light;
+      const outer = active ? {
+        position:'absolute', left:`${cardBox.left}px`, top:`${cardBox.top}px`, width:`${cardBox.width}px`,
+        transform:'none', zIndex:9, cursor:'pointer',
+      } : {
+        position:'absolute', left:`${o.x}px`, top:`${o.y}px`, transform:'translate(-50%,-50%)',
+        padding:'9px 4px', zIndex:3, cursor:'pointer',
+        opacity: showLabels ? (others ? 0.12 : 1) : 0,
+        pointerEvents: others || !showLabels ? 'none' : 'auto',
+        animation: showLabels && !others ? `sortedLabelIn .5s cubic-bezier(.22,1,.36,1) ${i * 0.09}s both` : 'none',
+        transition:'opacity .4s ease, left .5s cubic-bezier(.22,1,.36,1), top .5s cubic-bezier(.22,1,.36,1)',
+      };
+      return {
+        ...o, active,
+        onToggle: () => this.toggle(o.id),
+        outerStyle: outer,
+        pillStyle: {
+          display: active ? 'none' : 'inline-flex', alignItems:'center', gap:'7px',
+          padding: o.small ? '5px 10px' : '6px 11px', borderRadius: pillRadius,
+          background:'var(--s-glass)',
+          border:`1px ${o.outside ? 'dashed' : 'solid'} ${o.pulse ? `color-mix(in srgb, ${hex} 50%, transparent)` : 'var(--s-border)'}`,
+          boxShadow: o.pulse ? `0 0 18px -6px color-mix(in srgb, ${hex} 55%, transparent)` : 'none',
+          backdropFilter:'blur(8px)', WebkitBackdropFilter:'blur(8px)',
+          fontSize:'11.5px', color:'var(--s-text)', whiteSpace:'nowrap',
+          animation: others ? 'none' : `${driftName} ${(isDark ? 9 : 6) + i}s ease-in-out infinite`,
+          animationDelay: `${i * 0.7}s`,
+        },
+        dotStyle: {
+          width:'5px', height:'5px', borderRadius:'50%', background:hex, flexShrink:0,
+          boxShadow: isDark ? `0 0 8px 1px color-mix(in srgb, ${hex} 55%, transparent)` : 'none',
+        },
+        valueStyle: {
+          fontSize:'11.5px', fontWeight:500, color:'var(--s-text)',
+          fontVariantNumeric:'tabular-nums', whiteSpace:'nowrap',
+        },
+        cardInnerStyle: cardStyle(hex, active),
+        iconBigStyle: { color: hex, fontSize:'19px' },
+        iconWrapStyle: {
+          width:'40px', height:'40px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center',
+          flexShrink:0, background:`color-mix(in srgb, ${hex} 14%, transparent)`,
+          border:`1px solid color-mix(in srgb, ${hex} 32%, transparent)`,
+        },
+      };
+    };
+
+    const nodes = this.nodes_.map((o, i) => capsule(o, i));
+    const edge = capsule({ ...this.edge_, small:true }, 5);
+    if (!edge.active) {
+      edge.pillStyle.fontSize = '10.5px';
+      edge.pillStyle.color = 'var(--s-text-dim)';
+      edge.pillStyle.letterSpacing = '0.04em';
+      edge.outerStyle.opacity = showLabels ? (activeId ? 0.12 : 0.92) : 0;
+    }
+    edge.dotStyle.background = isDark ? '#7fbf9a' : '#0f9a54';
+
+    const heroActive = activeId === 'spend';
+    const hero = {
+      ...this.hero_,
+      onToggle: () => this.toggle('spend'),
+      cardStyle: cardStyle(accent, heroActive),
+    };
+
+    const tabs = this.tabs_.map(t => {
+      const on = this.state.tab === t.label;
+      return {
+        ...t,
+        onSelect: () => this.selectTab(t.label),
+        wrapStyle: {
+          flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:'3px',
+          padding:'7px 0 3px', cursor:'pointer', minHeight:'52px', justifyContent:'center',
+        },
+        iconWrapStyle: t.accent ? {
+          width:'34px', height:'34px', borderRadius:'12px', display:'flex', alignItems:'center', justifyContent:'center',
+          background:`color-mix(in srgb, ${accent} ${isDark ? 16 : 18}%, transparent)`,
+          border:`1px solid color-mix(in srgb, ${accent} 42%, transparent)`,
+        } : { height:'22px', display:'flex', alignItems:'center' },
+        iconStyle: {
+          fontSize: t.accent ? '17px' : '20px',
+          color: t.accent ? accent : (on ? 'var(--s-text)' : 'var(--s-text-faint)'),
+        },
+        labelStyle: { fontSize:'9.5px', letterSpacing:'0.06em', color: on ? 'var(--s-text)' : 'var(--s-text-faint)' },
+      };
+    });
+
+    return {
+      isDark, nodes, edge, hero, tabs,
+      monthLabel: 'August 2026',
+      themeIconClass: isDark ? 'ph ph-moon-stars' : 'ph ph-sun',
+      toggleTheme: this.toggleTheme,
+      clearActive: this.clearActive,
+      setCanvasRef: this.setCanvasRef,
+      pageOuterStyle: {
+        minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center',
+        background:'var(--color-bg)', fontFamily:'var(--font-body)', padding:'40px',
+      },
+      appRootStyle: {
+        ...vars, position:'relative', background:'var(--s-bg)', color:'var(--s-text)',
+        height:'100%', fontFamily:'var(--font-body)', padding:'0 14px', overflow:'hidden',
+        display:'flex', flexDirection:'column', transition:'background .45s ease, color .45s ease',
+      },
+      headerStyle: {
+        display:'flex', alignItems:'center', justifyContent:'space-between',
+        padding:'10px 2px 6px', position:'relative', zIndex:10,
+      },
+      stageStyle: { position:'relative', width:`${this.W}px`, height:`${this.H}px`, margin:'0 -1px', flexShrink:0 },
+      canvasStyle: { position:'absolute', left:'0', top:'0', width:`${this.W}px`, height:`${this.H}px`, pointerEvents:'none', zIndex:0 },
+      backdropStyle: {
+        position:'absolute', inset:'-30px', zIndex:1,
+        background: activeId ? (isDark ? 'rgba(0,0,0,0.6)' : 'rgba(253,248,238,0.6)') : 'transparent',
+        opacity: activeId ? 1 : 0, pointerEvents: activeId ? 'auto' : 'none',
+        transition:'opacity .4s ease, background .4s ease',
+      },
+      heroStyle: {
+        position:'absolute', left:'50%', top:'134px', transform:'translate(-50%,-50%)',
+        textAlign:'center', zIndex:5, cursor:'pointer', width:'300px',
+        opacity: activeId ? 0.12 : 1,
+        pointerEvents: activeId ? 'none' : 'auto',
+        transition:'opacity .4s ease',
+      },
+      heroRestStyle: { animation:'sortedHero .7s cubic-bezier(.22,1,.36,1) both' },
+      kickerStyle: {
+        fontSize:'10px', letterSpacing:'0.24em', textTransform:'uppercase', fontWeight:500,
+        color:`color-mix(in srgb, ${accent} 92%, var(--s-text))`,
+      },
+      amountStyle: {
+        fontSize:'44px', fontWeight:500, letterSpacing:'-0.035em', marginTop:'10px',
+        fontVariantNumeric:'tabular-nums', lineHeight:1,
+      },
+      whyStyle: {
+        display:'inline-flex', alignItems:'center', gap:'5px', marginTop:'14px',
+        fontSize:'11px', color:'var(--s-text-faint)', border:'1px solid var(--s-border)',
+        borderRadius:'999px', padding:'5px 11px',
+      },
+      navStyle: {
+        marginTop:'auto', display:'flex', alignItems:'stretch',
+        borderTop:'1px solid var(--s-border)', paddingBottom:'4px',
+        background: isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.72)',
+        backdropFilter:'blur(12px)', WebkitBackdropFilter:'blur(12px)',
+        margin:'0 -14px', position:'relative', zIndex:10,
+      },
+      closeIconStyle: { fontSize:'15px', color:'var(--s-text-dim)', flexShrink:0, cursor:'pointer' },
+      listStyle: { maxHeight:'230px', overflowY:'auto' },
+      rowStyle: {
+        display:'flex', justifyContent:'space-between', gap:'10px', padding:'7px 0',
+        borderTop:'1px solid var(--s-border)', fontSize:'12.5px',
+      },
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/nocturne-705cd29e-b9b5-4ee3-9365-975cd1ccc3ab/styles.css">
+  <script src="_ds/nocturne-705cd29e-b9b5-4ee3-9365-975cd1ccc3ab/_ds_bundle.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+  <style>
+    @keyframes sortedDrift { 0%,100% { transform:translate(0,0); } 33% { transform:translate(3px,-5px); } 66% { transform:translate(-3px,3px); } }
+    @keyframes sortedDriftPlay { 0%,100% { transform:translate(0,0) rotate(0deg); } 30% { transform:translate(5px,-9px) rotate(-1.1deg); } 65% { transform:translate(-5px,6px) rotate(1deg); } }
+    @keyframes sortedFade { from { opacity:0; transform:translateY(7px); } to { opacity:1; transform:translateY(0); } }
+    * { box-sizing: border-box; }
+  </style>
+</helmet>
+<div style="{{ pageOuterStyle }}">
+  <x-import component-from-global-scope="AndroidDevice" from="./android-frame.jsx" dark="{{ isDark }}" hint-size="412px,892px">
+    <div style="{{ appRootStyle }}">
+
+      <div style="{{ headerStyle }}">
+        <div style="display:flex;align-items:center;gap:9px">
+          <div style="{{ markStyle }}"><div style="{{ markCoreStyle }}"></div></div>
+          <span style="font-size:16.5px;letter-spacing:-0.01em;font-weight:500">Sorted</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="{{ monthPillStyle }}">{{ monthLabel }}</div>
+          <button style="{{ toggleBtnStyle }}" onClick="{{ toggleTheme }}"><i class="{{ themeIconClass }}" style="font-size:15px"></i></button>
+        </div>
+      </div>
+
+      <div style="{{ stageStyle }}">
+        <canvas ref="{{ setCanvasRef }}" width="384" height="646" style="{{ canvasStyle }}"></canvas>
+        <div style="{{ backdropStyle }}" onClick="{{ clearActive }}"></div>
+
+        <div style="{{ core.wrapStyle }}" onClick="{{ core.onToggle }}">
+          <div style="{{ core.restStyle }}">
+            <div style="{{ coreLabelStyle }}">{{ core.kicker }}</div>
+            <div style="font-size:27px;font-weight:500;letter-spacing:-0.03em;margin:8px 0 5px;font-variant-numeric:tabular-nums;white-space:nowrap">{{ core.amount }}</div>
+            <div style="font-size:11.5px;color:var(--s-text-dim);white-space:nowrap">{{ core.meta }}</div>
+          </div>
+          <div style="{{ core.openStyle }}">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+              <div>
+                <div style="{{ coreLabelStyle }}">{{ core.kicker }}</div>
+                <div style="font-size:32px;font-weight:500;letter-spacing:-0.03em;margin-top:6px;font-variant-numeric:tabular-nums">{{ core.amount }}</div>
+                <div style="font-size:11px;color:var(--s-text-faint);margin-top:3px">{{ core.meta }}</div>
+              </div>
+              <i class="ph ph-x" style="{{ closeIconStyle }}"></i>
+            </div>
+            <div style="font-size:12px;color:var(--s-text-dim);margin:14px 0 6px;line-height:1.55">{{ core.explain }}</div>
+            <div style="{{ listStyle }}">
+              <sc-for list="{{ core.items }}" as="it" hint-placeholder-count="6">
+                <div style="{{ rowStyle }}">
+                  <span style="opacity:0.92">{{ it.label }}</span>
+                  <span style="color:var(--s-text-dim);white-space:nowrap;font-variant-numeric:tabular-nums">{{ it.value }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+
+        <sc-for list="{{ objects }}" as="o" hint-placeholder-count="5">
+          <div style="{{ o.wrapStyle }}" onClick="{{ o.onToggle }}">
+            <div style="{{ o.restStyle }}">
+              <div style="display:flex;align-items:center;gap:8px">
+                <div style="{{ o.dotStyle }}"><i class="{{ o.icon }}" style="{{ o.iconColorStyle }}"></i></div>
+                <span style="font-size:11.5px;letter-spacing:0.02em;color:var(--s-text-dim);white-space:nowrap">{{ o.title }}</span>
+              </div>
+              <div style="display:flex;align-items:baseline;gap:7px;margin-top:7px">
+                <span style="{{ o.amountStyle }}">{{ o.amount }}</span>
+                <span style="font-size:11px;color:var(--s-text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ o.tag }}</span>
+              </div>
+            </div>
+            <div style="{{ o.openStyle }}">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+                <div style="display:flex;align-items:center;gap:11px">
+                  <div style="{{ o.iconWrapStyle }}"><i class="{{ o.icon }}" style="{{ o.iconBigStyle }}"></i></div>
+                  <div>
+                    <div style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--s-text-dim)">{{ o.title }}</div>
+                    <div style="font-size:27px;font-weight:500;letter-spacing:-0.025em;margin-top:3px;font-variant-numeric:tabular-nums">{{ o.amount }}</div>
+                    <div style="font-size:11px;color:var(--s-text-faint);margin-top:2px">{{ o.meta }}</div>
+                  </div>
+                </div>
+                <i class="ph ph-x" style="{{ closeIconStyle }}"></i>
+              </div>
+              <div style="font-size:12px;color:var(--s-text-dim);margin:14px 0 6px;line-height:1.55">{{ o.explain }}</div>
+              <div style="{{ listStyle }}">
+                <sc-for list="{{ o.items }}" as="it" hint-placeholder-count="3">
+                  <div style="{{ rowStyle }}">
+                    <span style="opacity:0.92">{{ it.label }}</span>
+                    <span style="color:var(--s-text-dim);white-space:nowrap;font-variant-numeric:tabular-nums">{{ it.value }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+
+        <div style="{{ edge.wrapStyle }}" onClick="{{ edge.onToggle }}">
+          <div style="{{ edge.restStyle }}">
+            <span style="{{ edge.pulseStyle }}"></span>
+            {{ edge.meta }}
+          </div>
+          <div style="{{ edge.openStyle }}">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+              <div>
+                <div style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--s-text-dim)">{{ edge.title }}</div>
+                <div style="font-size:24px;font-weight:500;margin-top:4px">{{ edge.amount }}</div>
+              </div>
+              <i class="ph ph-x" style="{{ closeIconStyle }}"></i>
+            </div>
+            <div style="font-size:12px;color:var(--s-text-dim);margin:12px 0 6px;line-height:1.55">{{ edge.explain }}</div>
+            <div style="{{ listStyle }}">
+              <sc-for list="{{ edge.items }}" as="it" hint-placeholder-count="3">
+                <div style="{{ rowStyle }}">
+                  <span style="opacity:0.92">{{ it.label }}</span>
+                  <span style="color:var(--s-text-dim);white-space:nowrap">{{ it.value }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="{{ navStyle }}">
+        <sc-for list="{{ tabs }}" as="tb" hint-placeholder-count="4">
+          <div style="{{ tb.wrapStyle }}" onClick="{{ tb.onSelect }}">
+            <div style="{{ tb.iconWrapStyle }}"><i class="{{ tb.icon }}" style="{{ tb.iconStyle }}"></i></div>
+            <span style="{{ tb.labelStyle }}">{{ tb.label }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </x-import>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { theme: 'dark', activeId: null, tab: 'Home' };
+
+  W = 384; H = 646; cx = 192; cy = 286; ring = 190; coreR = 104;
+
+  core_ = {
+    id:'spend', dark:'#f2c14e', light:'#e0940f',
+    kicker:'August spend', amount:'₹52,561.88', meta:'68 transactions · 1–31 Aug',
+    explain:'Only debits that look like real spend. Transfers to your own accounts and investments never enter this number.',
+    items:[
+      {label:'Food & Dining', value:'₹14,230.00'},
+      {label:'Shopping', value:'₹11,800.00'},
+      {label:'Bills & Utilities', value:'₹9,120.00'},
+      {label:'Transport', value:'₹6,450.00'},
+      {label:'Entertainment', value:'₹4,300.00'},
+      {label:'Other', value:'₹6,661.88'},
+      {label:'Recurring inside this', value:'₹6,840.00'},
+      {label:'Possible refunds found', value:'3 · not subtracted'},
+    ],
+  };
+
+  objects_ = [
+    { id:'review', dark:'#ffd977', light:'#e8622f', glow:true, x:286, y:132, w:152, icon:'ph ph-scales',
+      title:'To review', amount:'3', tag:'₹4,200', meta:'3 transactions Sorted is unsure about',
+      explain:"Sorted would rather ask than guess. Tell it what these are and the month re-sorts itself.",
+      items:[
+        {label:'UPI · 998211xxxx', value:'₹1,200'},
+        {label:'IMPS transfer', value:'₹2,000'},
+        {label:'POS purchase', value:'₹1,000'},
+      ]},
+    { id:'merchant', dark:'#f2c14e', light:'#0f8f7a', x:90, y:140, w:152, icon:'ph ph-storefront',
+      title:'Top merchant', amount:'Swiggy', tag:'₹6,200', meta:'14 orders · top of 24 merchants',
+      explain:'Where the month concentrated. Five places hold about a quarter of your spend.',
+      items:[
+        {label:'Swiggy', value:'₹6,200.00'},
+        {label:'Amazon', value:'₹5,800.00'},
+        {label:'Zomato', value:'₹3,100.00'},
+        {label:'BigBasket', value:'₹2,900.00'},
+        {label:'Uber', value:'₹2,400.00'},
+      ]},
+    { id:'category', dark:'#f7f4ea', light:'#7a4fd8', x:100, y:446, w:152, icon:'ph ph-circles-three',
+      title:'Top category', amount:'Food', tag:'27% of spend', meta:'₹14,230 across 41 transactions',
+      explain:'Food and shopping together are about half of this month.',
+      items:[
+        {label:'Food & Dining', value:'₹14,230.00'},
+        {label:'Shopping', value:'₹11,800.00'},
+        {label:'Bills & Utilities', value:'₹9,120.00'},
+        {label:'Transport', value:'₹6,450.00'},
+      ]},
+    { id:'moved', dark:'#f7f4ea', light:'#1f74c7', outside:true, x:108, y:540, w:152, icon:'ph ph-arrows-left-right',
+      title:'Money moved', amount:'₹38,200', tag:'9 transfers', meta:'Held out of spend · still yours',
+      explain:'Transfers between your own accounts, or to people you send money to often. Movement, not spend — so it sits outside the circle.',
+      items:[
+        {label:'To Savings ×3', value:'₹20,000'},
+        {label:'UPI · Dad', value:'₹8,200'},
+        {label:'UPI · Mom', value:'₹10,000'},
+      ]},
+    { id:'invest', dark:'#e7dcc0', light:'#0f9a54', outside:true, x:284, y:470, w:152, icon:'ph ph-chart-line-up',
+      title:'Invested', amount:'₹25,000', tag:'3 orders', meta:'Held out of spend · still yours',
+      explain:'Money into funds and stocks. You still own it, so it never touches spend.',
+      items:[
+        {label:'SIP · Axis Bluechip', value:'₹10,000'},
+        {label:'SIP · Parag Parikh', value:'₹5,000'},
+        {label:'Zerodha · Stocks', value:'₹10,000'},
+      ]},
+  ];
+
+  edge_ = {
+    id:'sources', dark:'#9a9284', light:'#6b6353',
+    title:'Source health', amount:'96 messages read',
+    meta:'84 SMS · 12 Gmail · synced 2m ago',
+    explain:'Sorted reads transaction alerts on this phone only. No bank login, no server, no account.',
+    items:[
+      {label:'SMS', value:'84 parsed · 0 skipped'},
+      {label:'Gmail', value:'12 parsed'},
+      {label:'Last synced', value:'2 minutes ago'},
+    ],
+  };
+
+  tabs_ = [
+    { label:'Home', icon:'ph-fill ph-house' },
+    { label:'Insights', icon:'ph ph-chart-donut' },
+    { label:'Capture', icon:'ph ph-plus', accent:true },
+    { label:'Sources', icon:'ph ph-tray' },
+  ];
+
+  buckets = {
+    dark:  ['#f7f4ea','#ffffff','#f2c14e','#ffd977','#c99a2e','#fff6d6'],
+    light: ['#e8622f','#0f8f7a','#7a4fd8','#1f74c7','#0f9a54','#e0940f'],
+  };
+
+  toggleTheme = () => this.setState(s => ({ theme: s.theme === 'dark' ? 'light' : 'dark' }));
+  toggle = (id) => this.setState(s => ({ activeId: s.activeId === id ? null : id }));
+  clearActive = () => this.setState({ activeId: null });
+  selectTab = (label) => this.setState({ tab: label });
+
+  setCanvasRef = (el) => {
+    if (!el || this.canvasEl === el) return;
+    this.canvasEl = el;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    el.width = this.W * dpr; el.height = this.H * dpr; this.dpr = dpr;
+    this.gather = 1;
+    this.generate();
+    this.start();
+  };
+
+  generate() {
+    const R = 246, list = [];
+    for (let i = 0; i < 2400; i++) {
+      const a0 = Math.random() * Math.PI * 2;
+      const shape = 0.78 + 0.18 * Math.sin(3 * a0 + 1.3) + 0.08 * Math.sin(7 * a0 + 0.4);
+      const maxR = R * shape;
+      const r0 = maxR * Math.pow(Math.random(), 0.55);
+      const edge = Math.min(1, Math.max(0.07, (1 - r0 / maxR) * 2.2));
+      const spark = Math.random() < 0.05;
+      list.push({
+        a0, r0, norm: r0 / maxR,
+        base: (spark ? 0.7 + Math.random() * 0.3 : 0.05 + Math.random() * 0.22) * edge,
+        rad: spark ? 1.2 + Math.random() * 0.9 : 0.45 + Math.random() * 0.85,
+        spark, wob: 1.2 + Math.random() * 3.4,
+        ph: Math.random() * Math.PI * 2, tw: Math.random() * Math.PI * 2,
+        twSpeed: 0.45 + Math.random() * 1.3,
+        bucket: Math.floor(Math.random() * 6),
+      });
+    }
+    this.particles = list;
+  }
+
+  start() {
+    if (this.raf) return;
+    this.t0 = performance.now();
+    const loop = (now) => { this.frame((now - this.t0) / 1000); this.raf = requestAnimationFrame(loop); };
+    this.raf = requestAnimationFrame(loop);
+  }
+  componentWillUnmount() { if (this.raf) cancelAnimationFrame(this.raf); }
+
+  rgb(hex) {
+    this._c = this._c || {};
+    if (this._c[hex]) return this._c[hex];
+    const n = parseInt(hex.slice(1), 16);
+    return (this._c[hex] = `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`);
+  }
+
+  hexOf(id, isDark) {
+    const all = [this.core_, ...this.objects_, this.edge_];
+    const f = all.find(o => o.id === id) || this.core_;
+    return isDark ? f.dark : f.light;
+  }
+
+  frame(t) {
+    if (!this.canvasEl || !this.particles) return;
+    const ctx = this.canvasEl.getContext('2d');
+    const dpr = this.dpr || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, this.W, this.H);
+    const isDark = this.state.theme === 'dark';
+    ctx.globalCompositeOperation = isDark ? 'lighter' : 'source-over';
+    const buckets = isDark ? this.buckets.dark : this.buckets.light;
+    const active = this.state.activeId;
+    const activeRgb = active ? this.rgb(this.hexOf(active, isDark)) : null;
+
+    const gTarget = active ? 0.72 : 1;
+    this.gather += (gTarget - this.gather) * 0.06;
+    const cx = this.cx, cy = this.cy;
+    const speed = isDark ? 0.05 : 0.085;
+    const drift = t * speed;
+    const breathe = 1 + (isDark ? 0.02 : 0.032) * Math.sin(t * (isDark ? 0.4 : 0.62));
+
+    if (!active) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.setLineDash([2, 7]);
+      ctx.strokeStyle = isDark ? 'rgba(247,244,234,0.08)' : 'rgba(35,29,16,0.13)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(cx, cy, this.ring, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+      ctx.globalCompositeOperation = isDark ? 'lighter' : 'source-over';
+    }
+
+    for (const p of this.particles) {
+      const ang = p.a0 + drift * (1.35 - 0.75 * p.norm);
+      const rr = p.r0 * breathe * this.gather;
+      const x = cx + rr * Math.cos(ang) + p.wob * Math.sin(t * 0.52 + p.ph);
+      const y = cy + rr * Math.sin(ang) + p.wob * Math.cos(t * 0.45 + p.ph * 1.3);
+      if (x < -8 || x > this.W + 8 || y < -8 || y > this.H + 8) continue;
+      let alpha = p.base * (0.6 + 0.4 * Math.sin(t * p.twSpeed + p.tw)) * (isDark ? 1 : 2.1);
+      let col = this.rgb(buckets[p.bucket]);
+      let radius = p.rad * (isDark ? 1 : 1.15);
+      if (active) {
+        const d = Math.hypot(x - cx, y - cy);
+        if (d < 150) {
+          const boost = 1 - d / 150;
+          alpha = Math.min(1, alpha + boost * 0.55);
+          col = activeRgb;
+          radius += boost * 0.5;
+        } else { alpha *= 0.35; }
+      }
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(${col},${alpha})`;
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      if (p.spark) {
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(${col},${alpha * 0.1})`;
+        ctx.arc(x, y, radius * 3.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  renderVals() {
+    const isDark = this.state.theme === 'dark';
+    const activeId = this.state.activeId;
+    const vars = isDark ? {
+      '--s-bg':'#000000', '--s-glass':'rgba(255,252,240,0.05)', '--s-glass-2':'rgba(255,252,240,0.09)',
+      '--s-text':'#f7f4ea', '--s-text-dim':'rgba(247,244,234,0.58)', '--s-text-faint':'rgba(247,244,234,0.55)',
+      '--s-border':'rgba(247,244,234,0.12)',
+    } : {
+      '--s-bg':'#fdf8ee', '--s-glass':'rgba(255,255,255,0.78)', '--s-glass-2':'#ffffff',
+      '--s-text':'#221c12', '--s-text-dim':'rgba(34,28,18,0.58)', '--s-text-faint':'rgba(34,28,18,0.42)',
+      '--s-border':'rgba(34,28,18,0.12)',
+    };
+    const accent = isDark ? '#f2c14e' : '#e0940f';
+    const openBox = { left: 15, top: 150, width: this.W - 30 };
+    const blur = 'blur(14px)';
+    const driftName = isDark ? 'sortedDrift' : 'sortedDriftPlay';
+    const radius = isDark ? 16 : 22;
+
+    const shell = (d, rest) => {
+      const active = activeId === d.id;
+      const others = !!activeId && !active;
+      const hex = isDark ? d.dark : d.light;
+      const wrap = active ? {
+        position:'absolute', left:`${openBox.left}px`, top:`${openBox.top}px`, width:`${openBox.width}px`,
+        padding:'18px', borderRadius:`${radius + 6}px`, zIndex:9,
+        background:'var(--s-glass-2)', border:`1px solid color-mix(in srgb, ${hex} 45%, transparent)`,
+        boxShadow:`0 0 44px -8px color-mix(in srgb, ${hex} 38%, transparent), 0 26px 60px rgba(0,0,0,${isDark ? 0.82 : 0.14})`,
+        backdropFilter: blur, WebkitBackdropFilter: blur, cursor:'pointer', overflow:'hidden',
+        transition:'left .5s cubic-bezier(.22,1,.36,1), top .5s cubic-bezier(.22,1,.36,1), width .5s cubic-bezier(.22,1,.36,1), border-radius .45s ease, opacity .35s ease, box-shadow .5s ease',
+      } : {
+        position:'absolute', ...rest.pos, zIndex: rest.z || 2,
+        padding: rest.padding, borderRadius: rest.radius,
+        background: 'var(--s-glass)',
+        border:`1px ${d.outside ? 'dashed' : 'solid'} ${d.glow ? `color-mix(in srgb, ${hex} 46%, transparent)` : 'var(--s-border)'}`,
+        boxShadow: d.glow
+          ? `0 0 28px -6px color-mix(in srgb, ${hex} 50%, transparent)`
+          : (isDark ? 'none' : '0 6px 18px rgba(120,90,20,0.10)'),
+        backdropFilter: blur, WebkitBackdropFilter: blur, cursor:'pointer', overflow:'hidden',
+        opacity: others ? 0.1 : 1,
+        transform: others ? 'scale(0.94)' : 'none',
+        transition:'left .5s cubic-bezier(.22,1,.36,1), top .5s cubic-bezier(.22,1,.36,1), width .5s cubic-bezier(.22,1,.36,1), opacity .45s ease, transform .5s cubic-bezier(.22,1,.36,1), box-shadow .4s ease',
+        animation: others ? 'none' : `${driftName} ${rest.dur}s ease-in-out infinite`,
+        animationDelay: `${rest.delay}s`,
+        pointerEvents: others ? 'none' : 'auto',
+      };
+      return {
+        ...d, active,
+        onToggle: () => this.toggle(d.id),
+        wrapStyle: wrap,
+        restStyle: {
+          display: active ? 'none' : (rest.display || 'block'),
+          textAlign: rest.align || 'left',
+          maxWidth: rest.maxW || 'none',
+          margin: rest.align === 'center' ? '0 auto' : '0',
+        },
+        openStyle: { display: active ? 'block' : 'none', animation:'sortedFade .4s cubic-bezier(.22,1,.36,1) both' },
+        iconColorStyle: { color: hex, fontSize:'12px' },
+        iconBigStyle: { color: hex, fontSize:'19px' },
+        amountStyle: { fontSize:'18px', fontWeight:500, letterSpacing:'-0.015em', fontVariantNumeric:'tabular-nums' },
+        dotStyle: {
+          width:'21px', height:'21px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center',
+          flexShrink:0, background:`color-mix(in srgb, ${hex} ${isDark ? 15 : 16}%, transparent)`,
+          border:`1px solid color-mix(in srgb, ${hex} 34%, transparent)`,
+        },
+        iconWrapStyle: {
+          width:'40px', height:'40px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center',
+          flexShrink:0, background:`color-mix(in srgb, ${hex} 14%, transparent)`,
+          border:`1px solid color-mix(in srgb, ${hex} 32%, transparent)`,
+        },
+      };
+    };
+
+    const core = shell(this.core_, {
+      pos: { left:`${this.cx - this.coreR}px`, top:`${this.cy - this.coreR}px`, width:`${this.coreR * 2}px`, height:`${this.coreR * 2}px` },
+      padding:'0', radius:'50%', z:4, dur: isDark ? 12 : 8, delay:0, align:'center', maxW:'160px',
+    });
+    if (!core.active) {
+      Object.assign(core.wrapStyle, {
+        display:'flex', alignItems:'center', justifyContent:'center',
+        background: isDark
+          ? 'radial-gradient(circle at 50% 38%, rgba(242,193,78,0.12), rgba(255,252,240,0.035) 62%, rgba(255,252,240,0.015))'
+          : 'radial-gradient(circle at 50% 38%, rgba(224,148,15,0.16), rgba(255,255,255,0.94) 62%)',
+        border:`1px solid color-mix(in srgb, ${accent} ${isDark ? 32 : 42}%, transparent)`,
+        boxShadow: isDark
+          ? `0 0 64px -14px color-mix(in srgb, ${accent} 58%, transparent)`
+          : `0 18px 44px -14px color-mix(in srgb, ${accent} 55%, transparent)`,
+      });
+    }
+
+    const objects = this.objects_.map((d, i) => shell(d, {
+      pos: { left:`${Math.round(d.x - d.w / 2)}px`, top:`${d.y - 33}px`, width:`${d.w}px` },
+      padding:'11px 13px', radius:`${radius}px`, dur: (isDark ? 9 : 6) + i, delay: i * 0.7,
+    }));
+
+    const edge = shell(this.edge_, {
+      pos: { left:'34px', top:`${this.H - 46}px`, width:`${this.W - 68}px` },
+      padding:'9px 14px', radius:'999px', dur: isDark ? 14 : 9, delay:1.4, align:'center',
+    });
+    if (!edge.active) {
+      edge.restStyle = {
+        display:'flex', alignItems:'center', justifyContent:'center', gap:'8px',
+        fontSize:'10.5px', letterSpacing:'0.05em', color:'var(--s-text-faint)', whiteSpace:'nowrap',
+      };
+      edge.wrapStyle.opacity = activeId ? 0.1 : 0.9;
+    }
+    edge.pulseStyle = {
+      width:'6px', height:'6px', borderRadius:'50%', flexShrink:0,
+      background: isDark ? '#7fbf9a' : '#0f9a54',
+      boxShadow: isDark ? '0 0 8px 1px rgba(127,191,154,0.6)' : 'none',
+    };
+
+    const tabs = this.tabs_.map(t => {
+      const on = this.state.tab === t.label;
+      return {
+        ...t,
+        onSelect: () => this.selectTab(t.label),
+        wrapStyle: {
+          flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:'3px',
+          padding:'7px 0 3px', cursor:'pointer', minHeight:'52px', justifyContent:'center',
+        },
+        iconWrapStyle: t.accent ? {
+          width:'34px', height:'34px', borderRadius:'12px', display:'flex', alignItems:'center', justifyContent:'center',
+          background:`color-mix(in srgb, ${accent} ${isDark ? 16 : 18}%, transparent)`,
+          border:`1px solid color-mix(in srgb, ${accent} 42%, transparent)`,
+        } : { height:'22px', display:'flex', alignItems:'center' },
+        iconStyle: {
+          fontSize: t.accent ? '17px' : '20px',
+          color: t.accent ? accent : (on ? 'var(--s-text)' : 'var(--s-text-faint)'),
+        },
+        labelStyle: {
+          fontSize:'9.5px', letterSpacing:'0.06em',
+          color: on ? 'var(--s-text)' : 'var(--s-text-faint)',
+        },
+      };
+    });
+
+    return {
+      isDark, core, objects, edge, tabs,
+      monthLabel: 'August 2026',
+      themeIconClass: isDark ? 'ph ph-moon-stars' : 'ph ph-sun',
+      toggleTheme: this.toggleTheme,
+      clearActive: this.clearActive,
+      setCanvasRef: this.setCanvasRef,
+      pageOuterStyle: {
+        minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center',
+        background:'var(--color-bg)', fontFamily:'var(--font-body)', padding:'40px',
+      },
+      appRootStyle: {
+        ...vars, position:'relative', background:'var(--s-bg)', color:'var(--s-text)',
+        height:'100%', fontFamily:'var(--font-body)', padding:'0 14px', overflow:'hidden',
+        display:'flex', flexDirection:'column',
+        transition:'background .45s ease, color .45s ease',
+      },
+      headerStyle: {
+        display:'flex', alignItems:'center', justifyContent:'space-between',
+        padding:'10px 2px 8px', position:'relative', zIndex:10,
+      },
+      markStyle: {
+        width:'20px', height:'20px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center',
+        border:`1px solid color-mix(in srgb, ${accent} 45%, transparent)`,
+        background:`color-mix(in srgb, ${accent} 12%, transparent)`,
+      },
+      markCoreStyle: {
+        width:'7px', height:'7px', borderRadius:'50%', background:accent,
+        boxShadow: isDark ? `0 0 9px 2px color-mix(in srgb, ${accent} 60%, transparent)` : 'none',
+      },
+      monthPillStyle: {
+        fontSize:'10.5px', letterSpacing:'0.09em', textTransform:'uppercase', color:'var(--s-text-dim)',
+        border:'1px solid var(--s-border)', borderRadius:'999px', padding:'5px 10px',
+        background:'var(--s-glass)',
+      },
+      toggleBtnStyle: {
+        width:'32px', height:'32px', borderRadius:'50%', border:'1px solid var(--s-border)',
+        background:'var(--s-glass)', color:'var(--s-text)', display:'flex', alignItems:'center',
+        justifyContent:'center', cursor:'pointer',
+      },
+      stageStyle: { position:'relative', width:`${this.W}px`, height:`${this.H}px`, margin:'0 -1px', flexShrink:0 },
+      canvasStyle: { position:'absolute', left:'0', top:'0', width:`${this.W}px`, height:`${this.H}px`, pointerEvents:'none', zIndex:0 },
+      backdropStyle: {
+        position:'absolute', inset:'-30px', zIndex:1,
+        background: activeId ? (isDark ? 'rgba(0,0,0,0.55)' : 'rgba(253,248,238,0.55)') : 'transparent',
+        opacity: activeId ? 1 : 0, pointerEvents: activeId ? 'auto' : 'none',
+        transition:'opacity .4s ease, background .4s ease',
+      },
+      coreLabelStyle: {
+        fontSize:'9.5px', letterSpacing:'0.2em', textTransform:'uppercase', fontWeight:500,
+        color:`color-mix(in srgb, ${accent} ${isDark ? 88 : 100}%, var(--s-text))`,
+      },
+      navStyle: {
+        marginTop:'auto', display:'flex', alignItems:'stretch',
+        borderTop:'1px solid var(--s-border)', paddingBottom:'4px',
+        background: isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.7)',
+        backdropFilter:'blur(12px)', WebkitBackdropFilter:'blur(12px)',
+        margin:'0 -14px', position:'relative', zIndex:10,
+      },
+      closeIconStyle: { fontSize:'15px', color:'var(--s-text-dim)', flexShrink:0, cursor:'pointer' },
+      listStyle: { maxHeight:'236px', overflowY:'auto' },
+      rowStyle: {
+        display:'flex', justifyContent:'space-between', gap:'10px', padding:'7px 0',
+        borderTop:'1px solid var(--s-border)', fontSize:'12.5px',
+      },
+    };
+  }
+}
+</script>
+</body>
+</html>

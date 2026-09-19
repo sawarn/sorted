@@ -31,10 +31,16 @@ The north star:
 
 ### Design
 
-- Dark mode: pitch black, premium, quiet, yellow spectrum highlights.
-- Light mode: expressive, colorful, playful, different personality from dark mode.
-- Bottom navigation remains: Home, Insights, Capture, Sources.
-- Settings stays at top right.
+- Governing philosophy: Sorted is a private money tape.
+- Dark mode: pitch black or deep ink-black, premium, quiet, yellow spectrum highlights.
+- Light mode: warm paper, expressive but still tape-native.
+- UI language: printed lines, day dividers, stamps, amendments, close-out totals, source metadata, and tape indexes.
+- Home is the live monthly tape, not a generic dashboard.
+- Insights is the tape indexed and explained.
+- Capture is adding a missing line.
+- Rules are saved stamps.
+- Settings is local device, privacy, source, export, and permission control.
+- Bottom navigation can remain for one-handed Android use, but it should feel like a tape index rather than generic app chrome.
 
 ## Feature 1: Sort Inbox
 

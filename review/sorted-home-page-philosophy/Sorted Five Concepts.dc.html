@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/nocturne-705cd29e-b9b5-4ee3-9365-975cd1ccc3ab/styles.css">
+  <script src="_ds/nocturne-705cd29e-b9b5-4ee3-9365-975cd1ccc3ab/_ds_bundle.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+  <style>
+    * { box-sizing: border-box; }
+    a { color: var(--color-accent-300); }
+    a:hover { color: var(--color-accent); }
+  </style>
+</helmet>
+<div style="background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);min-height:100vh;padding:56px 24px 88px">
+  <div style="max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:var(--space-8)">
+
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:var(--color-accent-300)">Sorted · five concepts</div>
+      <h1 style="font-family:var(--font-heading);font-weight:500;font-size:40px;line-height:1.1;letter-spacing:-0.02em;margin:0;text-wrap:pretty">Five ways the app could be organized</h1>
+      <p style="margin:0;max-width:62ch;color:var(--color-neutral-300);font-size:15px;line-height:1.6;text-wrap:pretty">Each concept picks a different organizing axis for money — state, chronology, physical sorting, language, and place. Navigation, home screen and history follow from that choice rather than from finance-app convention.</p>
+    </div>
+
+    <div style="height:1px;background:linear-gradient(90deg,transparent,var(--color-neutral-700) 48px,var(--color-neutral-700) calc(100% - 48px),transparent)"></div>
+
+    <sc-for list="{{ concepts }}" as="c" hint-placeholder-count="5">
+      <section style="display:flex;flex-direction:column;gap:var(--space-6)">
+        <div style="display:flex;align-items:flex-start;gap:16px">
+          <div style="{{ c.numStyle }}">{{ c.num }}</div>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:9px">
+            <h2 style="font-family:var(--font-heading);font-weight:500;font-size:28px;line-height:1.12;letter-spacing:-0.015em;margin:0">{{ c.name }}</h2>
+            <p style="{{ c.thesisStyle }}">{{ c.thesis }}</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">
+              <div style="{{ c.axisStyle }}">Organizing axis · {{ c.axis }}</div>
+              <div style="{{ c.riskLevelStyle }}">{{ c.riskLevel }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:1px;background:var(--color-neutral-700);border:1px solid var(--color-neutral-700);border-radius:var(--radius-md);overflow:hidden">
+          <sc-for list="{{ c.facets }}" as="f" hint-placeholder-count="9">
+            <div style="background:var(--color-bg);padding:var(--space-4) var(--space-4) var(--space-6)">
+              <div style="display:flex;align-items:center;gap:7px;margin-bottom:7px">
+                <i class="{{ f.icon }}" style="font-size:14px;color:var(--color-accent)"></i>
+                <span style="font-size:11.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--color-neutral-300)">{{ f.label }}</span>
+              </div>
+              <div style="font-size:13.5px;line-height:1.6;color:var(--color-neutral-100);text-wrap:pretty">{{ f.text }}</div>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="border-left:2px solid var(--color-accent);padding:3px 0 3px var(--space-4)">
+          <div style="font-size:11.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--color-accent-300);margin-bottom:5px">Emotional register</div>
+          <div style="font-size:14.5px;line-height:1.6;color:var(--color-neutral-100);text-wrap:pretty">{{ c.feeling }}</div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px">
+          <sc-for list="{{ c.closers }}" as="z" hint-placeholder-count="4">
+            <div style="{{ z.wrapStyle }}">
+              <div style="{{ z.labelStyle }}">{{ z.label }}</div>
+              <div style="font-size:13.5px;line-height:1.6;color:var(--color-neutral-100);text-wrap:pretty">{{ z.text }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+    </sc-for>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:940,&quot;height&quot;:1400}}">
+class Component extends DCLogic {
+  facetIcons = {
+    'Visual style':'ph ph-square-half',
+    'Navigation model':'ph ph-squares-four',
+    'Home screen':'ph ph-house',
+    'Transaction history':'ph ph-list-dashes',
+    'Categorization':'ph ph-tag',
+    'Uncertainty & review':'ph ph-seal-question',
+    'Explaining totals':'ph ph-function',
+    'What makes it unlike a finance app':'ph ph-compass-tool',
+  };
+
+  raw = [
+    {
+      num:'01', name:'Inbox', accent:'#f2c14e', axis:'State',
+      riskLevel:'Familiar mechanics, unfamiliar for finance',
+      thesis:'Money is mail: every transaction arrives unread, gets triaged, and ends up filed — so the app\u2019s core verb is clearing, not browsing.',
+      facets:{
+        'Visual style':'Dense, black, text-first. No cards, no charts, hairline separators, one amber accent for unread state and the running total. Rows are 64px so a swipe is comfortable. Type does all the work: merchant at 16, amount tabular at 16 on the right edge, reason in 11px grey underneath.',
+        'Navigation model':'No tab bar. A single stack with one segmented control at the top: Unread · Filed · Excluded. Everything else is a swipe or a long-press. Search is permanent in the header, because in an inbox search replaces navigation.',
+        'Home screen':'The unread queue, newest first, with a slim header showing "August · ₹52,561.88 · 14 unread". Each row is a parsed transaction with Sorted\u2019s guess already applied; the user swipes right to accept, left to correct, or taps to see the raw SMS. Zero unread is a real destination, and the app says so.',
+        'Transaction history':'Filed mail. A month is a folder; a merchant is a saved search. History is reached by searching or by opening a month folder, never by endless scrolling — the assumption is that the user only revisits transactions with a question in mind.',
+        'Categorization':'A filing action, not a property. Correcting a row offers three guessed labels plus "file as…", and every correction asks once whether it should become a rule ("always file Swiggy under Food"). Rules are visible as a list of filters, exactly like mail rules.',
+        'Uncertainty & review':'Uncertainty is unread. There is no separate review inbox because the whole app is one — an item Sorted is unsure about simply arrives with a hollow dot and no pre-applied guess, so it cannot be cleared without a decision.',
+        'Explaining totals':'The header total is a link to a computed view: included, excluded, unread-at-risk, each as a sub-folder with its own count and sum. Every number in that view is itself a folder you can open.',
+        'What makes it unlike a finance app':'It has an end state. Finance apps are infinite feeds you graze; this one can be finished, which converts anxiety into a task with a completion.',
+      },
+      feeling:'Productive calm. The satisfaction of an empty queue, applied to money — reassuring precisely because it is unglamorous.',
+      closers:[
+        { label:'Strengths', text:'Learning curve near zero. Makes correction the default interaction, which is exactly what improves the local model. Scales to thousands of transactions without redesign, and works on day one with three messages.', tone:'accent' },
+        { label:'Risks', text:'Can feel like chores. Users who fall behind face a large unread count and may abandon. Offers little at-a-glance understanding for someone who never wants to triage.', tone:'neutral' },
+        { label:'Best for', text:'The organized, mildly obsessive user who already keeps their email at zero and wants control over their own data rather than insight handed to them.', tone:'neutral' },
+      ],
+    },
+    {
+      num:'02', name:'Tape', accent:'#e7dcc0', axis:'Chronology, as a physical object',
+      riskLevel:'Bold — one metaphor carries the whole product',
+      thesis:'The app is one continuous receipt printed by the phone, where every total is printed in place at the moment it was computed.',
+      facets:{
+        'Visual style':'A single vertical paper tape on a dark desk, 320px wide, with torn edges and a faint fibre texture. Monospaced amounts, small caps merchant names, dot-matrix-adjacent numerals used sparingly. Ink is off-white; the accent is a red-brown stamp reserved for corrections and flags. Nothing floats and nothing is a card.',
+        'Navigation model':'Vertical scroll is the only primary navigation — the tape is the app. A thin edge scrubber on the right jumps by month. Two secondary sheets pull up from the bottom: Add (manual entry) and Sources. There is no tab bar at all.',
+        'Home screen':'The live end of the tape: today at the bottom, the month\u2019s running subtotal printed above it, and the last few transactions between. Pull down and the tape feeds upward through previous days; each day boundary is a printed rule with the day\u2019s sum. The month total is printed as a stamped block, the way a till prints a close-out.',
+        'Transaction history':'It is literally all history, one object, scrollable back to the first message ever parsed. Because the tape is append-only and chronological, the user never has to learn where anything lives — older is up.',
+        'Categorization':'Printed as a stamp beside each line, in small caps. Correcting re-stamps the line and leaves the original visible as struck-through text, so the tape keeps its amendment history — corrections are additive, never silent overwrites.',
+        'Uncertainty & review':'An unsure line prints with a blank stamp field and a marginal query mark. Unparsed messages print as a short faded line saying what could not be read, so gaps in coverage appear in the tape rather than being hidden.',
+        'Explaining totals':'This is the concept\u2019s native strength: a printed total is preceded by its own summation block — included lines, excluded lines with reasons, adjustments — exactly as a paper till roll would show it. Tapping any line in the block scrolls the tape to that transaction.',
+        'What makes it unlike a finance app':'It is an append-only audit document, not a queryable database view. Nothing is ever recomputed behind the user\u2019s back; the history of the app\u2019s own thinking is part of the artifact.',
+      },
+      feeling:'Forensic and oddly comforting. The reassurance of a paper trail in an app that promises nothing left its device.',
+      closers:[
+        { label:'Strengths', text:'Total-explanation is native rather than bolted on. Extremely distinctive and instantly screenshot-recognisable. Strong fit with the privacy promise, since a receipt is a local, physical thing.', tone:'accent' },
+        { label:'Risks', text:'Weak at answering aggregate questions — "how much on food this year" is unnatural on a tape. Skeuomorphism dates quickly and can read as gimmick. Long scrolls need careful performance work.', tone:'neutral' },
+        { label:'Best for', text:'The user who does not trust software with their money story and wants evidence — freelancers, small-business owners, anyone who keeps receipts.', tone:'neutral' },
+      ],
+    },
+    {
+      num:'03', name:'Workbench', accent:'#7fbf9a', axis:'Manual sorting, spatial',
+      riskLevel:'Bold — interaction-led rather than layout-led',
+      thesis:'Sorting money should be something you do with your hands: unsorted transactions arrive as a stack, and you deal them into labelled trays.',
+      facets:{
+        'Visual style':'A shallow tactile surface. Transactions are small physical chits with a slight shadow and a real sense of mass; trays are shallow open wells at the bottom of the screen. Muted, warm and matte in light mode; in dark mode the same objects in near-black with a thin luminous rim. Motion is the styling.',
+        'Navigation model':'Two planes rather than tabs. The sorting plane (the bench) and the shelf plane (sorted trays, totals, sources), swapped by a single upward drag. Direct manipulation carries almost everything: drag to sort, flick to defer, two-finger pinch to see the whole bench at once.',
+        'Home screen':'The bench. A stack of unsorted chits sits centre; six trays line the bottom edge — Spend, Moved, Invested, Refund, Income, Not a transaction. Sorted has already nudged each chit toward the tray it believes in, shown as a faint pull line, so the user is confirming physics rather than filling a form. The month total sits on the shelf above, quietly updating as chits land.',
+        'Transaction history':'Trays, not lists. Opening a tray pours its contents out as a grid of chits, densest first; a tray is heavy when it holds a lot, and shows it. Time is a secondary filter on the shelf, because this concept organizes by kind first.',
+        'Categorization':'The core act. Category is where a chit physically ended up, so classification is never a hidden field — it is a place. Dropping several chits into a tray together offers to make a rule from what they share.',
+        'Uncertainty & review':'Unsure chits are the ones with no pull line: they sit loose on the bench and cannot be cleared by the auto-sort gesture. Nothing warns, nothing flashes — the sorting job is simply not finished while they are still on the surface.',
+        'Explaining totals':'Totals live on the shelf as weighted plates, one per tray. Tapping a plate lifts the tray it came from so the user sees the actual chits summed. Excluded types are visibly separate trays, so "why isn\u2019t this in my spend" answers itself.',
+        'What makes it unlike a finance app':'The user does the categorizing as a physical act, so the model becomes theirs. Most finance apps hide classification in a settings-like edit screen; here it is the main verb and the main pleasure.',
+      },
+      feeling:'Playful control. Tidying a drawer rather than reviewing a statement — the rare finance interaction someone might do for fun.',
+      closers:[
+        { label:'Strengths', text:'Generates enormous high-quality correction data, which directly improves local learning. Deeply memorable and hard to copy. Makes exclusions intuitive because they are separate physical places.', tone:'accent' },
+        { label:'Risks', text:'Gesture-heavy, so accessibility and one-handed use need real work. Does not scale — 400 chits is a mess, requiring auto-sort to do most of the job and undercutting the metaphor. Weak for the user who wants only a number.', tone:'neutral' },
+        { label:'Best for', text:'The hands-on user who enjoys organizing and distrusts automatic categorization — and anyone who has ever manually re-labelled a whole month in another app.', tone:'neutral' },
+      ],
+    },
+    {
+      num:'04', name:'Dispatch', accent:'#9184d9', axis:'Language',
+      riskLevel:'Safe surface, bold content model',
+      thesis:'The app writes, not charts: each month is a short written brief about your money, and every sentence is a link to the transactions that justify it.',
+      facets:{
+        'Visual style':'An editorial reading surface. Generous measure, real paragraph rhythm, a serif-adjacent heading voice against a clean body face, no containers at all. Numbers are set inline in the accent so the eye finds them within prose. Feels like a well-set briefing document, not a UI.',
+        'Navigation model':'A reading stack. The month brief is the root; every underlined number pushes a detail view; back returns to the exact sentence. One persistent control — the month selector — plus a search field that answers questions in sentences rather than filters.',
+        'Home screen':'This month\u2019s brief, 120 words, regenerated as data arrives. "You spent ₹52,561.88 across 68 transactions in August. Food took the largest share at 27%, mostly Swiggy. ₹63,200 moved without being spent. Three transactions are still unclear." Every figure is tappable. Under the brief, three short follow-on paragraphs: what changed, what repeats, what needs you.',
+        'Transaction history':'Reached through sentences. History is not a browsable feed but the evidence behind any claim — tapping "68 transactions" or "mostly Swiggy" opens exactly the list that sentence describes. A plain chronological list exists, one tap away, for when the user wants the raw thing.',
+        'Categorization':'Named in prose and corrected inline. Tapping a category word in the brief opens its transactions; correcting one there re-writes the brief in front of the user, which makes the consequence of a correction legible in a way a list never does.',
+        'Uncertainty & review':'Stated in words, with hedging that is honest rather than decorative: "I think this ₹1,200 UPI payment was food, but the merchant name was blank." Sorted uses first person for its own guesses and drops the hedge once the user confirms — the writing voice is the confidence indicator.',
+        'Explaining totals':'The whole product is total-explanation. The brief is the explanation; the lists are the footnotes. A dedicated "how this was computed" paragraph spells out inclusions, exclusions and coverage in ordinary sentences.',
+        'What makes it unlike a finance app':'It replaces visualization with argument. Charts show shape and leave interpretation to the user; a brief makes a claim and shows its evidence, which is what someone actually wanted from the chart.',
+      },
+      feeling:'Being briefed by a discreet analyst. Quiet, articulate, faintly flattering — and legible in five seconds.',
+      closers:[
+        { label:'Strengths', text:'Highest comprehension per second of the five. Works beautifully on low data, because two sentences are a complete product. Naturally accessible, and the honest hedging builds trust directly.', tone:'accent' },
+        { label:'Risks', text:'Template writing goes stale fast and must never sound wrong — one badly-generated claim costs more trust than a bad chart. Poor fit for browsing or exploratory questions. Localisation is a real cost.', tone:'neutral' },
+        { label:'Best for', text:'The busy, literate user who wants to understand their month in one read and will only dig in when a sentence surprises them.', tone:'neutral' },
+      ],
+    },
+    {
+      num:'05', name:'Haunts', accent:'#d98b6a', axis:'Place and merchant identity',
+      riskLevel:'Bold — abandons time as the primary axis',
+      thesis:'People remember places, not dates: organize money by where it went, and the month becomes recognisable without being read.',
+      facets:{
+        'Visual style':'Portrait-led. Each merchant is a large rounded tile carrying its own derived identity — a letterform on a colour drawn from the merchant name so it is stable forever — sized by spend. Deep near-black ground in dark mode; in light mode the tiles carry saturated colour and the ground goes warm off-white. Almost no chrome.',
+        'Navigation model':'Zoom levels rather than tabs. Level one is your places this month; level two is one place; level three is one transaction. Pinch or tap to descend, swipe down to rise. A single filter rail switches the lens between Places, Kinds and Months.',
+        'Home screen':'A packed field of merchant tiles, biggest spend largest, arranged by frequency rather than chronology — so the month looks like the places you actually went. A quiet strip at the top holds the month total and the count of unclear items. Recognition, not reading, is the first interaction.',
+        'Transaction history':'Nested under the place. A merchant tile opens to every transaction with that merchant across all time, with a small frequency strip showing the rhythm of visits. Chronological history exists as a lens switch, not as the default view.',
+        'Categorization':'A property of the place, not the transaction. Each merchant holds one category, so correcting Swiggy once corrects every Swiggy transaction — which matches how people think and makes local learning feel immediate and obviously worthwhile.',
+        'Uncertainty & review':'Unknown-merchant transactions are the one thing that cannot be a tile, so they collect in a distinct unnamed tile at the field\u2019s edge: "3 without a name". Naming one dissolves it into a real place, which is a genuinely satisfying resolution.',
+        'Explaining totals':'The month total decomposes into tiles — the field is the explanation, by area. A held-out band sits below the field for transfers and investments, so what is not spend is visibly outside the picture.',
+        'What makes it unlike a finance app':'It indexes money by identity rather than by time or category. No statement or budget app makes "where you are a regular" the primary structure, yet that is how most people recall their spending.',
+      },
+      feeling:'Recognition. Slightly revealing — you see your habits as a portrait before any number is read.',
+      closers:[
+        { label:'Strengths', text:'Instantly legible without literacy in charts or dates. Merchant-level correction is the highest-leverage fix in the whole product and this makes it the default. Highly distinctive and personal, since every user\u2019s field looks different.', tone:'accent' },
+        { label:'Risks', text:'Depends entirely on good merchant extraction; poor parsing shows as a field of unnamed tiles. Time-based questions are awkward. Long-tail one-off merchants create visual noise that needs a grouping rule.', tone:'neutral' },
+        { label:'Best for', text:'The habitual urban spender with a stable set of regular merchants — food delivery, rides, groceries — for whom the month really is a set of places.', tone:'neutral' },
+      ],
+    },
+  ];
+
+  renderVals() {
+    const concepts = this.raw.map(c => ({
+      ...c,
+      numStyle: {
+        width:'50px', height:'50px', flexShrink:0, borderRadius:'var(--radius-md)',
+        display:'flex', alignItems:'center', justifyContent:'center',
+        fontFamily:'var(--font-heading)', fontSize:'16px', fontWeight:500, letterSpacing:'0.03em',
+        fontVariantNumeric:'tabular-nums', color:c.accent,
+        background:`color-mix(in srgb, ${c.accent} 12%, transparent)`,
+        border:`1px solid color-mix(in srgb, ${c.accent} 38%, transparent)`,
+      },
+      thesisStyle: {
+        margin:'0', maxWidth:'62ch', fontSize:'16.5px', lineHeight:1.5,
+        color:'var(--color-neutral-100)', textWrap:'pretty',
+      },
+      axisStyle: {
+        fontSize:'11px', letterSpacing:'0.08em', textTransform:'uppercase',
+        color:c.accent, border:`1px solid color-mix(in srgb, ${c.accent} 34%, transparent)`,
+        background:`color-mix(in srgb, ${c.accent} 8%, transparent)`,
+        borderRadius:'999px', padding:'5px 11px',
+      },
+      riskLevelStyle: {
+        fontSize:'11px', letterSpacing:'0.06em', color:'var(--color-neutral-300)',
+        border:'1px solid var(--color-neutral-700)', borderRadius:'999px', padding:'5px 11px',
+      },
+      facets: Object.keys(c.facets).map(k => ({
+        label:k, text:c.facets[k], icon:this.facetIcons[k] || 'ph ph-circle',
+      })),
+      closers: c.closers.map(z => ({
+        ...z,
+        wrapStyle: {
+          border:'1px solid var(--color-neutral-700)', borderRadius:'var(--radius-md)',
+          padding:'var(--space-4)',
+          background: z.tone === 'accent' ? 'var(--color-neutral-900)' : 'transparent',
+        },
+        labelStyle: {
+          fontSize:'11.5px', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:'6px',
+          color: z.tone === 'accent' ? c.accent : 'var(--color-neutral-400)',
+        },
+      })),
+    }));
+    return { concepts };
+  }
+}
+</script>
+</body>
+</html>

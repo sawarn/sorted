@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/nocturne-705cd29e-b9b5-4ee3-9365-975cd1ccc3ab/styles.css">
+  <script src="_ds/nocturne-705cd29e-b9b5-4ee3-9365-975cd1ccc3ab/_ds_bundle.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+  <style>
+    @keyframes sortedBreathe { 0%,100% { opacity:0.5; transform:scale(1); } 50% { opacity:0.95; transform:scale(1.18); } }
+    @keyframes sortedRise { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+    * { box-sizing: border-box; }
+  </style>
+</helmet>
+<div style="{{ pageOuterStyle }}">
+  <x-import component-from-global-scope="AndroidDevice" from="./android-frame.jsx" dark="{{ isDark }}" hint-size="412px,892px">
+    <div style="{{ appRootStyle }}">
+
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:0 4px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="{{ markStyle }}"></div>
+          <span style="font-size:14px;letter-spacing:0.04em;font-weight:500">Sorted</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--s-text-dim)">On-device</span>
+          <button style="{{ toggleBtnStyle }}" onClick="{{ toggleTheme }}">
+            <i class="{{ themeIconClass }}" style="font-size:16px"></i>
+          </button>
+        </div>
+      </div>
+
+      <div style="{{ clusterWrapStyle }}">
+        <canvas ref="{{ setCanvasRef }}" width="320" height="330" style="{{ canvasStyle }}"></canvas>
+        <div style="{{ centerGlowStyle }}"></div>
+        <div style="{{ centerTextStyle }}">
+          <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--s-text-dim)">{{ monthLabel }}</div>
+          <div style="font-size:34px;font-weight:500;letter-spacing:-0.025em;margin-top:6px;font-variant-numeric:tabular-nums">{{ heroTotal }}</div>
+          <div style="width:34px;height:1px;background:var(--s-hairline);margin:10px auto"></div>
+          <div style="font-size:11px;color:var(--s-text-dim);max-width:132px;line-height:1.45">{{ heroNote }}</div>
+        </div>
+        <sc-for list="{{ points }}" as="pt" hint-placeholder-count="10">
+          <div style="{{ pt.hotStyle }}" onClick="{{ pt.onToggle }}">
+            <div style="{{ pt.beadStyle }}"></div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:center;gap:6px;font-size:11px;letter-spacing:0.04em;color:var(--s-text-dim)">
+        <i class="ph ph-hand-tap" style="font-size:13px"></i>
+        {{ hintText }}
+      </div>
+
+      <div style="{{ panelStyle }}">
+        <div style="{{ handleStyle }}"></div>
+        <sc-if value="{{ activePoint }}" hint-placeholder-val="{{ false }}">
+          <div style="{{ panelBodyStyle }}">
+            <div style="display:flex;align-items:flex-start;gap:12px">
+              <div style="{{ activePoint.iconWrapStyle }}"><i class="{{ activePoint.icon }}" style="{{ activePoint.iconColorStyle }}"></i></div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--s-text-dim)">{{ activePoint.title }}</div>
+                <div style="font-size:24px;font-weight:500;margin-top:3px;letter-spacing:-0.02em;font-variant-numeric:tabular-nums">{{ activePoint.amount }}</div>
+                <div style="font-size:11.5px;color:var(--s-text-dim);margin-top:3px">{{ activePoint.meta }}</div>
+              </div>
+              <button style="{{ closeBtnStyle }}" onClick="{{ clearActive }}"><i class="ph ph-x" style="font-size:13px"></i></button>
+            </div>
+            <div style="font-size:12px;color:var(--s-text-dim);margin:14px 0 8px;line-height:1.55">{{ activePoint.explain }}</div>
+            <sc-for list="{{ activePoint.items }}" as="it" hint-placeholder-count="3">
+              <div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--s-border);font-size:12.5px">
+                <span style="opacity:0.92">{{ it.label }}</span>
+                <span style="color:var(--s-text-dim);white-space:nowrap;font-variant-numeric:tabular-nums">{{ it.value }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ noActivePoint }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="font-size:12.5px;line-height:1.55">Every point above is one truth behind this number.</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <sc-for list="{{ points }}" as="pt" hint-placeholder-count="6">
+                <div style="{{ pt.chipStyle }}" onClick="{{ pt.onToggle }}">
+                  <span style="{{ pt.chipDotStyle }}"></span>{{ pt.title }}
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+
+      <div style="display:flex;justify-content:center;gap:14px;font-size:10.5px;color:var(--s-text-faint);letter-spacing:0.05em">
+        <span>96 messages read</span><span>·</span><span>Synced 2m ago</span><span>·</span><span>Nothing uploaded</span>
+      </div>
+    </div>
+  </x-import>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { theme: 'dark', activeId: null };
+
+  cx = 160; cy = 158; R = 148;
+
+  hueHex = {
+    dark: { spend:'#f2c14e', income:'#f7f3e6', moved:'#e0b03c', invest:'#fff8dd', recurring:'#c99a2e', refund:'#ffe08a' },
+    light: { spend:'#c58a12', income:'#3b3524', moved:'#d9a318', invest:'#8a6b10', recurring:'#e0b03c', refund:'#a67c1a' },
+  };
+  bucketHues = {
+    dark: ['#f7f4ea','#ffffff','#f2c14e','#ffd977','#c99a2e','#fff6d6'],
+    light: ['#2a2418','#4a4028','#c58a12','#d9a318','#8a6b10','#3b3524'],
+  };
+
+  rawPoints = [
+    { id:'review', hue:'refund', angle:15, rFrac:0.78, small:true, icon:'ph ph-warning-circle',
+      title:'Needs a look', amount:'3', meta:'transactions to review',
+      explain:"We're not confident about these yet. Tell Sorted what they are and the month re-sorts itself.",
+      items:[
+        {label:'UPI · 998211xxxx', value:'₹1,200 — no merchant'},
+        {label:'IMPS transfer', value:'₹2,000 — spend or transfer?'},
+        {label:'POS purchase', value:'₹1,000 — category unclear'},
+      ]},
+    { id:'income', hue:'income', angle:38, rFrac:0.5, icon:'ph ph-trend-up',
+      title:'Income', amount:'₹1,10,000', meta:'2 credits',
+      explain:'Credits recognized as salary or client payments.',
+      items:[
+        {label:'Salary · Aug 1', value:'₹95,000.00'},
+        {label:'Freelance payment', value:'₹15,000.00'},
+      ]},
+    { id:'moved', hue:'moved', angle:98, rFrac:0.58, icon:'ph ph-arrows-left-right',
+      title:'Money moved', amount:'₹38,200', meta:'9 transfers',
+      explain:'Transfers between your own accounts or to people you send money to often. Never counted as spend.',
+      items:[
+        {label:'To Savings ×3', value:'₹20,000.00'},
+        {label:'UPI · Dad', value:'₹8,200.00'},
+        {label:'UPI · Mom', value:'₹10,000.00'},
+      ]},
+    { id:'sources', hue:'moved', angle:138, rFrac:0.8, small:true, icon:'ph ph-tray',
+      title:'Sources', amount:'96', meta:'messages & emails read',
+      explain:'Sorted reads transaction alerts on your phone. Nothing is uploaded — everything stays local.',
+      items:[
+        {label:'SMS', value:'84 messages parsed'},
+        {label:'Gmail', value:'12 emails parsed'},
+        {label:'Last synced', value:'2 minutes ago'},
+      ]},
+    { id:'recurring', hue:'recurring', angle:168, rFrac:0.63, icon:'ph ph-repeat',
+      title:'Recurring', amount:'₹6,840', meta:'6 subscriptions',
+      explain:'Bills and subscriptions that repeat monthly at about the same amount. Already inside spend.',
+      items:[
+        {label:'Rent contribution', value:'₹2,854.00'},
+        {label:'Gym membership', value:'₹1,500.00'},
+        {label:'Broadband', value:'₹1,499.00'},
+        {label:'Netflix', value:'₹649.00'},
+        {label:'iCloud+', value:'₹219.00'},
+        {label:'Spotify', value:'₹119.00'},
+      ]},
+    { id:'refunds', hue:'refund', angle:208, rFrac:0.69, icon:'ph ph-arrow-counter-clockwise',
+      title:'Refunds', amount:'₹3,412', meta:'3 credits',
+      explain:"Credits from merchants you'd already spent with. Netted against spend automatically.",
+      items:[
+        {label:'IndiGo · cancelled flight', value:'₹2,000.00'},
+        {label:'Amazon · order #4471', value:'₹1,200.00'},
+        {label:'Swiggy · refund', value:'₹212.00'},
+      ]},
+    { id:'spend', hue:'spend', angle:252, rFrac:0.13, icon:'ph ph-wallet',
+      title:'Total spend', amount:'₹52,561.88', meta:'68 transactions',
+      explain:'Debits tagged as real spend. Transfers, investments and refunds are held out so this number stays honest.',
+      items:[
+        {label:'Food & Dining', value:'₹14,230.00'},
+        {label:'Shopping', value:'₹11,800.00'},
+        {label:'Bills & Utilities', value:'₹9,120.00'},
+        {label:'Transport', value:'₹6,450.00'},
+        {label:'Entertainment', value:'₹4,300.00'},
+        {label:'Other', value:'₹6,661.88'},
+      ]},
+    { id:'merchants', hue:'spend', angle:68, rFrac:0.75, icon:'ph ph-storefront',
+      title:'Top merchant', amount:'Swiggy', meta:'₹6,200 · top of 24',
+      explain:'Ranked by total spend this month, across 24 merchants.',
+      items:[
+        {label:'Swiggy', value:'₹6,200.00'},
+        {label:'Amazon', value:'₹5,800.00'},
+        {label:'Zomato', value:'₹3,100.00'},
+        {label:'BigBasket', value:'₹2,900.00'},
+        {label:'Uber', value:'₹2,400.00'},
+      ]},
+    { id:'categories', hue:'invest', angle:298, rFrac:0.71, icon:'ph ph-chart-pie',
+      title:'Top category', amount:'Food & Dining', meta:'₹14,230 · top of 6',
+      explain:'How this month\u2019s spend splits across 6 categories.',
+      items:[
+        {label:'Food & Dining', value:'₹14,230.00'},
+        {label:'Shopping', value:'₹11,800.00'},
+        {label:'Bills & Utilities', value:'₹9,120.00'},
+        {label:'Transport', value:'₹6,450.00'},
+      ]},
+    { id:'invest', hue:'invest', angle:328, rFrac:0.48, icon:'ph ph-chart-line-up',
+      title:'Investments', amount:'₹25,000', meta:'3 orders',
+      explain:"Money moved into funds and stocks. It's still yours, so it stays out of spend.",
+      items:[
+        {label:'SIP · Axis Bluechip', value:'₹10,000.00'},
+        {label:'SIP · Parag Parikh Flexi', value:'₹5,000.00'},
+        {label:'Zerodha · Stocks', value:'₹10,000.00'},
+      ]},
+  ];
+
+  toggleTheme = () => this.setState(s => ({ theme: s.theme === 'dark' ? 'light' : 'dark' }));
+  toggleExpand = (id) => this.setState(s => ({ activeId: s.activeId === id ? null : id }));
+  clearActive = () => this.setState({ activeId: null });
+
+  setCanvasRef = (el) => {
+    if (!el || this.canvasEl === el) return;
+    this.canvasEl = el;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    el.width = 320 * dpr;
+    el.height = 330 * dpr;
+    this.dpr = dpr;
+    this.generateParticles();
+    this.start();
+  };
+
+  generateParticles() {
+    const list = [];
+    for (let i = 0; i < 2200; i++) {
+      const a0 = Math.random() * Math.PI * 2;
+      const shape = 0.8 + 0.16 * Math.sin(3 * a0 + 1.3) + 0.08 * Math.sin(7 * a0 + 0.4);
+      const maxR = this.R * shape;
+      const r0 = maxR * Math.pow(Math.random(), 0.62);
+      const edge = Math.min(1, Math.max(0.1, (1 - r0 / maxR) * 2.4));
+      const spark = Math.random() < 0.05;
+      list.push({
+        a0, r0, norm: r0 / maxR,
+        base: (spark ? 0.72 + Math.random() * 0.28 : 0.05 + Math.random() * 0.24) * edge,
+        rad: spark ? 1.25 + Math.random() * 0.9 : 0.5 + Math.random() * 0.85,
+        spark,
+        wob: 1.4 + Math.random() * 3.6,
+        ph: Math.random() * Math.PI * 2,
+        tw: Math.random() * Math.PI * 2,
+        twSpeed: 0.5 + Math.random() * 1.4,
+        bucket: Math.floor(Math.random() * 6),
+      });
+    }
+    this.particles = list;
+  }
+
+  start() {
+    if (this.raf) return;
+    this.t0 = performance.now();
+    const loop = (now) => {
+      this.frame((now - this.t0) / 1000);
+      this.raf = requestAnimationFrame(loop);
+    };
+    this.raf = requestAnimationFrame(loop);
+  }
+
+  componentWillUnmount() { if (this.raf) cancelAnimationFrame(this.raf); }
+
+  anchorPx(pt) {
+    const rad = (pt.angle * Math.PI) / 180;
+    const rr = this.R * pt.rFrac;
+    return { x: this.cx + rr * Math.cos(rad), y: this.cy + rr * Math.sin(rad) };
+  }
+
+  hexToRgb(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
+  }
+
+  frame(t) {
+    if (!this.canvasEl || !this.particles) return;
+    const ctx = this.canvasEl.getContext('2d');
+    const dpr = this.dpr || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, 320, 330);
+    const isDark = this.state.theme === 'dark';
+    ctx.globalCompositeOperation = isDark ? 'lighter' : 'source-over';
+    const buckets = isDark ? this.bucketHues.dark : this.bucketHues.light;
+    const rgbCache = this.rgbCache || (this.rgbCache = {});
+    const rgbOf = (hex) => rgbCache[hex] || (rgbCache[hex] = this.hexToRgb(hex));
+
+    const active = this.state.activeId ? this.rawPoints.find(p => p.id === this.state.activeId) : null;
+    const anchor = active ? this.anchorPx(active) : null;
+    const activeRgb = active ? rgbOf(this.hueHex[isDark ? 'dark' : 'light'][active.hue]) : null;
+
+    const drift = t * 0.055;
+    const breathe = 1 + 0.018 * Math.sin(t * 0.42);
+
+    for (const p of this.particles) {
+      const ang = p.a0 + drift * (1.35 - 0.75 * p.norm);
+      const rr = p.r0 * breathe;
+      const x = this.cx + rr * Math.cos(ang) + p.wob * Math.sin(t * 0.55 + p.ph);
+      const y = this.cy + rr * Math.sin(ang) + p.wob * Math.cos(t * 0.47 + p.ph * 1.3);
+      let alpha = p.base * (0.62 + 0.38 * Math.sin(t * p.twSpeed + p.tw));
+      let rgb = rgbOf(buckets[p.bucket]);
+      let radius = p.rad;
+
+      if (anchor) {
+        const dx = x - anchor.x, dy = y - anchor.y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < 58) {
+          const boost = 1 - d / 58;
+          alpha = Math.min(1, alpha + boost * 0.75);
+          rgb = activeRgb;
+          radius = p.rad + boost * 0.7;
+        } else {
+          alpha *= 0.55;
+        }
+      }
+
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(${rgb},${alpha})`;
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (p.spark) {
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(${rgb},${alpha * 0.12})`;
+        ctx.arc(x, y, radius * 3.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  renderVals() {
+    const isDark = this.state.theme === 'dark';
+    const themeVars = isDark ? {
+      '--s-bg':'#000000', '--s-surface':'rgba(255,252,240,0.035)', '--s-surface-2':'rgba(255,252,240,0.06)',
+      '--s-text':'#f7f4ea', '--s-text-dim':'rgba(247,244,234,0.5)', '--s-text-faint':'rgba(247,244,234,0.26)',
+      '--s-radius':'18px', '--s-border':'rgba(247,244,234,0.09)', '--s-hairline':'rgba(242,193,78,0.45)',
+      '--s-shadow':'0 -1px 0 rgba(247,244,234,0.06), 0 20px 48px rgba(0,0,0,0.8)',
+    } : {
+      '--s-bg':'#fbf7ec', '--s-surface':'#ffffff', '--s-surface-2':'#f3ecd9',
+      '--s-text':'#231d10', '--s-text-dim':'rgba(35,29,16,0.55)', '--s-text-faint':'rgba(35,29,16,0.35)',
+      '--s-radius':'22px', '--s-border':'rgba(35,29,16,0.1)', '--s-hairline':'rgba(197,138,18,0.6)',
+      '--s-shadow':'0 12px 32px rgba(150,110,20,0.14)',
+    };
+
+    const points = this.rawPoints.map(p => {
+      const active = this.state.activeId === p.id;
+      const a = this.anchorPx(p);
+      const size = p.small ? 32 : 44;
+      const bead = active ? (p.small ? 11 : 14) : (p.small ? 5 : 7);
+      const hex = this.hueHex[isDark ? 'dark' : 'light'][p.hue];
+      return {
+        ...p, active,
+        onToggle: () => this.toggleExpand(p.id),
+        hotStyle: {
+          position:'absolute', left:`${a.x - size / 2}px`, top:`${a.y - size / 2}px`,
+          width:`${size}px`, height:`${size}px`, borderRadius:'50%', cursor:'pointer',
+          display:'flex', alignItems:'center', justifyContent:'center',
+        },
+        beadStyle: {
+          width:`${bead}px`, height:`${bead}px`, borderRadius:'50%', background: hex,
+          opacity: active ? 1 : (p.small ? 0.5 : 0.8),
+          boxShadow: active ? `0 0 18px 5px ${hex}` : `0 0 8px 1px ${hex}55`,
+          transition:'width .3s cubic-bezier(.34,1.56,.64,1), height .3s cubic-bezier(.34,1.56,.64,1), box-shadow .3s ease',
+          animation: active ? 'none' : `sortedBreathe ${3 + (p.rFrac * 3).toFixed(1)}s ease-in-out infinite`,
+        },
+        chipStyle: {
+          display:'flex', alignItems:'center', gap:'6px', fontSize:'11px', color:'var(--s-text-dim)',
+          background:'var(--s-surface-2)', border:'1px solid var(--s-border)', borderRadius:'999px',
+          padding:'5px 10px 5px 8px', cursor:'pointer',
+        },
+        chipDotStyle: { width:'6px', height:'6px', borderRadius:'50%', background:hex, display:'inline-block' },
+        iconWrapStyle: {
+          width:'38px', height:'38px', borderRadius:'50%', display:'flex', alignItems:'center',
+          justifyContent:'center', flexShrink:0,
+          background:`color-mix(in srgb, ${hex} 14%, transparent)`,
+          border:`1px solid color-mix(in srgb, ${hex} 32%, transparent)`,
+        },
+        iconColorStyle: { color: hex, fontSize:'18px' },
+      };
+    });
+
+    const activePoint = points.find(p => p.active) || null;
+
+    return {
+      isDark, points, activePoint, noActivePoint: !activePoint,
+      monthLabel: 'August 2026',
+      heroTotal: '₹2,25,762',
+      heroNote: 'sorted from 96 messages into 4 kinds of money',
+      hintText: activePoint ? 'Tap another point to compare' : 'Touch a point to open it',
+      themeIconClass: isDark ? 'ph ph-moon-stars' : 'ph ph-sun',
+      toggleTheme: this.toggleTheme,
+      clearActive: this.clearActive,
+      setCanvasRef: this.setCanvasRef,
+      pageOuterStyle: {
+        minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center',
+        background:'var(--color-bg)', fontFamily:'var(--font-body)', padding:'40px',
+      },
+      appRootStyle: {
+        ...themeVars, background:'var(--s-bg)', color:'var(--s-text)', minHeight:'100%',
+        fontFamily:'var(--font-body)', padding:'14px 14px 10px', display:'flex', flexDirection:'column',
+        gap:'12px', transition:'background .45s ease, color .45s ease',
+      },
+      markStyle: {
+        width:'9px', height:'9px', borderRadius:'50%',
+        background: isDark ? '#f2c14e' : '#c58a12',
+        boxShadow: isDark ? '0 0 10px 2px rgba(242,193,78,0.55)' : 'none',
+      },
+      toggleBtnStyle: {
+        width:'34px', height:'34px', borderRadius:'50%', border:'1px solid var(--s-border)',
+        background:'var(--s-surface-2)', color:'var(--s-text)', display:'flex', alignItems:'center',
+        justifyContent:'center', cursor:'pointer',
+      },
+      closeBtnStyle: {
+        width:'26px', height:'26px', borderRadius:'50%', border:'1px solid var(--s-border)',
+        background:'transparent', color:'var(--s-text-dim)', display:'flex', alignItems:'center',
+        justifyContent:'center', cursor:'pointer', flexShrink:0,
+      },
+      clusterWrapStyle: { position:'relative', width:'320px', height:'330px', margin:'0 auto' },
+      canvasStyle: { position:'absolute', left:0, top:0, width:'320px', height:'330px' },
+      centerGlowStyle: {
+        position:'absolute', left:'160px', top:'158px', width:'196px', height:'196px',
+        transform:'translate(-50%,-50%)', borderRadius:'50%', pointerEvents:'none',
+        background:'radial-gradient(circle, var(--s-bg) 0%, var(--s-bg) 34%, transparent 74%)',
+        opacity:0.92,
+      },
+      centerTextStyle: {
+        position:'absolute', left:'160px', top:'158px', transform:'translate(-50%,-50%)',
+        textAlign:'center', pointerEvents:'none', width:'180px',
+      },
+      panelStyle: {
+        background:'var(--s-surface)', border:'1px solid var(--s-border)',
+        borderRadius:'var(--s-radius)', padding:'10px 14px 14px', boxShadow:'var(--s-shadow)',
+        backdropFilter:'blur(12px)', minHeight:'92px',
+      },
+      handleStyle: {
+        width:'34px', height:'3px', borderRadius:'999px', background:'var(--s-border)', margin:'0 auto 12px',
+      },
+      panelBodyStyle: { animation:'sortedRise .35s cubic-bezier(.22,1,.36,1) both' },
+    };
+  }
+}
+</script>
+</body>
+</html>

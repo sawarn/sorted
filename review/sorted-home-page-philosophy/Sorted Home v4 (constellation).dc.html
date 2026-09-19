@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/nocturne-705cd29e-b9b5-4ee3-9365-975cd1ccc3ab/styles.css">
+  <script src="_ds/nocturne-705cd29e-b9b5-4ee3-9365-975cd1ccc3ab/_ds_bundle.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+  <style>
+    @keyframes sortedDrift { 0%,100% { transform:translate(0,0); } 33% { transform:translate(3px,-5px); } 66% { transform:translate(-3px,3px); } }
+    @keyframes sortedFade { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+    * { box-sizing: border-box; }
+  </style>
+</helmet>
+<div style="{{ pageOuterStyle }}">
+  <x-import component-from-global-scope="AndroidDevice" from="./android-frame.jsx" dark="{{ isDark }}" hint-size="412px,892px">
+    <div style="{{ appRootStyle }}">
+
+      <div style="display:flex;align-items:center;justify-content:space-between;position:relative;z-index:6">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="{{ markStyle }}"></div>
+          <span style="font-size:13.5px;letter-spacing:0.04em;font-weight:500">Sorted</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:9px">
+          <span style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--s-text-dim)">{{ monthLabel }}</span>
+          <button style="{{ toggleBtnStyle }}" onClick="{{ toggleTheme }}"><i class="{{ themeIconClass }}" style="font-size:15px"></i></button>
+        </div>
+      </div>
+
+      <div style="{{ stageStyle }}">
+        <canvas ref="{{ setCanvasRef }}" width="384" height="700" style="{{ canvasStyle }}"></canvas>
+        <div style="{{ backdropStyle }}" onClick="{{ clearActive }}"></div>
+
+        <div style="{{ core.wrapStyle }}" onClick="{{ core.onToggle }}">
+          <div style="{{ core.restStyle }}">
+            <div style="font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:var(--s-text-dim)">Spend</div>
+            <div style="font-size:26px;font-weight:500;letter-spacing:-0.03em;margin:7px 0 4px;font-variant-numeric:tabular-nums;white-space:nowrap">{{ core.amount }}</div>
+            <div style="font-size:10px;color:var(--s-text-faint)">{{ core.meta }}</div>
+          </div>
+          <div style="{{ core.openStyle }}">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+              <div>
+                <div style="font-size:10px;letter-spacing:0.16em;text-transform:uppercase;color:var(--s-text-dim)">{{ core.title }}</div>
+                <div style="font-size:31px;font-weight:500;letter-spacing:-0.03em;margin-top:5px;font-variant-numeric:tabular-nums">{{ core.amount }}</div>
+                <div style="font-size:11px;color:var(--s-text-faint);margin-top:3px">{{ core.meta }}</div>
+              </div>
+              <i class="ph ph-x" style="{{ closeIconStyle }}"></i>
+            </div>
+            <div style="font-size:12px;color:var(--s-text-dim);margin:14px 0 6px;line-height:1.55">{{ core.explain }}</div>
+            <div style="{{ listStyle }}">
+              <sc-for list="{{ core.items }}" as="it" hint-placeholder-count="6">
+                <div style="{{ rowStyle }}">
+                  <span style="opacity:0.92">{{ it.label }}</span>
+                  <span style="color:var(--s-text-dim);white-space:nowrap;font-variant-numeric:tabular-nums">{{ it.value }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+
+        <sc-for list="{{ objects }}" as="o" hint-placeholder-count="7">
+          <div style="{{ o.wrapStyle }}" onClick="{{ o.onToggle }}">
+            <div style="{{ o.restStyle }}">
+              <div style="display:flex;align-items:center;gap:6px">
+                <i class="{{ o.icon }}" style="{{ o.iconColorStyle }}"></i>
+                <span style="font-size:10px;letter-spacing:0.06em;color:var(--s-text-dim);white-space:nowrap">{{ o.title }}</span>
+              </div>
+              <div style="{{ o.amountStyle }}">{{ o.amount }}</div>
+            </div>
+            <div style="{{ o.openStyle }}">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="{{ o.iconWrapStyle }}"><i class="{{ o.icon }}" style="{{ o.iconBigStyle }}"></i></div>
+                  <div>
+                    <div style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--s-text-dim)">{{ o.title }}</div>
+                    <div style="font-size:26px;font-weight:500;letter-spacing:-0.025em;margin-top:3px;font-variant-numeric:tabular-nums">{{ o.amount }}</div>
+                    <div style="font-size:11px;color:var(--s-text-faint);margin-top:2px">{{ o.meta }}</div>
+                  </div>
+                </div>
+                <i class="ph ph-x" style="{{ closeIconStyle }}"></i>
+              </div>
+              <div style="font-size:12px;color:var(--s-text-dim);margin:14px 0 6px;line-height:1.55">{{ o.explain }}</div>
+              <div style="{{ listStyle }}">
+                <sc-for list="{{ o.items }}" as="it" hint-placeholder-count="3">
+                  <div style="{{ rowStyle }}">
+                    <span style="opacity:0.92">{{ it.label }}</span>
+                    <span style="color:var(--s-text-dim);white-space:nowrap;font-variant-numeric:tabular-nums">{{ it.value }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+
+        <div style="{{ edge.wrapStyle }}" onClick="{{ edge.onToggle }}">
+          <div style="{{ edge.restStyle }}">
+            <i class="ph ph-shield-check" style="font-size:11px;opacity:0.7"></i>
+            {{ edge.meta }}
+          </div>
+          <div style="{{ edge.openStyle }}">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+              <div>
+                <div style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--s-text-dim)">{{ edge.title }}</div>
+                <div style="font-size:24px;font-weight:500;margin-top:4px">{{ edge.amount }}</div>
+              </div>
+              <i class="ph ph-x" style="{{ closeIconStyle }}"></i>
+            </div>
+            <div style="font-size:12px;color:var(--s-text-dim);margin:12px 0 6px;line-height:1.55">{{ edge.explain }}</div>
+            <div style="{{ listStyle }}">
+              <sc-for list="{{ edge.items }}" as="it" hint-placeholder-count="3">
+                <div style="{{ rowStyle }}">
+                  <span style="opacity:0.92">{{ it.label }}</span>
+                  <span style="color:var(--s-text-dim);white-space:nowrap">{{ it.value }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </x-import>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { theme: 'dark', activeId: null };
+
+  W = 384; H = 700; cx = 192; cy = 300; boundary = 205;
+
+  hues = {
+    dark:  { spend:'#f2c14e', out:'#f7f4ea', review:'#ffd977', comp:'#f2c14e', dim:'#c99a2e', edge:'#9a9284' },
+    light: { spend:'#b8790a', out:'#3b3524', review:'#9a6a06', comp:'#b8790a', dim:'#8a6b10', edge:'#6b6353' },
+  };
+  buckets = {
+    dark:  ['#f7f4ea','#ffffff','#f2c14e','#ffd977','#c99a2e','#fff6d6'],
+    light: ['#2a2418','#4a4028','#c58a12','#d9a318','#8a6b10','#3b3524'],
+  };
+
+  coreData = {
+    id:'spend', hue:'spend', title:'Spend · August', amount:'₹52,561.88', meta:'68 transactions',
+    explain:'Only debits that are real spend. Transfers to your own accounts and investments never enter this number.',
+    items:[
+      {label:'Food & Dining', value:'₹14,230.00'},
+      {label:'Shopping', value:'₹11,800.00'},
+      {label:'Bills & Utilities', value:'₹9,120.00'},
+      {label:'Transport', value:'₹6,450.00'},
+      {label:'Entertainment', value:'₹4,300.00'},
+      {label:'Other', value:'₹6,661.88'},
+    ],
+  };
+
+  objectData = [
+    { id:'review', hue:'review', angle:288, r:172, w:112, glow:true, icon:'ph ph-scales',
+      title:'To review', amount:'3', meta:'₹4,200 unclassified',
+      explain:"Sorted would rather ask than guess. Tell it what these are and the month re-sorts itself.",
+      items:[
+        {label:'UPI · 998211xxxx', value:'₹1,200'},
+        {label:'IMPS transfer', value:'₹2,000'},
+        {label:'POS purchase', value:'₹1,000'},
+      ]},
+    { id:'merchant', hue:'comp', angle:14, r:158, w:108, icon:'ph ph-storefront',
+      title:'Top merchant', amount:'Swiggy', meta:'₹6,200 · 14 orders · top of 24',
+      explain:'Where the month concentrated. Five places hold a quarter of your spend.',
+      items:[
+        {label:'Swiggy', value:'₹6,200.00'},
+        {label:'Amazon', value:'₹5,800.00'},
+        {label:'Zomato', value:'₹3,100.00'},
+        {label:'BigBasket', value:'₹2,900.00'},
+        {label:'Uber', value:'₹2,400.00'},
+      ]},
+    { id:'category', hue:'comp', angle:90, r:200, w:118, icon:'ph ph-circles-three',
+      title:'Top category', amount:'Food', meta:'₹14,230 · 27% of spend',
+      explain:'Food and shopping together are about half of this month.',
+      items:[
+        {label:'Food & Dining', value:'₹14,230.00'},
+        {label:'Shopping', value:'₹11,800.00'},
+        {label:'Bills & Utilities', value:'₹9,120.00'},
+        {label:'Transport', value:'₹6,450.00'},
+      ]},
+    { id:'recurring', hue:'dim', angle:171, r:168, w:104, faint:true, icon:'ph ph-repeat',
+      title:'Recurring', amount:'₹6,840', meta:'6 subscriptions inside spend',
+      explain:'Bills and subscriptions that repeat at about the same amount each month.',
+      items:[
+        {label:'Rent contribution', value:'₹2,854'},
+        {label:'Gym membership', value:'₹1,500'},
+        {label:'Broadband', value:'₹1,499'},
+        {label:'Netflix', value:'₹649'},
+        {label:'iCloud+', value:'₹219'},
+        {label:'Spotify', value:'₹119'},
+      ]},
+    { id:'refunds', hue:'dim', angle:216, r:168, w:104, faint:true, icon:'ph ph-arrow-counter-clockwise',
+      title:'Refunds', amount:'₹3,412', meta:'3 credits',
+      explain:"Credits from merchants you'd already paid. Shown as a signal for now — not yet subtracted from spend.",
+      items:[
+        {label:'IndiGo · cancelled flight', value:'₹2,000'},
+        {label:'Amazon · order #4471', value:'₹1,200'},
+        {label:'Swiggy · refund', value:'₹212'},
+      ]},
+    { id:'moved', hue:'out', angle:128, r:246, w:112, outside:true, icon:'ph ph-arrows-left-right',
+      title:'Money moved', amount:'₹38,200', meta:'9 transfers · still yours',
+      explain:'Transfers between your own accounts, or to people you send money to often. Movement, not spend — so it sits outside the circle.',
+      items:[
+        {label:'To Savings ×3', value:'₹20,000'},
+        {label:'UPI · Dad', value:'₹8,200'},
+        {label:'UPI · Mom', value:'₹10,000'},
+      ]},
+    { id:'invest', hue:'out', angle:57, r:248, w:112, outside:true, icon:'ph ph-chart-line-up',
+      title:'Invested', amount:'₹25,000', meta:'3 orders · held apart',
+      explain:'Money into funds and stocks. You still own it, so it never touches spend.',
+      items:[
+        {label:'SIP · Axis Bluechip', value:'₹10,000'},
+        {label:'SIP · Parag Parikh', value:'₹5,000'},
+        {label:'Zerodha · Stocks', value:'₹10,000'},
+      ]},
+  ];
+
+  edgeData = {
+    id:'sources', hue:'edge', title:'Private by default', amount:'96 messages read',
+    meta:'84 SMS · 12 Gmail · on-device',
+    explain:'Sorted reads transaction alerts on this phone only. No bank login, no server, no account.',
+    items:[
+      {label:'SMS', value:'84 messages parsed'},
+      {label:'Gmail', value:'12 emails parsed'},
+      {label:'Last synced', value:'2 minutes ago'},
+    ],
+  };
+
+  toggleTheme = () => this.setState(s => ({ theme: s.theme === 'dark' ? 'light' : 'dark' }));
+  toggle = (id) => this.setState(s => ({ activeId: s.activeId === id ? null : id }));
+  clearActive = () => this.setState({ activeId: null });
+
+  setCanvasRef = (el) => {
+    if (!el || this.canvasEl === el) return;
+    this.canvasEl = el;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    el.width = this.W * dpr; el.height = this.H * dpr; this.dpr = dpr;
+    this.gather = 1;
+    this.generate();
+    this.start();
+  };
+
+  generate() {
+    const R = 250, list = [];
+    for (let i = 0; i < 2400; i++) {
+      const a0 = Math.random() * Math.PI * 2;
+      const shape = 0.78 + 0.18 * Math.sin(3 * a0 + 1.3) + 0.08 * Math.sin(7 * a0 + 0.4);
+      const maxR = R * shape;
+      const r0 = maxR * Math.pow(Math.random(), 0.55);
+      const edge = Math.min(1, Math.max(0.07, (1 - r0 / maxR) * 2.2));
+      const spark = Math.random() < 0.05;
+      list.push({
+        a0, r0, norm: r0 / maxR,
+        base: (spark ? 0.7 + Math.random() * 0.3 : 0.05 + Math.random() * 0.22) * edge,
+        rad: spark ? 1.2 + Math.random() * 0.9 : 0.45 + Math.random() * 0.85,
+        spark, wob: 1.2 + Math.random() * 3.4,
+        ph: Math.random() * Math.PI * 2, tw: Math.random() * Math.PI * 2,
+        twSpeed: 0.45 + Math.random() * 1.3,
+        bucket: Math.floor(Math.random() * 6),
+      });
+    }
+    this.particles = list;
+  }
+
+  start() {
+    if (this.raf) return;
+    this.t0 = performance.now();
+    const loop = (now) => { this.frame((now - this.t0) / 1000); this.raf = requestAnimationFrame(loop); };
+    this.raf = requestAnimationFrame(loop);
+  }
+  componentWillUnmount() { if (this.raf) cancelAnimationFrame(this.raf); }
+
+  rgb(hex) {
+    this._c = this._c || {};
+    if (this._c[hex]) return this._c[hex];
+    const n = parseInt(hex.slice(1), 16);
+    return (this._c[hex] = `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`);
+  }
+
+  hueOf(id) {
+    if (id === this.coreData.id) return this.coreData.hue;
+    if (id === this.edgeData.id) return this.edgeData.hue;
+    const f = this.objectData.find(o => o.id === id);
+    return f ? f.hue : 'spend';
+  }
+
+  frame(t) {
+    if (!this.canvasEl || !this.particles) return;
+    const ctx = this.canvasEl.getContext('2d');
+    const dpr = this.dpr || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, this.W, this.H);
+    const isDark = this.state.theme === 'dark';
+    ctx.globalCompositeOperation = isDark ? 'lighter' : 'source-over';
+    const buckets = isDark ? this.buckets.dark : this.buckets.light;
+    const active = this.state.activeId;
+    const hex = active ? this.hues[isDark ? 'dark' : 'light'][this.hueOf(active)] : null;
+    const activeRgb = hex ? this.rgb(hex) : null;
+
+    const gTarget = active ? 0.72 : 1;
+    this.gather += (gTarget - this.gather) * 0.06;
+    const cx = this.cx, cy = this.cy;
+    const drift = t * 0.05;
+    const breathe = 1 + 0.02 * Math.sin(t * 0.4);
+
+    if (!active) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.setLineDash([2, 7]);
+      ctx.strokeStyle = isDark ? 'rgba(247,244,234,0.075)' : 'rgba(35,29,16,0.1)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(cx, cy, this.boundary, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+      ctx.globalCompositeOperation = isDark ? 'lighter' : 'source-over';
+    }
+
+    for (const p of this.particles) {
+      const ang = p.a0 + drift * (1.35 - 0.75 * p.norm);
+      const rr = p.r0 * breathe * this.gather;
+      const x = cx + rr * Math.cos(ang) + p.wob * Math.sin(t * 0.52 + p.ph);
+      const y = cy + rr * Math.sin(ang) + p.wob * Math.cos(t * 0.45 + p.ph * 1.3);
+      if (x < -8 || x > this.W + 8 || y < -8 || y > this.H + 8) continue;
+      let alpha = p.base * (0.6 + 0.4 * Math.sin(t * p.twSpeed + p.tw)) * (isDark ? 1 : 1.9);
+      let col = this.rgb(buckets[p.bucket]);
+      let radius = p.rad;
+      if (active) {
+        const d = Math.hypot(x - cx, y - cy);
+        if (d < 150) {
+          const boost = 1 - d / 150;
+          alpha = Math.min(1, alpha + boost * 0.55);
+          col = activeRgb;
+          radius = p.rad + boost * 0.5;
+        } else { alpha *= 0.35; }
+      }
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(${col},${alpha})`;
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      if (p.spark) {
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(${col},${alpha * 0.1})`;
+        ctx.arc(x, y, radius * 3.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  renderVals() {
+    const isDark = this.state.theme === 'dark';
+    const hues = this.hues[isDark ? 'dark' : 'light'];
+    const activeId = this.state.activeId;
+    const vars = isDark ? {
+      '--s-bg':'#000000', '--s-glass':'rgba(255,252,240,0.045)', '--s-glass-2':'rgba(255,252,240,0.085)',
+      '--s-text':'#f7f4ea', '--s-text-dim':'rgba(247,244,234,0.52)', '--s-text-faint':'rgba(247,244,234,0.3)',
+      '--s-border':'rgba(247,244,234,0.11)',
+    } : {
+      '--s-bg':'#fbf7ec', '--s-glass':'rgba(255,255,255,0.66)', '--s-glass-2':'rgba(255,255,255,0.92)',
+      '--s-text':'#231d10', '--s-text-dim':'rgba(35,29,16,0.56)', '--s-text-faint':'rgba(35,29,16,0.38)',
+      '--s-border':'rgba(35,29,16,0.12)',
+    };
+
+    const openBox = { left: 16, top: 176, width: this.W - 32 };
+    const glass = 'blur(14px)';
+
+    const shell = (d, rest) => {
+      const active = activeId === d.id;
+      const others = !!activeId && !active;
+      const hex = hues[d.hue];
+      const wrap = active ? {
+        position:'absolute', left:`${openBox.left}px`, top:`${openBox.top}px`, width:`${openBox.width}px`,
+        padding:'18px', borderRadius:'22px', zIndex:8,
+        background:'var(--s-glass-2)', border:`1px solid color-mix(in srgb, ${hex} 42%, transparent)`,
+        boxShadow:`0 0 40px -8px color-mix(in srgb, ${hex} 34%, transparent), 0 24px 60px rgba(0,0,0,${isDark ? 0.8 : 0.16})`,
+        backdropFilter: glass, WebkitBackdropFilter: glass, cursor:'pointer', overflow:'hidden',
+        transition:'left .5s cubic-bezier(.22,1,.36,1), top .5s cubic-bezier(.22,1,.36,1), width .5s cubic-bezier(.22,1,.36,1), border-radius .5s ease, opacity .35s ease, box-shadow .5s ease',
+      } : {
+        position:'absolute', ...rest.pos, zIndex: rest.z || 2,
+        padding: rest.padding, borderRadius: rest.radius,
+        background:'var(--s-glass)',
+        border:`1px ${d.outside ? 'dashed' : 'solid'} ${d.glow ? `color-mix(in srgb, ${hex} 40%, transparent)` : 'var(--s-border)'}`,
+        boxShadow: d.glow ? `0 0 26px -6px color-mix(in srgb, ${hex} 45%, transparent)` : 'none',
+        backdropFilter: glass, WebkitBackdropFilter: glass, cursor:'pointer', overflow:'hidden',
+        opacity: others ? 0.1 : (d.faint ? 0.72 : 1),
+        transform: others ? 'scale(0.94)' : 'none',
+        transition:'left .5s cubic-bezier(.22,1,.36,1), top .5s cubic-bezier(.22,1,.36,1), width .5s cubic-bezier(.22,1,.36,1), opacity .45s ease, transform .5s cubic-bezier(.22,1,.36,1), box-shadow .4s ease',
+        animation: others ? 'none' : `sortedDrift ${rest.dur}s ease-in-out infinite`,
+        animationDelay: `${rest.delay}s`,
+        pointerEvents: others ? 'none' : 'auto',
+      };
+      return {
+        ...d, active,
+        onToggle: () => this.toggle(d.id),
+        wrapStyle: wrap,
+        restStyle: { display: active ? 'none' : (rest.display || 'block'), textAlign: rest.align || 'left', maxWidth: rest.maxW || 'none', margin: rest.align === 'center' ? '0 auto' : '0' },
+        openStyle: { display: active ? 'block' : 'none', animation:'sortedFade .4s cubic-bezier(.22,1,.36,1) both' },
+        iconColorStyle: { color: hex, fontSize:'13px' },
+        iconBigStyle: { color: hex, fontSize:'18px' },
+        amountStyle: { fontSize:'15.5px', fontWeight:500, marginTop:'5px', letterSpacing:'-0.01em', fontVariantNumeric:'tabular-nums' },
+        iconWrapStyle: {
+          width:'38px', height:'38px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center',
+          flexShrink:0, background:`color-mix(in srgb, ${hex} 13%, transparent)`,
+          border:`1px solid color-mix(in srgb, ${hex} 30%, transparent)`,
+        },
+      };
+    };
+
+    const coreR = 104;
+    const core = shell(this.coreData, {
+      pos: { left:`${this.cx - coreR}px`, top:`${this.cy - coreR}px`, width:`${coreR * 2}px`, height:`${coreR * 2}px` },
+      padding:'0', radius:'50%', z:4, dur:11, delay:0, align:'center',
+      display:'flex',
+    });
+    if (!core.active) {
+      core.wrapStyle.display = 'flex';
+      core.wrapStyle.alignItems = 'center';
+      core.wrapStyle.justifyContent = 'center';
+      core.wrapStyle.background = isDark
+        ? 'radial-gradient(circle at 50% 40%, rgba(242,193,78,0.10), rgba(255,252,240,0.03) 62%, rgba(255,252,240,0.015))'
+        : 'radial-gradient(circle at 50% 40%, rgba(184,121,10,0.10), rgba(255,255,255,0.85) 60%)';
+      core.wrapStyle.border = `1px solid color-mix(in srgb, ${hues.spend} 30%, transparent)`;
+      core.wrapStyle.boxShadow = `0 0 60px -14px color-mix(in srgb, ${hues.spend} 55%, transparent)`;
+    }
+
+    const objects = this.objectData.map((d, i) => {
+      const rad = (d.angle * Math.PI) / 180;
+      const x = this.cx + d.r * Math.cos(rad);
+      const y = this.cy + d.r * Math.sin(rad);
+      const h = 56;
+      return shell(d, {
+        pos: {
+          left: `${Math.max(6, Math.min(this.W - d.w - 6, x - d.w / 2))}px`,
+          top: `${y - h / 2}px`, width: `${d.w}px`,
+        },
+        padding:'9px 11px', radius:'15px', dur: 9 + i, delay: i * 0.7,
+      });
+    });
+
+    const edge = shell(this.edgeData, {
+      pos: { left:'52px', top:`${this.H - 78}px`, width:`${this.W - 104}px` },
+      padding:'9px 12px', radius:'999px', dur:13, delay:1.4, align:'center',
+    });
+    if (!edge.active) {
+      edge.restStyle = {
+        display:'flex', alignItems:'center', justifyContent:'center', gap:'7px',
+        fontSize:'10.5px', letterSpacing:'0.06em', color:'var(--s-text-faint)', whiteSpace:'nowrap',
+      };
+      edge.wrapStyle.opacity = activeId ? 0.1 : 0.85;
+    }
+
+    return {
+      isDark, core, objects, edge,
+      monthLabel: 'August 2026',
+      themeIconClass: isDark ? 'ph ph-moon-stars' : 'ph ph-sun',
+      toggleTheme: this.toggleTheme,
+      clearActive: this.clearActive,
+      setCanvasRef: this.setCanvasRef,
+      pageOuterStyle: {
+        minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center',
+        background:'var(--color-bg)', fontFamily:'var(--font-body)', padding:'40px',
+      },
+      appRootStyle: {
+        ...vars, position:'relative', background:'var(--s-bg)', color:'var(--s-text)',
+        height:'100%', fontFamily:'var(--font-body)', padding:'14px', overflow:'hidden',
+        transition:'background .45s ease, color .45s ease',
+      },
+      stageStyle: { position:'relative', width:`${this.W}px`, height:`${this.H}px`, margin:'2px -1px 0' },
+      canvasStyle: { position:'absolute', left:'0', top:'0', width:`${this.W}px`, height:`${this.H}px`, pointerEvents:'none', zIndex:0 },
+      backdropStyle: {
+        position:'absolute', inset:'-20px', zIndex:1,
+        background: activeId ? (isDark ? 'rgba(0,0,0,0.55)' : 'rgba(251,247,236,0.5)') : 'transparent',
+        opacity: activeId ? 1 : 0, pointerEvents: activeId ? 'auto' : 'none',
+        transition:'opacity .4s ease, background .4s ease',
+      },
+      markStyle: {
+        width:'8px', height:'8px', borderRadius:'50%', background:hues.spend,
+        boxShadow: isDark ? `0 0 10px 2px color-mix(in srgb, ${hues.spend} 55%, transparent)` : 'none',
+      },
+      toggleBtnStyle: {
+        width:'31px', height:'31px', borderRadius:'50%', border:'1px solid var(--s-border)',
+        background:'var(--s-glass)', color:'var(--s-text)', display:'flex', alignItems:'center',
+        justifyContent:'center', cursor:'pointer',
+      },
+      closeIconStyle: { fontSize:'15px', color:'var(--s-text-dim)', flexShrink:0, cursor:'pointer' },
+      listStyle: { maxHeight:'250px', overflowY:'auto' },
+      rowStyle: {
+        display:'flex', justifyContent:'space-between', gap:'10px', padding:'7px 0',
+        borderTop:'1px solid var(--s-border)', fontSize:'12.5px',
+      },
+    };
+  }
+}
+</script>
+</body>
+</html>

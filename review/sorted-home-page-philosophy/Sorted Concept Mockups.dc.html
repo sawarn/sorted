@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="stylesheet" href="_ds/nocturne-705cd29e-b9b5-4ee3-9365-975cd1ccc3ab/styles.css">
+  <script src="_ds/nocturne-705cd29e-b9b5-4ee3-9365-975cd1ccc3ab/_ds_bundle.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+  <style>
+    * { box-sizing: border-box; }
+    a { color: var(--color-accent-300); }
+    a:hover { color: var(--color-accent); }
+    @keyframes cPulse { 0%,100% { opacity:0.45; } 50% { opacity:1; } }
+  </style>
+</helmet>
+
+<section style="padding:56px 48px 80px;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);min-width:max-content">
+  <div style="max-width:760px;margin:0 0 40px">
+    <div style="font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:var(--color-accent-300);margin-bottom:10px">Sorted · concept mockups · turn 1</div>
+    <h1 style="font-family:var(--font-heading);font-weight:500;font-size:36px;line-height:1.12;letter-spacing:-0.02em;margin:0 0 10px">Five home screens, five organizing axes</h1>
+    <p style="margin:0;font-size:15px;line-height:1.6;color:var(--color-neutral-300);max-width:62ch;text-wrap:pretty">Same month, same numbers, five different products. Reference an option by its id in chat — <a href="#1a">1a</a> Inbox, <a href="#1b">1b</a> Tape, <a href="#1c">1c</a> Workbench, <a href="#1d">1d</a> Dispatch, <a href="#1e">1e</a> Haunts.</p>
+  </div>
+
+  <div style="display:flex;gap:40px;align-items:flex-start;flex-wrap:nowrap">
+
+    <div id="1a" style="display:flex;flex-direction:column;gap:14px;flex-shrink:0">
+      <div style="{{ heads.a.wrap }}">
+        <span style="{{ heads.a.badge }}">1a</span>
+        <div>
+          <div style="font-family:var(--font-heading);font-size:19px;font-weight:500">Inbox</div>
+          <div style="font-size:12px;color:var(--color-neutral-400);margin-top:2px">Money is mail — the month can be finished</div>
+        </div>
+      </div>
+      <x-import component-from-global-scope="AndroidDevice" from="./android-frame.jsx" dark="{{ true }}" hint-size="412px,892px">
+        <div style="{{ inbox.root }}">
+          <div style="{{ inbox.header }}">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div style="display:flex;align-items:center;gap:8px">
+                <div style="{{ inbox.mark }}"></div>
+                <span style="font-size:14.5px;font-weight:500;letter-spacing:-0.01em">Sorted</span>
+              </div>
+              <i class="ph ph-magnifying-glass" style="font-size:17px;color:rgba(247,244,234,0.55)"></i>
+            </div>
+            <div style="margin-top:18px">
+              <div style="font-size:10px;letter-spacing:0.22em;text-transform:uppercase;color:#f2c14e">August</div>
+              <div style="display:flex;align-items:baseline;gap:9px;margin-top:7px">
+                <span style="font-size:30px;font-weight:500;letter-spacing:-0.03em;font-variant-numeric:tabular-nums">₹52,561.88</span>
+                <span style="font-size:11.5px;color:rgba(247,244,234,0.5)">68 filed</span>
+              </div>
+              <div style="font-size:11.5px;color:rgba(247,244,234,0.6);margin-top:6px;text-decoration:underline;text-decoration-color:rgba(242,193,78,0.45);text-underline-offset:3px">14 unread · ₹63,200 held out · 3 unsure</div>
+            </div>
+            <div style="{{ inbox.seg }}">
+              <sc-for list="{{ inbox.tabs }}" as="t" hint-placeholder-count="3">
+                <div style="{{ t.style }}">{{ t.label }}</div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="flex:1;overflow:hidden">
+            <sc-for list="{{ inbox.rows }}" as="r" hint-placeholder-count="8">
+              <div style="{{ r.wrap }}">
+                <div style="{{ r.dot }}"></div>
+                <div style="flex:1;min-width:0">
+                  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+                    <span style="{{ r.nameStyle }}">{{ r.name }}</span>
+                    <span style="{{ r.amountStyle }}">{{ r.amount }}</span>
+                  </div>
+                  <div style="font-size:11px;color:rgba(247,244,234,0.42);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.reason }}</div>
+                </div>
+              </div>
+            </sc-for>
+            <div style="padding:22px 18px;text-align:center;font-size:11.5px;color:rgba(247,244,234,0.3);letter-spacing:0.04em">Swipe right to accept · left to correct</div>
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+    <div id="1b" style="display:flex;flex-direction:column;gap:14px;flex-shrink:0">
+      <div style="{{ heads.b.wrap }}">
+        <span style="{{ heads.b.badge }}">1b</span>
+        <div>
+          <div style="font-family:var(--font-heading);font-size:19px;font-weight:500">Tape</div>
+          <div style="font-size:12px;color:var(--color-neutral-400);margin-top:2px">One append-only receipt, printed in place</div>
+        </div>
+      </div>
+      <x-import component-from-global-scope="AndroidDevice" from="./android-frame.jsx" dark="{{ true }}" hint-size="412px,892px">
+        <div style="{{ tape.root }}">
+          <div style="{{ tape.deskLabel }}">
+            <span>SORTED · LOCAL ROLL</span>
+            <span>AUG 2026</span>
+          </div>
+          <div style="{{ tape.paper }}">
+            <div style="{{ tape.tearTop }}"></div>
+            <div style="{{ tape.inner }}">
+              <div style="{{ tape.stampBlock }}">
+                <div style="font-size:9px;letter-spacing:0.2em;color:rgba(231,220,192,0.55)">MONTH TO DATE · SPEND</div>
+                <div style="font-size:23px;margin-top:6px;letter-spacing:-0.01em">₹52,561.88</div>
+                <div style="{{ tape.sumRule }}"></div>
+                <sc-for list="{{ tape.sums }}" as="s" hint-placeholder-count="4">
+                  <div style="{{ s.style }}">
+                    <span>{{ s.label }}</span><span>{{ s.value }}</span>
+                  </div>
+                </sc-for>
+              </div>
+              <sc-for list="{{ tape.lines }}" as="l" hint-placeholder-count="10">
+                <div style="{{ l.wrap }}">
+                  <div style="{{ l.top }}">
+                    <span style="{{ l.nameStyle }}">{{ l.name }}</span>
+                    <span style="{{ l.amountStyle }}">{{ l.amount }}</span>
+                  </div>
+                  <div style="{{ l.meta }}">
+                    <span style="{{ l.stampStyle }}">{{ l.stamp }}</span>
+                    <span>{{ l.note }}</span>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+            <div style="{{ tape.tearBottom }}"></div>
+          </div>
+          <div style="{{ tape.feed }}">
+            <i class="ph ph-arrows-down-up" style="font-size:12px"></i> scroll to feed the roll
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+    <div id="1c" style="display:flex;flex-direction:column;gap:14px;flex-shrink:0">
+      <div style="{{ heads.c.wrap }}">
+        <span style="{{ heads.c.badge }}">1c</span>
+        <div>
+          <div style="font-family:var(--font-heading);font-size:19px;font-weight:500">Workbench</div>
+          <div style="font-size:12px;color:var(--color-neutral-400);margin-top:2px">Deal the month into trays by hand</div>
+        </div>
+      </div>
+      <x-import component-from-global-scope="AndroidDevice" from="./android-frame.jsx" dark="{{ false }}" hint-size="412px,892px">
+        <div style="{{ bench.root }}">
+          <div style="{{ bench.shelf }}">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div>
+                <div style="font-size:9.5px;letter-spacing:0.2em;text-transform:uppercase;color:#8a7f66">August · sorted so far</div>
+                <div style="font-size:27px;font-weight:500;letter-spacing:-0.03em;margin-top:5px;font-variant-numeric:tabular-nums;color:#2b2415">₹52,561.88</div>
+              </div>
+              <div style="{{ bench.shelfHandle }}"><i class="ph ph-caret-up" style="font-size:13px"></i></div>
+            </div>
+            <div style="font-size:11.5px;color:#7d7259;margin-top:5px">65 of 68 placed · 3 still loose</div>
+          </div>
+
+          <div style="{{ bench.stage }}">
+            <sc-for list="{{ bench.chits }}" as="c" hint-placeholder-count="4">
+              <div style="{{ c.wrap }}">
+                <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+                  <span style="font-size:14px;font-weight:500;color:#2b2415">{{ c.name }}</span>
+                  <span style="font-size:14px;font-weight:500;font-variant-numeric:tabular-nums;color:#2b2415">{{ c.amount }}</span>
+                </div>
+                <div style="{{ c.metaStyle }}">{{ c.meta }}</div>
+                <div style="{{ c.pullStyle }}"></div>
+              </div>
+            </sc-for>
+            <div style="{{ bench.hint }}">3 loose chits have no pull line — they need you</div>
+          </div>
+
+          <div style="{{ bench.trayRow }}">
+            <sc-for list="{{ bench.trays }}" as="t" hint-placeholder-count="6">
+              <div style="{{ t.wrap }}">
+                <div style="{{ t.wellStyle }}">
+                  <div style="{{ t.fillStyle }}"></div>
+                </div>
+                <div style="{{ t.labelStyle }}">{{ t.label }}</div>
+                <div style="{{ t.countStyle }}">{{ t.count }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+    <div id="1d" style="display:flex;flex-direction:column;gap:14px;flex-shrink:0">
+      <div style="{{ heads.d.wrap }}">
+        <span style="{{ heads.d.badge }}">1d</span>
+        <div>
+          <div style="font-family:var(--font-heading);font-size:19px;font-weight:500">Dispatch</div>
+          <div style="font-size:12px;color:var(--color-neutral-400);margin-top:2px">The month written, every figure a footnote</div>
+        </div>
+      </div>
+      <x-import component-from-global-scope="AndroidDevice" from="./android-frame.jsx" dark="{{ false }}" hint-size="412px,892px">
+        <div style="{{ disp.root }}">
+          <div style="{{ disp.masthead }}">
+            <span style="font-family:Georgia,'Times New Roman',serif;font-size:15px;letter-spacing:0.02em">Sorted</span>
+            <span style="font-size:10px;letter-spacing:0.16em;text-transform:uppercase;color:#8a7f6a">August 2026 · 3 unclear</span>
+          </div>
+          <div style="{{ disp.body }}">
+            <h2 style="{{ disp.kicker }}">The month, in brief</h2>
+            <p style="{{ disp.lede }}">
+              You spent <span style="{{ disp.num }}">₹52,561.88</span> across <span style="{{ disp.num }}">68 transactions</span> in August — about a fifth less than July.
+            </p>
+            <p style="{{ disp.para }}">
+              Food took the largest share at <span style="{{ disp.num }}">27%</span>, mostly <span style="{{ disp.num }}">Swiggy</span>, where fourteen orders came to <span style="{{ disp.num }}">₹6,200</span>. Shopping followed at <span style="{{ disp.num }}">₹11,800</span>.
+            </p>
+            <p style="{{ disp.para }}">
+              Another <span style="{{ disp.num }}">₹63,200</span> left your accounts without being spent — <span style="{{ disp.num }}">₹38,200</span> moved between your own accounts and <span style="{{ disp.num }}">₹25,000</span> invested. Neither is in the figure above.
+            </p>
+            <p style="{{ disp.paraHedge }}">
+              I think a <span style="{{ disp.num }}">₹1,200</span> UPI payment was food, but the merchant name was blank. Two others are unclear. <span style="{{ disp.numAction }}">Settle these three →</span>
+            </p>
+            <div style="{{ disp.rule }}"></div>
+            <div style="{{ disp.footKicker }}">What repeats</div>
+            <p style="{{ disp.paraSmall }}">
+              Six subscriptions billed <span style="{{ disp.num }}">₹6,840</span> on schedule. Nothing new started this month.
+            </p>
+            <div style="{{ disp.footKicker }}">How this was computed</div>
+            <p style="{{ disp.paraSmall }}">
+              From <span style="{{ disp.num }}">84 SMS</span> and <span style="{{ disp.num }}">12 Gmail</span> alerts read on this phone, synced two minutes ago. Nothing was uploaded, and nothing was skipped.
+            </p>
+          </div>
+          <div style="{{ disp.footer }}">
+            <i class="ph ph-caret-left" style="font-size:12px"></i>
+            <span>July</span>
+            <span style="flex:1"></span>
+            <span style="font-weight:500">August</span>
+            <span style="flex:1"></span>
+            <span style="opacity:0.35">September</span>
+            <i class="ph ph-caret-right" style="font-size:12px;opacity:0.35"></i>
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+    <div id="1e" style="display:flex;flex-direction:column;gap:14px;flex-shrink:0">
+      <div style="{{ heads.e.wrap }}">
+        <span style="{{ heads.e.badge }}">1e</span>
+        <div>
+          <div style="font-family:var(--font-heading);font-size:19px;font-weight:500">Haunts</div>
+          <div style="font-size:12px;color:var(--color-neutral-400);margin-top:2px">The month as the places you went</div>
+        </div>
+      </div>
+      <x-import component-from-global-scope="AndroidDevice" from="./android-frame.jsx" dark="{{ true }}" hint-size="412px,892px">
+        <div style="{{ haunts.root }}">
+          <div style="{{ haunts.strip }}">
+            <div>
+              <div style="font-size:9.5px;letter-spacing:0.2em;text-transform:uppercase;color:rgba(247,244,234,0.5)">August · 24 places</div>
+              <div style="font-size:26px;font-weight:500;letter-spacing:-0.03em;margin-top:5px;font-variant-numeric:tabular-nums">₹52,561.88</div>
+            </div>
+            <div style="{{ haunts.lens }}">
+              <sc-for list="{{ haunts.lenses }}" as="l" hint-placeholder-count="3">
+                <div style="{{ l.style }}">{{ l.label }}</div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="{{ haunts.field }}">
+            <sc-for list="{{ haunts.tiles }}" as="t" hint-placeholder-count="10">
+              <div style="{{ t.wrap }}">
+                <div style="{{ t.glyph }}">{{ t.letter }}</div>
+                <div style="{{ t.nameStyle }}">{{ t.name }}</div>
+                <div style="{{ t.amountStyle }}">{{ t.amount }}</div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="{{ haunts.band }}">
+            <div style="font-size:9.5px;letter-spacing:0.18em;text-transform:uppercase;color:rgba(247,244,234,0.42);margin-bottom:9px">Outside the picture</div>
+            <div style="display:flex;gap:9px">
+              <sc-for list="{{ haunts.held }}" as="h" hint-placeholder-count="2">
+                <div style="{{ h.wrap }}">
+                  <div style="font-size:10.5px;color:rgba(247,244,234,0.55)">{{ h.label }}</div>
+                  <div style="font-size:15px;font-weight:500;margin-top:3px;font-variant-numeric:tabular-nums">{{ h.value }}</div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+  </div>
+</section>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  mono = "ui-monospace, SFMono-Regular, Menlo, 'Roboto Mono', monospace";
+  serif = "Georgia, 'Times New Roman', serif";
+
+  inboxRows = [
+    { name:'Swiggy', amount:'₹412.00', reason:'Food & Dining · SMS · HDFC ••4471', state:'unread' },
+    { name:'998211xxxx', amount:'₹1,200.00', reason:'No merchant name — needs a decision', state:'unsure' },
+    { name:'Amazon', amount:'₹2,340.00', reason:'Shopping · Gmail · order #4471', state:'unread' },
+    { name:'Uber', amount:'₹186.00', reason:'Transport · SMS · filed automatically', state:'read' },
+    { name:'To Savings', amount:'₹10,000.00', reason:'Moved — held out of spend', state:'excluded' },
+    { name:'IMPS transfer', amount:'₹2,000.00', reason:'Spend or transfer? — needs a decision', state:'unsure' },
+    { name:'BigBasket', amount:'₹1,905.00', reason:'Groceries · SMS · filed automatically', state:'read' },
+    { name:'Netflix', amount:'₹649.00', reason:'Recurring · SMS · rule applied', state:'read' },
+  ];
+
+  tapeLines = [
+    { name:'SWIGGY', amount:'412.00', stamp:'FOOD', note:'SMS · HDFC 4471' },
+    { name:'UBER', amount:'186.00', stamp:'TRANSPORT', note:'SMS · 14:22' },
+    { name:'998211XXXX', amount:'1,200.00', stamp:'?', note:'no merchant read', unsure:true },
+    { name:'AMAZON', amount:'2,340.00', stamp:'SHOPPING', note:'GMAIL · #4471', struck:'GENERAL' },
+    { name:'— · 1 MSG UNREAD', amount:'——', stamp:'', note:'could not parse amount', faded:true },
+    { name:'TO SAVINGS', amount:'10,000.00', stamp:'MOVED', note:'held out of spend', held:true },
+    { name:'NETFLIX', amount:'649.00', stamp:'RECURRING', note:'rule applied · 6th' },
+    { name:'BIGBASKET', amount:'1,905.00', stamp:'GROCERIES', note:'SMS · 09:12' },
+  ];
+
+  tapeSums = [
+    { label:'68 LINES INCLUDED', value:'52,561.88' },
+    { label:'12 LINES HELD OUT', value:'(63,200.00)' },
+    { label:'3 LINES UNSTAMPED', value:'4,200.00' },
+    { label:'REFUND SIGNALS FOUND', value:'3' },
+  ];
+
+  chits = [
+    { name:'Swiggy', amount:'₹412', meta:'pulling to Spend · Food', pull:'#b07a1c' },
+    { name:'998211xxxx', amount:'₹1,200', meta:'no merchant — no pull', loose:true },
+    { name:'To Savings', amount:'₹10,000', meta:'pulling to Moved', pull:'#1f74c7' },
+    { name:'SIP · Axis', amount:'₹10,000', meta:'pulling to Invested', pull:'#0f9a54' },
+  ];
+
+  trays = [
+    { label:'Spend', count:'52', fill:0.9, color:'#e0940f' },
+    { label:'Moved', count:'9', fill:0.55, color:'#1f74c7' },
+    { label:'Invested', count:'3', fill:0.34, color:'#0f9a54' },
+    { label:'Refund', count:'3', fill:0.24, color:'#e8622f' },
+    { label:'Income', count:'2', fill:0.2, color:'#7a4fd8' },
+    { label:'Not one', count:'0', fill:0.06, color:'#8a7f66' },
+  ];
+
+  tiles = [
+    { name:'Swiggy', amount:'₹6,200', letter:'S', hue:28, span:3, h:118 },
+    { name:'Amazon', amount:'₹5,800', letter:'A', hue:196, span:3, h:118 },
+    { name:'Zomato', amount:'₹3,100', letter:'Z', hue:348, span:2, h:88 },
+    { name:'BigBasket', amount:'₹2,900', letter:'B', hue:128, span:2, h:88 },
+    { name:'Uber', amount:'₹2,400', letter:'U', hue:222, span:2, h:88 },
+    { name:'Blinkit', amount:'₹1,940', letter:'B', hue:52, span:2, h:86 },
+    { name:'Airtel', amount:'₹1,499', letter:'A', hue:8, span:2, h:86 },
+    { name:'Cult.fit', amount:'₹1,500', letter:'C', hue:268, span:2, h:86 },
+    { name:'19 more places', amount:'₹9,822', letter:'+', hue:0, span:4, h:80, muted:true },
+    { name:'3 without a name', amount:'₹4,200', letter:'?', hue:44, span:2, h:80, unnamed:true },
+  ];
+
+  renderVals() {
+    const badge = (hex) => ({
+      wrap: { display:'flex', alignItems:'center', gap:'12px' },
+      badge: {
+        fontSize:'11px', fontWeight:500, letterSpacing:'0.06em', color:hex,
+        border:`1px solid color-mix(in srgb, ${hex} 40%, transparent)`,
+        background:`color-mix(in srgb, ${hex} 12%, transparent)`,
+        borderRadius:'999px', padding:'4px 10px', fontVariantNumeric:'tabular-nums',
+      },
+    });
+
+    // ---- 1a Inbox
+    const inbox = {
+      root: {
+        background:'#000', color:'#f7f4ea', height:'100%', fontFamily:'var(--font-body)',
+        display:'flex', flexDirection:'column', overflow:'hidden',
+      },
+      header: { padding:'14px 18px 0', borderBottom:'1px solid rgba(247,244,234,0.1)' },
+      mark: {
+        width:'8px', height:'8px', borderRadius:'50%', background:'#f2c14e',
+        boxShadow:'0 0 10px 2px rgba(242,193,78,0.5)',
+      },
+      seg: { display:'flex', gap:'20px', marginTop:'18px' },
+      tabs: ['Unread 14', 'Filed 68', 'Held out 12'].map((label, i) => ({
+        label,
+        style: {
+          fontSize:'11.5px', letterSpacing:'0.04em', paddingBottom:'10px',
+          color: i === 0 ? '#f7f4ea' : 'rgba(247,244,234,0.42)',
+          borderBottom: i === 0 ? '1.5px solid #f2c14e' : '1.5px solid transparent',
+        },
+      })),
+      rows: this.inboxRows.map(r => {
+        const excl = r.state === 'excluded';
+        const unsure = r.state === 'unsure';
+        const unread = r.state === 'unread';
+        return {
+          ...r,
+          wrap: {
+            display:'flex', gap:'11px', alignItems:'flex-start', padding:'13px 18px',
+            borderBottom:'1px solid rgba(247,244,234,0.07)',
+          },
+          dot: {
+            width:'7px', height:'7px', borderRadius:'50%', marginTop:'6px', flexShrink:0,
+            background: unread ? '#f2c14e' : 'transparent',
+            border: unsure ? '1.5px solid #f2c14e' : (unread ? 'none' : '1.5px solid rgba(247,244,234,0.16)'),
+            animation: unsure ? 'cPulse 2.4s ease-in-out infinite' : 'none',
+          },
+          nameStyle: {
+            fontSize:'15px', fontWeight: unread || unsure ? 500 : 400,
+            color: excl ? 'rgba(247,244,234,0.45)' : '#f7f4ea',
+            whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis',
+          },
+          amountStyle: {
+            fontSize:'15px', fontVariantNumeric:'tabular-nums', whiteSpace:'nowrap',
+            fontWeight: unread || unsure ? 500 : 400,
+            color: excl ? 'rgba(247,244,234,0.4)' : '#f7f4ea',
+            textDecoration: excl ? 'line-through' : 'none',
+          },
+        };
+      }),
+    };
+
+    // ---- 1b Tape
+    const ink = '#e7dcc0';
+    const tape = {
+      root: {
+        background:'radial-gradient(120% 80% at 50% 0%, #15161b, #0a0a0c 70%)', color:ink,
+        height:'100%', fontFamily:this.mono, display:'flex', flexDirection:'column',
+        alignItems:'center', padding:'12px 0 0', overflow:'hidden',
+      },
+      deskLabel: {
+        width:'100%', padding:'0 22px 12px', display:'flex', justifyContent:'space-between',
+        fontSize:'9px', letterSpacing:'0.22em', color:'rgba(231,220,192,0.35)',
+      },
+      paper: {
+        width:'300px', background:'#17150f', flex:1,
+        boxShadow:'0 20px 50px rgba(0,0,0,0.75), inset 0 0 0 1px rgba(231,220,192,0.07)',
+        display:'flex', flexDirection:'column', overflow:'hidden',
+      },
+      tearTop: {
+        height:'9px', flexShrink:0, background:'#17150f',
+        clipPath:'polygon(0 100%, 0 40%, 4% 0, 8% 40%, 12% 0, 16% 40%, 20% 0, 24% 40%, 28% 0, 32% 40%, 36% 0, 40% 40%, 44% 0, 48% 40%, 52% 0, 56% 40%, 60% 0, 64% 40%, 68% 0, 72% 40%, 76% 0, 80% 40%, 84% 0, 88% 40%, 92% 0, 96% 40%, 100% 0, 100% 100%)',
+      },
+      tearBottom: {
+        height:'9px', flexShrink:0, background:'#17150f',
+        clipPath:'polygon(0 0, 100% 0, 100% 100%, 96% 60%, 92% 100%, 88% 60%, 84% 100%, 80% 60%, 76% 100%, 72% 60%, 68% 100%, 64% 60%, 60% 100%, 56% 60%, 52% 100%, 48% 60%, 44% 100%, 40% 60%, 36% 100%, 32% 60%, 28% 100%, 24% 60%, 20% 100%, 16% 60%, 12% 100%, 8% 60%, 4% 100%, 0 60%)',
+      },
+      inner: { flex:1, padding:'14px 18px 0', overflow:'hidden' },
+      stampBlock: {
+        border:'1px solid rgba(231,220,192,0.3)', padding:'11px 12px 12px', marginBottom:'16px',
+      },
+      sumRule: { height:'1px', background:'rgba(231,220,192,0.22)', margin:'11px 0 9px' },
+      sums: this.tapeSums.map(s => ({
+        ...s,
+        style: {
+          display:'flex', justifyContent:'space-between', gap:'10px',
+          fontSize:'9.5px', letterSpacing:'0.08em', padding:'2.5px 0',
+          color:'rgba(231,220,192,0.7)',
+        },
+      })),
+      lines: this.tapeLines.map(l => ({
+        ...l,
+        wrap: {
+          padding:'8px 0', borderBottom:'1px dotted rgba(231,220,192,0.16)',
+          opacity: l.faded ? 0.42 : 1,
+        },
+        top: { display:'flex', justifyContent:'space-between', gap:'10px', alignItems:'baseline' },
+        nameStyle: {
+          fontSize:'11.5px', letterSpacing:'0.06em',
+          color: l.held ? 'rgba(231,220,192,0.55)' : ink,
+        },
+        amountStyle: {
+          fontSize:'11.5px', letterSpacing:'0.02em', whiteSpace:'nowrap',
+          textDecoration: l.held ? 'line-through' : 'none',
+          color: l.held ? 'rgba(231,220,192,0.5)' : ink,
+        },
+        meta: {
+          display:'flex', alignItems:'center', gap:'8px', marginTop:'4px',
+          fontSize:'9px', letterSpacing:'0.1em', color:'rgba(231,220,192,0.42)',
+        },
+        stampStyle: {
+          border: l.stamp ? `1px solid ${l.unsure ? 'rgba(217,139,106,0.8)' : 'rgba(231,220,192,0.32)'}` : 'none',
+          color: l.unsure ? '#d98b6a' : 'rgba(231,220,192,0.62)',
+          padding: l.stamp ? '1.5px 5px' : '0',
+          letterSpacing:'0.12em', fontSize:'8.5px',
+          textDecoration: l.struck ? 'none' : 'none',
+        },
+      })),
+      feed: {
+        display:'flex', alignItems:'center', gap:'6px', padding:'10px 0 12px',
+        fontSize:'9px', letterSpacing:'0.16em', color:'rgba(231,220,192,0.3)',
+      },
+    };
+
+    // ---- 1c Workbench
+    const bench = {
+      root: {
+        background:'linear-gradient(180deg, #f3ecdd, #e8dfcb)', color:'#2b2415', height:'100%',
+        fontFamily:'var(--font-body)', display:'flex', flexDirection:'column', overflow:'hidden',
+      },
+      shelf: {
+        padding:'16px 18px 14px', background:'rgba(255,253,246,0.72)',
+        borderBottom:'1px solid rgba(43,36,21,0.1)',
+        boxShadow:'0 6px 18px rgba(110,90,40,0.07)',
+      },
+      shelfHandle: {
+        width:'30px', height:'30px', borderRadius:'50%', display:'flex', alignItems:'center',
+        justifyContent:'center', border:'1px solid rgba(43,36,21,0.16)', color:'#7d7259',
+      },
+      stage: { flex:1, padding:'18px 18px 8px', position:'relative' },
+      hint: {
+        marginTop:'14px', fontSize:'11px', color:'#8a7f66', letterSpacing:'0.03em', textAlign:'center',
+      },
+      chits: this.chits.map((c, i) => ({
+        ...c,
+        wrap: {
+          background:'#fffdf6', borderRadius:'12px', padding:'11px 13px 13px',
+          border: c.loose ? '1.5px dashed rgba(184,121,10,0.5)' : '1px solid rgba(43,36,21,0.08)',
+          boxShadow: c.loose
+            ? '0 10px 22px rgba(120,80,10,0.16)'
+            : '0 5px 12px rgba(110,90,40,0.1)',
+          marginBottom:'9px', position:'relative',
+          transform: `rotate(${(i % 2 ? 0.5 : -0.6)}deg)`,
+        },
+        metaStyle: { fontSize:'10.5px', color: c.loose ? '#b07a1c' : '#8a7f66', marginTop:'4px' },
+        pullStyle: c.loose ? { display:'none' } : {
+          position:'absolute', left:'13px', right:'13px', bottom:'-5px', height:'1px',
+          background:`linear-gradient(90deg, transparent, ${c.pull})`, opacity:0.55,
+        },
+      })),
+      trayRow: {
+        display:'flex', gap:'6px', padding:'14px 12px 18px',
+        background:'rgba(43,36,21,0.055)', borderTop:'1px solid rgba(43,36,21,0.1)',
+      },
+      trays: this.trays.map(t => ({
+        ...t,
+        wrap: { flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:'6px' },
+        wellStyle: {
+          width:'100%', height:'52px', borderRadius:'9px',
+          background:'rgba(43,36,21,0.07)',
+          boxShadow:`inset 0 2px 5px rgba(43,36,21,0.16)`,
+          border:`1px solid color-mix(in srgb, ${t.color} 24%, transparent)`,
+          display:'flex', alignItems:'flex-end', overflow:'hidden',
+        },
+        fillStyle: {
+          width:'100%', height:`${Math.round(t.fill * 100)}%`,
+          background:`linear-gradient(180deg, color-mix(in srgb, ${t.color} 55%, transparent), ${t.color})`,
+        },
+        labelStyle: { fontSize:'9.5px', letterSpacing:'0.04em', color:'#6f6551', whiteSpace:'nowrap' },
+        countStyle: { fontSize:'11px', fontWeight:500, color:'#2b2415', fontVariantNumeric:'tabular-nums' },
+      })),
+    };
+
+    // ---- 1d Dispatch
+    const numBase = {
+      color:'#8a5a06', borderBottom:'1px solid rgba(138,90,6,0.42)',
+      fontVariantNumeric:'tabular-nums', fontWeight:500,
+    };
+    const disp = {
+      root: {
+        background:'#fdfaf3', color:'#2a2419', height:'100%', fontFamily:'var(--font-body)',
+        display:'flex', flexDirection:'column', overflow:'hidden',
+      },
+      masthead: {
+        display:'flex', alignItems:'baseline', justifyContent:'space-between',
+        padding:'14px 22px 12px', borderBottom:'1px solid rgba(42,36,25,0.14)',
+      },
+      body: { flex:1, padding:'20px 22px 0', overflow:'hidden' },
+      kicker: {
+        fontFamily:this.serif, fontWeight:400, fontSize:'25px', lineHeight:1.15,
+        letterSpacing:'-0.01em', margin:'0 0 14px',
+      },
+      lede: { margin:'0 0 12px', fontSize:'16.5px', lineHeight:1.55, textWrap:'pretty' },
+      para: { margin:'0 0 12px', fontSize:'14.5px', lineHeight:1.65, color:'#3d3527', textWrap:'pretty' },
+      paraHedge: {
+        margin:'0 0 4px', fontSize:'14.5px', lineHeight:1.65, color:'#3d3527',
+        borderLeft:'2px solid #c26a1d', paddingLeft:'12px', textWrap:'pretty',
+      },
+      paraSmall: { margin:'0 0 14px', fontSize:'13px', lineHeight:1.6, color:'#5b5241', textWrap:'pretty' },
+      rule: {
+        height:'1px', margin:'18px 0 16px',
+        background:'linear-gradient(90deg, rgba(42,36,25,0.22), rgba(42,36,25,0.22) 70%, transparent)',
+      },
+      footKicker: {
+        fontSize:'10px', letterSpacing:'0.16em', textTransform:'uppercase',
+        color:'#8a7f6a', marginBottom:'6px',
+      },
+      num: numBase,
+      numAction: { ...numBase, color:'#c26a1d', borderBottom:'1px solid rgba(194,106,29,0.5)', whiteSpace:'nowrap' },
+      footer: {
+        display:'flex', alignItems:'center', gap:'8px', padding:'13px 22px 15px',
+        borderTop:'1px solid rgba(42,36,25,0.14)', fontSize:'12px', color:'#5b5241',
+      },
+    };
+
+    // ---- 1e Haunts
+    const haunts = {
+      root: {
+        background:'#000', color:'#f7f4ea', height:'100%', fontFamily:'var(--font-body)',
+        display:'flex', flexDirection:'column', overflow:'hidden',
+      },
+      strip: { padding:'15px 16px 13px' },
+      lens: { display:'flex', gap:'7px', marginTop:'13px' },
+      lenses: ['Places', 'Kinds', 'Months'].map((label, i) => ({
+        label,
+        style: {
+          fontSize:'11px', letterSpacing:'0.04em', padding:'5px 11px', borderRadius:'999px',
+          color: i === 0 ? '#000' : 'rgba(247,244,234,0.55)',
+          background: i === 0 ? '#f2c14e' : 'transparent',
+          border: i === 0 ? '1px solid #f2c14e' : '1px solid rgba(247,244,234,0.14)',
+        },
+      })),
+      field: {
+        flex:1, display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:'7px',
+        padding:'0 16px', alignContent:'start',
+      },
+      tiles: this.tiles.map(t => {
+        const base = t.muted
+          ? 'rgba(247,244,234,0.06)'
+          : `oklch(0.42 0.11 ${t.hue})`;
+        return {
+          ...t,
+          wrap: {
+            gridColumn:`span ${t.span}`, minHeight:`${t.h}px`, borderRadius:'16px',
+            padding:'11px 12px', display:'flex', flexDirection:'column',
+            justifyContent:'space-between', overflow:'hidden',
+            background: t.muted ? base : `linear-gradient(155deg, ${base}, oklch(0.3 0.08 ${t.hue}))`,
+            border: t.unnamed
+              ? '1.5px dashed rgba(255,217,119,0.6)'
+              : '1px solid rgba(247,244,234,0.1)',
+            boxShadow: t.unnamed ? '0 0 22px -8px rgba(255,217,119,0.55)' : 'none',
+            animation: t.unnamed ? 'cPulse 3s ease-in-out infinite' : 'none',
+          },
+          glyph: {
+            fontSize: t.h > 100 ? '26px' : '18px', fontWeight:500, lineHeight:1,
+            color: t.muted ? 'rgba(247,244,234,0.5)' : 'rgba(255,255,255,0.92)',
+            letterSpacing:'-0.02em',
+          },
+          nameStyle: {
+            fontSize:'11px', color: t.muted ? 'rgba(247,244,234,0.82)' : 'rgba(255,255,255,0.95)', marginTop:'auto',
+            whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis',
+          },
+          amountStyle: {
+            fontSize: t.h > 100 ? '15px' : '13px', fontWeight:500, marginTop:'2px',
+            fontVariantNumeric:'tabular-nums', color:'#fff',
+          },
+        };
+      }),
+      band: {
+        margin:'14px 16px 16px', padding:'13px 14px 14px', borderRadius:'16px',
+        border:'1px dashed rgba(247,244,234,0.18)',
+      },
+      held: [
+        { label:'Money moved · 9 transfers', value:'₹38,200' },
+        { label:'Invested · 3 orders', value:'₹25,000' },
+      ].map(h => ({
+        ...h,
+        wrap: {
+          flex:1, padding:'10px 11px', borderRadius:'11px',
+          background:'rgba(247,244,234,0.04)', border:'1px solid rgba(247,244,234,0.08)',
+        },
+      })),
+    };
+
+    return {
+      inbox, tape, bench, disp, haunts,
+      heads: {
+        a: badge('#f2c14e'), b: badge('#e7dcc0'), c: badge('#7fbf9a'),
+        d: badge('#9184d9'), e: badge('#d98b6a'),
+      },
+    };
+  }
+}
+</script>
+</body>
+</html>

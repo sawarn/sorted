@@ -17,13 +17,25 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -31,16 +43,21 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -71,17 +88,26 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -129,6 +155,10 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.roundToInt
+import kotlin.math.sin
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -136,32 +166,15 @@ class MainActivity : ComponentActivity() {
         setContent {
             val appPreferences = remember { SortedAppPreferences(applicationContext) }
             var themeMode by remember { mutableStateOf(appPreferences.themeMode()) }
-            var showOpening by remember { mutableStateOf(true) }
-
-            LaunchedEffect(Unit) {
-                delay(1200)
-                showOpening = false
-            }
 
             SortedTheme(themeMode = themeMode) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    SortedHome(
-                        themeMode = themeMode,
-                        onThemeModeChange = { mode ->
-                            appPreferences.setThemeMode(mode)
-                            themeMode = mode
-                        }
-                    )
-                    Crossfade(
-                        targetState = showOpening,
-                        animationSpec = tween(durationMillis = 280),
-                        label = "opening_crossfade"
-                    ) { opening ->
-                        if (opening) {
-                            SortedOpeningScreen()
-                        }
+                SortedHome(
+                    themeMode = themeMode,
+                    onThemeModeChange = { mode ->
+                        appPreferences.setThemeMode(mode)
+                        themeMode = mode
                     }
-                }
+                )
             }
         }
     }
@@ -228,6 +241,8 @@ private data class MonthBreakdown(
     val spends: Double,
     val transfers: Double,
     val investments: Double,
+    val recurringInvestments: Double,
+    val oneTimeInvestments: Double,
     val refunds: Double,
     val income: Double,
     val rewards: Double,
@@ -288,6 +303,22 @@ private data class SourceHealthRow(
     val totalAmount: Double
 )
 
+private data class HomeConstellationNode(
+    val id: String,
+    val label: String,
+    val value: String,
+    val detail: String,
+    val x: Float,
+    val y: Float,
+    val orbitAngle: Float,
+    val orbitRadius: Float,
+    val visibleAtZoom: Float = 1f,
+    val accent: Color,
+    val outsideSpend: Boolean = false,
+    val needsAttention: Boolean = false,
+    val onClick: () -> Unit
+)
+
 private data class ManualTransactionDraft(
     val merchant: String,
     val amount: Double,
@@ -324,7 +355,8 @@ private data class DrilldownState(
     val title: String,
     val kind: DrilldownKind,
     val group: SummaryGroup,
-    val spendOnly: Boolean = false
+    val spendOnly: Boolean = false,
+    val monthKey: String? = null
 )
 
 private enum class DrilldownKind {
@@ -336,10 +368,10 @@ private enum class SortedTab(
     val label: String,
     val icon: SortedNavIcon
 ) {
-    Home("Home", SortedNavIcon.Home),
-    Insights("Insights", SortedNavIcon.Insights),
-    Capture("Capture", SortedNavIcon.Capture),
-    Sources("Sources", SortedNavIcon.Sources)
+    Home("Tape", SortedNavIcon.Home),
+    Insights("Index", SortedNavIcon.Insights),
+    Capture("Add", SortedNavIcon.Capture),
+    RuleCenter("Stamps", SortedNavIcon.RuleCenter)
 }
 
 private enum class SortedNavIcon {
@@ -347,7 +379,32 @@ private enum class SortedNavIcon {
     Insights,
     Capture,
     Sources,
+    RuleCenter,
+    Settings,
+    Sync
+}
+
+private enum class SortedRoute {
+    Loading,
+    Main,
+    Drilldown,
+    SpendExplanation,
+    SortInbox,
+    RuleCenter,
     Settings
+}
+
+private val SortedTapeFontFamily = FontFamily(
+    Font(R.font.roboto_mono_regular, FontWeight.Normal),
+    Font(R.font.roboto_mono_medium, FontWeight.Medium),
+    Font(R.font.roboto_mono_medium, FontWeight.SemiBold),
+    Font(R.font.roboto_mono_medium, FontWeight.Bold)
+)
+
+private enum class SyncSource {
+    Sms,
+    Gmail,
+    All
 }
 
 private enum class DirectionUi {
@@ -395,8 +452,8 @@ private fun parsedSampleTransactions(): List<TransactionUi> {
 
 private fun loadRealSmsTransactions(context: Context): List<TransactionUi> {
     val repository = TransactionRepository(context)
-    val messages = readRecentSmsMessages(context, limit = 3000)
-    val records = messages.map { message ->
+    val messages = readRecentSmsMessages(context, limit = 10000)
+    val parsedRecords = messages.map { message ->
         val parsed = SmsParser.parse(message.body, message.address).withReceivedDateCorrection(message.receivedDate)
         SmsScanRecord(
             smsId = message.id,
@@ -407,6 +464,7 @@ private fun loadRealSmsTransactions(context: Context): List<TransactionUi> {
             parsed = parsed
         )
     }
+    val records = parsedRecords.withRecurringInvestmentHints()
     DebugFeedWriter.write(context, records)
     repository.import(
         records.map { record ->
@@ -651,6 +709,347 @@ private fun Long.toIsoDate(): String {
         .toString()
 }
 
+private data class RecurringInvestmentHint(
+    val date: String,
+    val amountKey: Long
+)
+
+private data class MutualFundAllotmentCandidate(
+    val hint: RecurringInvestmentHint,
+    val parsed: ParsedTransaction
+)
+
+private data class IndexedMutualFundAllotmentCandidate(
+    val recordIndex: Int,
+    val candidate: MutualFundAllotmentCandidate
+)
+
+private data class PrimaryInvestmentDebit(
+    val recordIndex: Int,
+    val hint: RecurringInvestmentHint
+)
+
+private fun List<SmsScanRecord>.withRecurringInvestmentHints(): List<SmsScanRecord> {
+    val hints = mapNotNull { record -> record.recurringInvestmentHint() }.toSet()
+    val allotmentCandidates = mapIndexedNotNull { index, record ->
+        record.mutualFundAllotmentCandidate()?.let { candidate ->
+            IndexedMutualFundAllotmentCandidate(index, candidate)
+        }
+    }
+    val usedAllotmentRecordIndexes = mutableSetOf<Int>()
+
+    val hintedRecords = if (hints.isEmpty()) {
+        this
+    } else {
+        map { record ->
+            val parsed = record.parsed
+            val amount = parsed.amount
+            val date = parsed.transactionDate
+            val matchingAllotment = if (parsed.isGenericInvestmentDebitCandidate()) {
+                allotmentCandidates
+                    .filter { it.recordIndex !in usedAllotmentRecordIndexes }
+                    .filter { parsed.matchesInvestmentHint(it.candidate.hint) }
+                    .minByOrNull { parsed.investmentHintDistanceDays(it.candidate.hint) }
+            } else {
+                null
+            }
+
+            when {
+                matchingAllotment != null -> {
+                    usedAllotmentRecordIndexes += matchingAllotment.recordIndex
+                    record.copy(parsed = parsed.asInvestmentDebit(matchingAllotment.candidate.parsed))
+                }
+
+                parsed.isTransaction &&
+                    parsed.direction == Direction.DEBIT &&
+                    parsed.paymentMode == PaymentMode.UPI &&
+                    parsed.merchantRaw.isNullOrBlank() &&
+                    record.sourceAddress.orEmpty().contains("PNB", ignoreCase = true) &&
+                    amount != null &&
+                    date != null &&
+                    RecurringInvestmentHint(date, amount.toInvestmentAmountKey()) in hints -> {
+                    record.copy(
+                        parsed = parsed.copy(
+                            merchantRaw = "Indian Clearing",
+                            merchantNormalized = "Indian Clearing Corporation",
+                            miscCategory = "Mutual Fund",
+                            departmentCategory = "Investment",
+                            paymentMode = PaymentMode.NACH,
+                            transactionType = TransactionType.INVESTMENT,
+                            categorySource = CategorySource.KNOWN_MERCHANT_RULE,
+                            confidence = maxOf(parsed.confidence, 0.95)
+                        )
+                    )
+                }
+
+                else -> record
+            }
+        }
+    }
+
+    val primaryInvestmentDebits = hintedRecords
+        .mapIndexedNotNull { index, record ->
+            val parsed = record.parsed
+            val amount = parsed.amount ?: return@mapIndexedNotNull null
+            val date = parsed.transactionDate ?: return@mapIndexedNotNull null
+            val isAllotmentRecord = allotmentCandidates.any { it.recordIndex == index }
+            if (!isAllotmentRecord && parsed.isTransaction && parsed.direction == Direction.DEBIT && parsed.transactionType == TransactionType.INVESTMENT) {
+                PrimaryInvestmentDebit(index, RecurringInvestmentHint(date, amount.toInvestmentAmountKey()))
+            } else {
+                null
+            }
+        }
+    val matchedPrimaryDebitIndexes = mutableSetOf<Int>()
+    val includedConfirmationSignatures = mutableSetOf<String>()
+
+    return hintedRecords.mapIndexed { index, record ->
+        val parsed = record.parsed
+        val candidate = record.mutualFundAllotmentCandidate()
+        if (candidate == null) {
+            record
+        } else if (index in usedAllotmentRecordIndexes) {
+            record.copy(parsed = parsed.asIgnoredInvestmentAllotment())
+        } else {
+            val matchingPrimaryDebit = primaryInvestmentDebits
+                .filter { it.recordIndex !in matchedPrimaryDebitIndexes }
+                .filter { candidate.hint.matchesNearby(it.hint) }
+                .minByOrNull { candidate.hint.distanceDays(it.hint) }
+            val signature = candidate.confirmationSignature()
+
+            if (matchingPrimaryDebit != null) {
+                matchedPrimaryDebitIndexes += matchingPrimaryDebit.recordIndex
+                record.copy(parsed = parsed.asIgnoredInvestmentAllotment())
+            } else if (signature in includedConfirmationSignatures) {
+                record.copy(parsed = parsed.asIgnoredInvestmentAllotment())
+            } else {
+                includedConfirmationSignatures += signature
+                record.copy(parsed = candidate.parsed)
+            }
+        }
+    }
+}
+
+private fun SmsScanRecord.recurringInvestmentHint(): RecurringInvestmentHint? {
+    pnbIndianClearingHint()?.let { return it }
+    mutualFundAllotmentHint()?.let { return it }
+    return null
+}
+
+private fun SmsScanRecord.pnbIndianClearingHint(): RecurringInvestmentHint? {
+    if (!sourceAddress.orEmpty().contains("PNB", ignoreCase = true)) return null
+    if (!body.contains("will be debited", ignoreCase = true)) return null
+    if (!body.contains("Indian Clearing", ignoreCase = true)) return null
+    val match = Regex(
+        """will be debited for Rs\.?\s*([\d,]+(?:\.\d+)?)\s+on\s+(\d{2}-\d{2}-\d{2})""",
+        RegexOption.IGNORE_CASE
+    ).find(body) ?: return null
+    val amount = match.groupValues[1].replace(",", "").toDoubleOrNull() ?: return null
+    val date = match.groupValues[2].toIsoDateFromDdMmYy() ?: return null
+    return RecurringInvestmentHint(date, amount.toInvestmentAmountKey())
+}
+
+private fun SmsScanRecord.mutualFundAllotmentHint(): RecurringInvestmentHint? {
+    return mutualFundAllotmentCandidate()?.hint
+}
+
+private fun SmsScanRecord.mutualFundAllotmentCandidate(): MutualFundAllotmentCandidate? {
+    val lower = body.lowercase(Locale.US)
+    val isAllotment = listOf(
+        "sip installment",
+        "sip instalment",
+        "sip transaction",
+        "sip purchase",
+        "purchase request"
+    ).any { it in lower } && listOf(
+        "processed",
+        "units are allotted",
+        "units are alotted"
+    ).any { it in lower }
+    val isFundSource = Regex("""(?i)(AMC|MF|IPRUMF|HDFCMF|QNTAMC|EDLAMC|MOAMCL)""").containsMatchIn(sourceAddress.orEmpty()) ||
+        listOf("mutual fund", "edelweiss asset management", "motilal oswal mf", "iprumf", "hdfcmf").any { it in lower }
+    if (!isAllotment || !isFundSource) return null
+
+    val amount = Regex("""(?i)\bfor\s+Rs\.?\s*([\d,]+(?:\.\d+)?)""")
+        .find(body)
+        ?.groupValues
+        ?.get(1)
+        ?.replace(",", "")
+        ?.toDoubleOrNull()
+        ?: return null
+    val date = listOfNotNull(
+        Regex("""(?i)\b(?:dated|on)\s+(\d{1,2}/\d{1,2}/\d{4})""").find(body)?.groupValues?.get(1)?.toIsoDateFromDdMmYyyy("/"),
+        Regex("""(?i)\b(?:dated|on)\s+(\d{1,2}-[A-Za-z]{3}-\d{4})""").find(body)?.groupValues?.get(1)?.toIsoDateFromDdMmmYyyy(),
+        Regex("""(?i)\byour\s+(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})\s+SIP""").find(body)?.groupValues?.get(1)?.toIsoDateFromDdMmmYyyy(" "),
+        receivedDate
+    ).firstOrNull() ?: return null
+
+    val merchant = mutualFundMerchantName()
+    val parsed = ParsedTransaction(
+        isTransaction = true,
+        status = TransactionStatus.COMPLETED,
+        amount = amount,
+        currency = "INR",
+        direction = Direction.DEBIT,
+        merchantRaw = merchant,
+        merchantNormalized = merchant,
+        miscCategory = "Mutual Fund",
+        departmentCategory = "Investment",
+        paymentMode = PaymentMode.NACH,
+        accountHint = null,
+        transactionDate = date,
+        transactionTime = null,
+        transactionType = TransactionType.INVESTMENT,
+        categorySource = CategorySource.KNOWN_MERCHANT_RULE,
+        confidence = 0.92,
+        ignoreReason = null
+    )
+    return MutualFundAllotmentCandidate(
+        hint = RecurringInvestmentHint(date, amount.toInvestmentAmountKey()),
+        parsed = parsed
+    )
+}
+
+private fun SmsScanRecord.mutualFundMerchantName(): String {
+    val source = sourceAddress.orEmpty()
+    val lower = body.lowercase(Locale.US)
+    return when {
+        source.contains("IPRUMF", ignoreCase = true) || "iprumf" in lower -> "ICICI Prudential Mutual Fund"
+        source.contains("HDFCMF", ignoreCase = true) || "hdfcmf" in lower -> "HDFC Mutual Fund"
+        source.contains("QNTAMC", ignoreCase = true) || "quant mutual fund" in lower -> "Quant Mutual Fund"
+        source.contains("EDLAMC", ignoreCase = true) || "edelweiss asset management" in lower -> "Edelweiss Mutual Fund"
+        source.contains("MOAMCL", ignoreCase = true) || "motilal oswal mf" in lower -> "Motilal Oswal Mutual Fund"
+        else -> "Mutual Fund"
+    }
+}
+
+private fun String.toIsoDateFromDdMmYy(separator: String = "-"): String? {
+    val parts = split(separator)
+    if (parts.size != 3) return null
+    val day = parts[0].padStart(2, '0')
+    val month = parts[1].padStart(2, '0')
+    val year = parts[2].padStart(2, '0')
+    return "20$year-$month-$day"
+}
+
+private fun String.toIsoDateFromDdMmYyyy(separator: String): String? {
+    val parts = split(separator)
+    if (parts.size != 3) return null
+    val day = parts[0].padStart(2, '0')
+    val month = parts[1].padStart(2, '0')
+    val year = parts[2]
+    if (year.length != 4) return null
+    return "$year-$month-$day"
+}
+
+private fun String.toIsoDateFromDdMmmYyyy(separator: String = "-"): String? {
+    val parts = split(separator).filter(String::isNotBlank)
+    if (parts.size != 3) return null
+    val day = parts[0].padStart(2, '0')
+    val month = monthNumberFromShortName(parts[1]) ?: return null
+    val year = parts[2]
+    if (year.length != 4) return null
+    return "$year-$month-$day"
+}
+
+private fun monthNumberFromShortName(value: String): String? {
+    return when (value.take(3).lowercase(Locale.US)) {
+        "jan" -> "01"
+        "feb" -> "02"
+        "mar" -> "03"
+        "apr" -> "04"
+        "may" -> "05"
+        "jun" -> "06"
+        "jul" -> "07"
+        "aug" -> "08"
+        "sep" -> "09"
+        "oct" -> "10"
+        "nov" -> "11"
+        "dec" -> "12"
+        else -> null
+    }
+}
+
+private fun Double.toInvestmentAmountKey(): Long {
+    return kotlin.math.round(this).toLong()
+}
+
+private fun ParsedTransaction.isGenericInvestmentDebitCandidate(): Boolean {
+    return isTransaction &&
+        direction == Direction.DEBIT &&
+        amount != null &&
+        (amount >= 500.0) &&
+        transactionDate != null &&
+        (
+            merchantRaw.isNullOrBlank() ||
+                merchantNormalized.isNullOrBlank() ||
+                (departmentCategory == "Other" && miscCategory == "Uncategorized")
+            )
+}
+
+private fun ParsedTransaction.matchesInvestmentHint(hint: RecurringInvestmentHint): Boolean {
+    val amount = amount ?: return false
+    val date = transactionDate ?: return false
+    return amount.toInvestmentAmountKey() == hint.amountKey &&
+        RecurringInvestmentHint(date, amount.toInvestmentAmountKey()).matchesNearby(hint)
+}
+
+private fun ParsedTransaction.investmentHintDistanceDays(hint: RecurringInvestmentHint): Int {
+    val date = transactionDate ?: return Int.MAX_VALUE
+    return RecurringInvestmentHint(date, amount?.toInvestmentAmountKey() ?: Long.MIN_VALUE).distanceDays(hint)
+}
+
+private fun ParsedTransaction.asInvestmentDebit(source: ParsedTransaction): ParsedTransaction {
+    return copy(
+        merchantRaw = source.merchantRaw,
+        merchantNormalized = source.merchantNormalized,
+        miscCategory = "Mutual Fund",
+        departmentCategory = "Investment",
+        paymentMode = if (paymentMode == PaymentMode.UNKNOWN) source.paymentMode else paymentMode,
+        transactionType = TransactionType.INVESTMENT,
+        categorySource = CategorySource.KNOWN_MERCHANT_RULE,
+        confidence = maxOf(confidence, 0.95)
+    )
+}
+
+private fun ParsedTransaction.asIgnoredInvestmentAllotment(): ParsedTransaction {
+    return copy(
+        isTransaction = false,
+        status = TransactionStatus.IGNORED,
+        amount = null,
+        currency = null,
+        direction = Direction.UNKNOWN,
+        merchantRaw = null,
+        merchantNormalized = null,
+        miscCategory = null,
+        departmentCategory = null,
+        paymentMode = PaymentMode.UNKNOWN,
+        transactionDate = null,
+        transactionTime = null,
+        transactionType = TransactionType.UNKNOWN,
+        categorySource = CategorySource.NONE,
+        confidence = 0.0,
+        ignoreReason = "duplicate_investment_allotment"
+    )
+}
+
+private fun MutualFundAllotmentCandidate.confirmationSignature(): String {
+    return listOf(
+        parsed.merchantNormalized.orEmpty(),
+        hint.date,
+        hint.amountKey.toString()
+    ).joinToString("|")
+}
+
+private fun RecurringInvestmentHint.matchesNearby(other: RecurringInvestmentHint): Boolean {
+    return amountKey == other.amountKey && distanceDays(other) <= 1
+}
+
+private fun RecurringInvestmentHint.distanceDays(other: RecurringInvestmentHint): Int {
+    val left = date.toLocalDateOrNull() ?: return Int.MAX_VALUE
+    val right = other.date.toLocalDateOrNull() ?: return Int.MAX_VALUE
+    return kotlin.math.abs(ChronoUnit.DAYS.between(left, right)).toInt()
+}
+
 private fun String.toLocalDateOrNull(): LocalDate? {
     return runCatching { LocalDate.parse(this) }.getOrNull()
 }
@@ -721,32 +1120,18 @@ private fun SortedTheme(
         AppThemeMode.Dark -> true
         AppThemeMode.Light -> false
     }
-    val appFontFamily = if (darkMode) {
-        FontFamily(
-            Font(R.font.balsamiq_sans_regular, FontWeight.Normal),
-            Font(R.font.balsamiq_sans_bold, FontWeight.Medium),
-            Font(R.font.balsamiq_sans_bold, FontWeight.SemiBold),
-            Font(R.font.balsamiq_sans_bold, FontWeight.Bold)
-        )
-    } else {
-        FontFamily(
-            Font(R.font.comic_neue_bold, FontWeight.Normal),
-            Font(R.font.comic_neue_bold, FontWeight.Medium),
-            Font(R.font.comic_neue_bold, FontWeight.SemiBold),
-            Font(R.font.comic_neue_bold, FontWeight.Bold)
-        )
-    }
+    val appFontFamily = SortedTapeFontFamily
     val colors = if (darkMode) {
         darkColorScheme(
             background = Color(0xFF000000),
-            surface = Color(0xFF080806),
-            surfaceVariant = Color(0xFF151108),
-            primary = Color(0xFFFFC857),
-            secondary = Color(0xFFFFE08A),
-            tertiary = Color(0xFFD99A2B),
-            onBackground = Color(0xFFFFF8E7),
-            onSurface = Color(0xFFFFF8E7),
-            onSurfaceVariant = Color(0xFFC9B889),
+            surface = Color(0xFF050500),
+            surfaceVariant = Color(0xFF121000),
+            primary = Color(0xFFFBC02D),
+            secondary = Color(0xFFFBC02D),
+            tertiary = Color(0xFFC49018),
+            onBackground = Color(0xFFFFFFFF),
+            onSurface = Color(0xFFFFFFFF),
+            onSurfaceVariant = Color(0xFFB8B8B8),
             onPrimary = Color(0xFF171000)
         )
     } else {
@@ -844,6 +1229,11 @@ private fun SortedOpeningScreen() {
             .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center
     ) {
+        OpeningConstellationBackdrop(
+            modifier = Modifier
+                .fillMaxSize()
+                .alpha(contentAlpha)
+        )
         Column(
             modifier = Modifier.alpha(contentAlpha),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -901,6 +1291,111 @@ private fun SortedOpeningScreen() {
 }
 
 @Composable
+private fun SortedLoadingScreen() {
+    val isDark = isDarkModeActive()
+    val transition = rememberInfiniteTransition(label = "loading_home_constellation")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 9000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "loading_home_constellation_phase"
+    )
+    val contentAlpha by animateFloatAsState(
+        targetValue = 1f,
+        animationSpec = tween(durationMillis = 420),
+        label = "loading_content_alpha"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentAlignment = Alignment.Center
+    ) {
+        ConstellationField(
+            nodes = emptyList(),
+            phase = phase,
+            isDark = isDark,
+            modifier = Modifier
+                .fillMaxSize()
+                .alpha(0.88f)
+        )
+        Column(
+            modifier = Modifier.alpha(contentAlpha),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            SortedLogoMark(modifier = Modifier.size(72.dp))
+            Spacer(modifier = Modifier.height(18.dp))
+            Text(
+                text = "Sorted",
+                color = MaterialTheme.colorScheme.onBackground,
+                fontSize = 34.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(9.dp))
+            Text(
+                text = "Sorting your month",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                letterSpacing = 0.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun OpeningConstellationBackdrop(modifier: Modifier = Modifier) {
+    val isDark = isDarkModeActive()
+    val primary = MaterialTheme.colorScheme.primary
+    val text = MaterialTheme.colorScheme.onBackground
+    val transition = rememberInfiniteTransition(label = "opening_constellation")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 7800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "opening_constellation_phase"
+    )
+
+    Canvas(modifier = modifier) {
+        val center = Offset(size.width * 0.50f, size.height * 0.48f)
+        val rx = size.width * 0.31f
+        val ry = size.height * 0.13f
+        listOf(-22f, 0f, 22f, 72f).forEachIndexed { index, degrees ->
+            rotate(degrees = degrees, pivot = center) {
+                drawOval(
+                    color = primary.copy(alpha = if (isDark) 0.075f else 0.12f),
+                    topLeft = Offset(center.x - rx, center.y - ry + index * 2.dp.toPx()),
+                    size = Size(rx * 2f, ry * 2f),
+                    style = Stroke(width = 1.dp.toPx())
+                )
+            }
+        }
+        repeat(56) { i ->
+            val theta = ((i / 56f) * PI * 2.0 + phase * PI * 2.0 * 0.16).toFloat()
+            val latitude = sin((i * 1.41f + phase) * PI.toFloat()) * 0.75f
+            val depth = cos(theta) * 0.5f + 0.5f
+            val px = center.x + cos(theta) * rx * cos(latitude)
+            val py = center.y + sin(latitude) * ry * 1.5f
+            drawCircle(
+                color = if (i % 4 == 0) primary.copy(alpha = 0.10f + depth * 0.24f) else text.copy(alpha = 0.05f + depth * 0.16f),
+                radius = (0.8f + depth * 1.4f).dp.toPx(),
+                center = Offset(px, py)
+            )
+        }
+    }
+}
+
+@Composable
 private fun OpeningCheckGlyph(
     color: Color,
     modifier: Modifier = Modifier
@@ -944,6 +1439,9 @@ private fun SortedHome(
     var explainOpen by remember { mutableStateOf(false) }
     var sortInboxOpen by remember { mutableStateOf(false) }
     var ruleCenterOpen by remember { mutableStateOf(false) }
+    var syncChooserOpen by remember { mutableStateOf(false) }
+    var syncStatus by remember { mutableStateOf<String?>(null) }
+    var selectedHomeMonthKey by remember { mutableStateOf<String?>(null) }
     var manualSaveState by remember { mutableStateOf(ManualSaveState()) }
     var correctionSaveState by remember { mutableStateOf(CorrectionSaveState()) }
     var hasPermission by remember { mutableStateOf(hasReadSmsPermission(context)) }
@@ -979,11 +1477,15 @@ private fun SortedHome(
     }
 
     fun updateFeed(transactions: List<TransactionUi>) {
+        val months = transactions.availableMonthKeys()
         feedState = FeedState(
             transactions = transactions,
             label = transactions.feedSourceLabel(),
             needsSmsPermission = !hasPermission
         )
+        selectedHomeMonthKey = selectedHomeMonthKey
+            ?.takeIf { it in months }
+            ?: months.firstOrNull()
         feedLoaded = true
     }
 
@@ -1073,6 +1575,7 @@ private fun SortedHome(
 
     fun runGmailImport(accessToken: String?, startLabel: String = "Reading Gmail") {
         if (accessToken.isNullOrBlank()) {
+            syncStatus = "Gmail sync failed"
             gmailState = gmailStateWithAutoSync(
                 label = "Gmail import failed",
                 error = "Google did not return an access token."
@@ -1081,6 +1584,7 @@ private fun SortedHome(
         }
 
         gmailState = gmailStateWithAutoSync(label = startLabel, isImporting = true)
+        syncStatus = startLabel
         scope.launch {
             try {
                 val (summary, transactions) = withContext(Dispatchers.IO) {
@@ -1092,9 +1596,11 @@ private fun SortedHome(
                 }
                 updateFeed(transactions)
                 gmailState = gmailStateWithAutoSync(label = summary.displayLabel())
+                syncStatus = "Gmail synced"
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 gmailSyncPreferences.markSyncError(error.message ?: error.javaClass.simpleName)
+                syncStatus = "Gmail sync failed"
                 gmailState = gmailStateWithAutoSync(
                     label = "Gmail import failed",
                     error = error.message?.take(180) ?: error.javaClass.simpleName
@@ -1114,6 +1620,7 @@ private fun SortedHome(
             .addOnSuccessListener { authorizationResult ->
                 if (authorizationResult.hasResolution()) {
                     gmailSyncPreferences.markNeedsManualAuth()
+                    syncStatus = "Open Gmail sync"
                     gmailState = gmailStateWithAutoSync(
                         label = "Gmail auto sync paused",
                         error = "Tap Import to reconnect Gmail."
@@ -1130,6 +1637,7 @@ private fun SortedHome(
                     error.localizedMessage ?: "Google authorization failed."
                 }
                 gmailSyncPreferences.markSyncError(message)
+                syncStatus = "Gmail sync failed"
                 gmailState = gmailStateWithAutoSync(
                     label = "Gmail auto sync failed",
                     error = message
@@ -1141,6 +1649,7 @@ private fun SortedHome(
         contract = ActivityResultContracts.StartIntentSenderForResult()
     ) { activityResult ->
         if (activityResult.data == null) {
+            syncStatus = "Gmail cancelled"
             gmailState = gmailStateWithAutoSync(
                 label = "Gmail not connected",
                 error = "Authorization was cancelled or Google returned no result. Check OAuth setup and test-user access."
@@ -1153,6 +1662,7 @@ private fun SortedHome(
                 .getAuthorizationResultFromIntent(activityResult.data)
             val grantedScopes = authorizationResult.grantedScopes.toSet()
             if (GmailImportPlan.RequiredScope !in grantedScopes) {
+                syncStatus = "Gmail permission missing"
                 gmailState = gmailStateWithAutoSync(
                     label = "Gmail permission missing",
                     error = "Gmail read permission was not granted."
@@ -1162,12 +1672,14 @@ private fun SortedHome(
             runGmailImport(authorizationResult.accessToken)
         } catch (error: ApiException) {
             Log.e(LogTag, "Gmail authorization failed", error)
+            syncStatus = "Gmail sync failed"
             gmailState = gmailStateWithAutoSync(
                 label = "Gmail import failed",
                 error = gmailAuthErrorMessage(error, gmailSetupInfo)
             )
         } catch (error: Throwable) {
             Log.e(LogTag, "Gmail authorization result failed", error)
+            syncStatus = "Gmail sync failed"
             gmailState = gmailStateWithAutoSync(
                 label = "Gmail import failed",
                 error = error.message ?: error.javaClass.simpleName
@@ -1178,6 +1690,7 @@ private fun SortedHome(
     fun requestGmailImport() {
         val activity = context.findComponentActivity()
         if (activity == null) {
+            syncStatus = "Gmail sync failed"
             gmailState = gmailStateWithAutoSync(
                 label = "Gmail import failed",
                 error = "Unable to open Google authorization from this screen."
@@ -1186,6 +1699,7 @@ private fun SortedHome(
         }
 
         gmailState = gmailStateWithAutoSync(label = "Opening Google consent", isImporting = true)
+        syncStatus = "Opening Gmail"
         val request = AuthorizationRequest.builder()
             .setRequestedScopes(listOf(Scope(GmailImportPlan.RequiredScope)))
             .build()
@@ -1196,6 +1710,7 @@ private fun SortedHome(
                 if (authorizationResult.hasResolution()) {
                     val pendingIntent = authorizationResult.pendingIntent
                     if (pendingIntent == null) {
+                        syncStatus = "Gmail sync failed"
                         gmailState = gmailStateWithAutoSync(
                             label = "Gmail import failed",
                             error = "Google authorization needs consent but returned no prompt."
@@ -1212,6 +1727,7 @@ private fun SortedHome(
             .addOnFailureListener { error ->
                 Log.e(LogTag, "Gmail authorization request failed", error)
                 val apiError = error as? ApiException
+                syncStatus = "Gmail sync failed"
                 gmailState = gmailStateWithAutoSync(
                     label = "Gmail import failed",
                     error = if (apiError != null) {
@@ -1221,6 +1737,54 @@ private fun SortedHome(
                     }
                 )
             }
+    }
+
+    fun syncSmsNow() {
+        if (!hasPermission) {
+            syncStatus = "SMS permission needed"
+            smsPermissionLauncher.launch(Manifest.permission.READ_SMS)
+            return
+        }
+        syncStatus = "Syncing SMS"
+        scope.launch {
+            try {
+                val transactions = withContext(Dispatchers.IO) {
+                    loadRealSmsTransactions(appContext)
+                }
+                updateFeed(transactions)
+                syncStatus = "SMS synced"
+            } catch (error: Throwable) {
+                syncStatus = "SMS sync failed"
+            }
+        }
+    }
+
+    fun syncSource(source: SyncSource) {
+        syncChooserOpen = false
+        when (source) {
+            SyncSource.Sms -> syncSmsNow()
+            SyncSource.Gmail -> requestGmailImport()
+            SyncSource.All -> {
+                if (!hasPermission) {
+                    syncStatus = "SMS permission needed"
+                    smsPermissionLauncher.launch(Manifest.permission.READ_SMS)
+                    return
+                }
+                syncStatus = "Syncing SMS + Gmail"
+                scope.launch {
+                    try {
+                        val transactions = withContext(Dispatchers.IO) {
+                            loadRealSmsTransactions(appContext)
+                        }
+                        updateFeed(transactions)
+                        requestSilentGmailImport()
+                        syncStatus = "SMS synced, Gmail running"
+                    } catch (error: Throwable) {
+                        syncStatus = "Full sync failed"
+                    }
+                }
+            }
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -1239,7 +1803,21 @@ private fun SortedHome(
             loadFeedState(appContext, hasPermission)
         }
         feedState = loadedFeedState
+        val months = loadedFeedState.transactions.availableMonthKeys()
+        selectedHomeMonthKey = selectedHomeMonthKey
+            ?.takeIf { it in months }
+            ?: months.firstOrNull()
         feedLoaded = true
+    }
+
+    LaunchedEffect(syncStatus) {
+        val message = syncStatus ?: return@LaunchedEffect
+        if (!message.startsWith("Syncing") && !message.startsWith("Opening") && !message.startsWith("Reading") && !message.startsWith("Auto syncing")) {
+            delay(2600)
+            if (syncStatus == message) {
+                syncStatus = null
+            }
+        }
     }
 
     val activeDrilldown = drilldown
@@ -1261,129 +1839,191 @@ private fun SortedHome(
         }
     }
 
-    when {
-        activeDrilldown != null -> {
-            DrilldownScreen(
-                state = activeDrilldown,
-                allTransactions = feedState.transactions,
-                onBack = { drilldown = null },
-                onTransactionClick = { openTransaction(it) }
-            )
-        }
+    val route = when {
+        activeDrilldown != null -> SortedRoute.Drilldown
+        explainOpen -> SortedRoute.SpendExplanation
+        sortInboxOpen -> SortedRoute.SortInbox
+        ruleCenterOpen -> SortedRoute.RuleCenter
+        settingsOpen -> SortedRoute.Settings
+        selectedTab == SortedTab.Home && !feedLoaded -> SortedRoute.Loading
+        else -> SortedRoute.Main
+    }
 
-        explainOpen -> {
-            SpendExplanationScreen(
-                feedState = feedState,
-                onBack = { explainOpen = false },
-                onTransactionClick = { openTransaction(it) },
-                onOpenReview = { sortInboxOpen = true }
-            )
-        }
-
-        sortInboxOpen -> {
-            SortInboxScreen(
-                feedState = feedState,
-                onBack = { sortInboxOpen = false },
-                onTransactionClick = { openTransaction(it) }
-            )
-        }
-
-        ruleCenterOpen -> {
-            RuleCenterScreen(
-                onBack = { ruleCenterOpen = false }
-            )
-        }
-
-        settingsOpen -> {
-            SettingsScreen(
-                themeMode = themeMode,
-                feedState = feedState,
-                gmailState = gmailState,
-                onThemeModeChange = onThemeModeChange,
-                onBack = { settingsOpen = false },
-                onOpenRuleCenter = {
-                    settingsOpen = false
-                    ruleCenterOpen = true
-                }
-            )
-        }
-
-        else -> {
-            Scaffold(
-                containerColor = MaterialTheme.colorScheme.background,
-                bottomBar = {
-                    SortedBottomBar(
-                        selectedTab = selectedTab,
-                        onTabSelected = { selectedTab = it }
+    Crossfade(
+        targetState = route,
+        animationSpec = tween(durationMillis = 520, easing = FastOutSlowInEasing),
+        label = "sorted_route_crossfade"
+    ) { currentRoute ->
+        when (currentRoute) {
+            SortedRoute.Drilldown -> {
+                val state = activeDrilldown
+                if (state == null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.background)
+                    )
+                } else {
+                    DrilldownScreen(
+                        state = state,
+                        allTransactions = feedState.transactions,
+                        onBack = { drilldown = null },
+                        onTransactionClick = { openTransaction(it) }
                     )
                 }
-            ) { padding ->
-                when (selectedTab) {
-                    SortedTab.Home -> HomeTabContent(
-                        feedState = feedState,
-                        isFeedLoading = !feedLoaded,
-                        modifier = Modifier.padding(padding),
-                        onSettings = { settingsOpen = true },
-                        onExplainSpend = { explainOpen = true },
-                        onMerchantClick = { group ->
-                            drilldown = DrilldownState(
-                                title = group.label,
-                                kind = DrilldownKind.Merchant,
-                                group = group,
-                                spendOnly = true
-                            )
-                        },
-                        onCategoryClick = { group ->
-                            drilldown = DrilldownState(
-                                title = group.label,
-                                kind = DrilldownKind.Category,
-                                group = group,
-                                spendOnly = true
-                            )
+            }
+
+            SortedRoute.SpendExplanation -> {
+                SpendExplanationScreen(
+                    feedState = feedState,
+                    onBack = { explainOpen = false },
+                    onTransactionClick = { openTransaction(it) },
+                    onOpenReview = { sortInboxOpen = true }
+                )
+            }
+
+            SortedRoute.SortInbox -> {
+                SortInboxScreen(
+                    feedState = feedState,
+                    onBack = { sortInboxOpen = false },
+                    onTransactionClick = { openTransaction(it) }
+                )
+            }
+
+            SortedRoute.RuleCenter -> {
+                RuleCenterScreen(
+                    modifier = Modifier,
+                    onBack = { ruleCenterOpen = false }
+                )
+            }
+
+            SortedRoute.Settings -> {
+                SettingsScreen(
+                    themeMode = themeMode,
+                    feedState = feedState,
+                    gmailState = gmailState,
+                    onThemeModeChange = onThemeModeChange,
+                    onBack = { settingsOpen = false },
+                    onOpenRuleCenter = {
+                        settingsOpen = false
+                        ruleCenterOpen = true
+                    }
+                )
+            }
+
+            SortedRoute.Loading -> {
+                SortedLoadingScreen()
+            }
+
+            SortedRoute.Main -> {
+                Scaffold(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    bottomBar = {
+                        SortedBottomBar(
+                            selectedTab = selectedTab,
+                            onTabSelected = {
+                                syncChooserOpen = false
+                                selectedTab = it
+                            }
+                        )
+                    }
+                ) { padding ->
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Crossfade(
+                            targetState = selectedTab,
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            label = "sorted_tab_crossfade"
+                        ) { tab ->
+                            when (tab) {
+                                SortedTab.Home -> HomeTabContent(
+                                    feedState = feedState,
+                                    selectedMonthKey = selectedHomeMonthKey,
+                                    modifier = Modifier.padding(padding),
+                                    onSettings = { settingsOpen = true },
+                                    onOpenSync = { syncChooserOpen = !syncChooserOpen },
+                                    onMonthSelected = { selectedHomeMonthKey = it },
+                                    onExplainSpend = { explainOpen = true },
+                                    onOpenReview = { sortInboxOpen = true },
+                                    onRequestSmsPermission = {
+                                        smsPermissionLauncher.launch(Manifest.permission.READ_SMS)
+                                    },
+                                    onTransactionClick = { openTransaction(it) },
+                                    onMerchantClick = { group ->
+                                        drilldown = DrilldownState(
+                                            title = group.label,
+                                            kind = DrilldownKind.Merchant,
+                                            group = group,
+                                            spendOnly = true,
+                                            monthKey = selectedHomeMonthKey ?: feedState.transactions.selectedMonthKey()
+                                        )
+                                    },
+                                    onCategoryClick = { group ->
+                                        drilldown = DrilldownState(
+                                            title = group.label,
+                                            kind = DrilldownKind.Category,
+                                            group = group,
+                                            spendOnly = true,
+                                            monthKey = selectedHomeMonthKey ?: feedState.transactions.selectedMonthKey()
+                                        )
+                                    }
+                                )
+
+                                SortedTab.Insights -> InsightsTabContent(
+                                    feedState = feedState,
+                                    selectedMonthKey = selectedHomeMonthKey,
+                                    modifier = Modifier.padding(padding),
+                                    onSettings = { settingsOpen = true },
+                                    onMerchantClick = { group ->
+                                        drilldown = DrilldownState(
+                                            title = group.label,
+                                            kind = DrilldownKind.Merchant,
+                                            group = group,
+                                            spendOnly = true,
+                                            monthKey = selectedHomeMonthKey ?: feedState.transactions.selectedMonthKey()
+                                        )
+                                    },
+                                    onCategoryClick = { group ->
+                                        drilldown = DrilldownState(
+                                            title = group.label,
+                                            kind = DrilldownKind.Category,
+                                            group = group,
+                                            spendOnly = true,
+                                            monthKey = selectedHomeMonthKey ?: feedState.transactions.selectedMonthKey()
+                                        )
+                                    },
+                                    onTransactionClick = { openTransaction(it) },
+                                    onOpenReview = { sortInboxOpen = true }
+                                )
+
+                                SortedTab.Capture -> CaptureTabContent(
+                                    feedState = feedState,
+                                    modifier = Modifier.padding(padding),
+                                    saveState = manualSaveState,
+                                    onSettings = { settingsOpen = true },
+                                    onSave = { draft -> saveManualDraft(draft) }
+                                )
+
+                                SortedTab.RuleCenter -> RuleCenterScreen(
+                                    modifier = Modifier.padding(padding),
+                                    onSettings = { settingsOpen = true },
+                                    onBack = null
+                                )
+                            }
                         }
-                    )
-
-                    SortedTab.Insights -> InsightsTabContent(
-                        feedState = feedState,
-                        modifier = Modifier.padding(padding),
-                        onSettings = { settingsOpen = true },
-                        onMerchantClick = { group ->
-                            drilldown = DrilldownState(
-                                title = group.label,
-                                kind = DrilldownKind.Merchant,
-                                group = group
-                            )
-                        },
-                        onCategoryClick = { group ->
-                            drilldown = DrilldownState(
-                                title = group.label,
-                                kind = DrilldownKind.Category,
-                                group = group
-                            )
-                        },
-                        onTransactionClick = { openTransaction(it) },
-                        onOpenReview = { sortInboxOpen = true }
-                    )
-
-                    SortedTab.Capture -> CaptureTabContent(
-                        feedState = feedState,
-                        modifier = Modifier.padding(padding),
-                        saveState = manualSaveState,
-                        onSettings = { settingsOpen = true },
-                        onSave = { draft -> saveManualDraft(draft) }
-                    )
-
-                    SortedTab.Sources -> SourcesTabContent(
-                        feedState = feedState,
-                        gmailState = gmailState,
-                        gmailSetupInfo = gmailSetupInfo,
-                        modifier = Modifier.padding(padding),
-                        onSettings = { settingsOpen = true },
-                        onRequestSmsPermission = {
-                            smsPermissionLauncher.launch(Manifest.permission.READ_SMS)
-                        },
-                        onImportGmail = { requestGmailImport() }
-                    )
+                        SyncChooserBar(
+                            visible = syncChooserOpen,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 172.dp),
+                            onSync = { syncSource(it) }
+                        )
+                        SyncStatusPill(
+                            message = syncStatus,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 150.dp)
+                        )
+                    }
                 }
             }
         }
@@ -1411,55 +2051,975 @@ private fun SortedHome(
 @Composable
 private fun HomeTabContent(
     feedState: FeedState,
-    isFeedLoading: Boolean,
+    selectedMonthKey: String?,
     modifier: Modifier,
     onSettings: () -> Unit,
+    onOpenSync: () -> Unit,
+    onMonthSelected: (String) -> Unit,
     onExplainSpend: () -> Unit,
+    onOpenReview: () -> Unit,
+    onRequestSmsPermission: () -> Unit,
+    onTransactionClick: (TransactionUi) -> Unit,
     onMerchantClick: (SummaryGroup) -> Unit,
     onCategoryClick: (SummaryGroup) -> Unit
 ) {
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+    val months = remember(feedState.transactions) { feedState.transactions.availableMonthKeys() }
+    val activeMonthKey = selectedMonthKey ?: months.firstOrNull()
+    TapeHome(
+        feedState = feedState,
+        months = months,
+        selectedMonthKey = activeMonthKey,
+        modifier = modifier,
+        onSettings = onSettings,
+        onOpenSync = onOpenSync,
+        onMonthSelected = onMonthSelected,
+        onExplainSpend = onExplainSpend,
+        onOpenReview = onOpenReview,
+        onRequestSmsPermission = onRequestSmsPermission,
+        onTransactionClick = onTransactionClick
+    )
+}
+
+private data class TapePalette(
+    val desk: Color,
+    val tape: Color,
+    val ink: Color,
+    val inkSoft: Color,
+    val inkFaint: Color,
+    val rule: Color,
+    val ruleFaint: Color,
+    val amber: Color,
+    val query: Color,
+    val held: Color,
+    val credit: Color
+)
+
+private data class TapeDayGroup(
+    val dateKey: String,
+    val label: String,
+    val transactions: List<TransactionUi>,
+    val spendSubtotal: Double
+)
+
+@Composable
+private fun tapePalette(): TapePalette {
+    return if (isDarkModeActive()) {
+        TapePalette(
+            desk = Color(0xFF0A0A0C),
+            tape = Color(0xFF17150F),
+            ink = Color(0xFFE7DCC0),
+            inkSoft = Color(0xA6E7DCC0),
+            inkFaint = Color(0x66E7DCC0),
+            rule = Color(0x4DE7DCC0),
+            ruleFaint = Color(0x2EE7DCC0),
+            amber = Color(0xFFF2C14E),
+            query = Color(0xFFD98B6A),
+            held = Color(0xFF9AA79A),
+            credit = Color(0xFF7FBF9A)
+        )
+    } else {
+        TapePalette(
+            desk = Color(0xFFE8DFCB),
+            tape = Color(0xFFFFFDF6),
+            ink = Color(0xFF2A2419),
+            inkSoft = Color(0xA62A2419),
+            inkFaint = Color(0x782A2419),
+            rule = Color(0x522A2419),
+            ruleFaint = Color(0x382A2419),
+            amber = Color(0xFFA86A06),
+            query = Color(0xFFB4501A),
+            held = Color(0xFF4F5C4F),
+            credit = Color(0xFF0F7250)
+        )
+    }
+}
+
+@Composable
+private fun TapeHome(
+    feedState: FeedState,
+    months: List<String>,
+    selectedMonthKey: String?,
+    modifier: Modifier,
+    onSettings: () -> Unit,
+    onOpenSync: () -> Unit,
+    onMonthSelected: (String) -> Unit,
+    onExplainSpend: () -> Unit,
+    onOpenReview: () -> Unit,
+    onRequestSmsPermission: () -> Unit,
+    onTransactionClick: (TransactionUi) -> Unit
+) {
+    val palette = tapePalette()
+    val monthTransactions = remember(feedState.transactions, selectedMonthKey) {
+        feedState.transactions.latestMonthTransactions(selectedMonthKey)
+            .filter { it.inrAmountValue != null }
+    }
+    val breakdown = remember(feedState.transactions, selectedMonthKey) {
+        feedState.transactions.monthBreakdown(selectedMonthKey)
+    }
+    val reviewRows = remember(feedState.transactions, selectedMonthKey) {
+        feedState.transactions.reviewCandidates(selectedMonthKey)
+    }
+    val dayGroups = remember(monthTransactions) {
+        monthTransactions
+            .sortedWith(
+                compareByDescending<TransactionUi> { it.transactionDate.orEmpty() }
+                    .thenByDescending { it.inrAmountValue ?: 0.0 }
+            )
+            .groupBy { it.transactionDate ?: "unknown" }
+            .map { (dateKey, rows) ->
+                TapeDayGroup(
+                    dateKey = dateKey,
+                    label = dateKey.recentDateLabel(),
+                    transactions = rows,
+                    spendSubtotal = rows
+                        .filter { it.direction == DirectionUi.Debit && it.transactionType.countsAsSpend() }
+                        .sumOf { it.inrAmountValue ?: 0.0 }
+                )
+            }
+    }
+    val sampleFallback = feedState.needsSmsPermission && feedState.label == "sample SMS"
+    val sourceLabel = remember(monthTransactions, feedState) {
+        monthTransactions.tapeSourceReceipt(feedState)
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(palette.desk)
     ) {
-        item {
-            Header(title = "Sorted", onSettings = onSettings)
+        Column(modifier = Modifier.fillMaxSize()) {
+            TapeDeskBar(
+                sourceLabel = if (sampleFallback) "NO SOURCE CONNECTED" else sourceLabel,
+                palette = palette,
+                onOpenSync = onOpenSync,
+                onSettings = onSettings
+            )
+            TapePaper(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 12.dp),
+                palette = palette
+            ) {
+                if (sampleFallback || monthTransactions.isEmpty()) {
+                    item {
+                        TapeMonthSelector(
+                            months = months,
+                            selectedMonthKey = selectedMonthKey,
+                            palette = palette,
+                            onMonthSelected = onMonthSelected
+                        )
+                    }
+                    item {
+                        EmptyTapeState(
+                            needsPermission = feedState.needsSmsPermission,
+                            palette = palette,
+                            onRequestSmsPermission = onRequestSmsPermission
+                        )
+                    }
+                    item { Spacer(modifier = Modifier.height(100.dp)) }
+                } else {
+                    item {
+                        TapeMonthSelector(
+                            months = months,
+                            selectedMonthKey = selectedMonthKey,
+                            palette = palette,
+                            onMonthSelected = onMonthSelected
+                        )
+                    }
+                    item {
+                        TapeCloseOutBlock(
+                            breakdown = breakdown,
+                            reviewRows = reviewRows,
+                            palette = palette,
+                            onExplainSpend = onExplainSpend
+                        )
+                    }
+                    if (reviewRows.isNotEmpty()) {
+                        item {
+                            TapeQueryStrip(
+                                count = reviewRows.size,
+                                amount = reviewRows.sumOf { it.inrAmountValue ?: 0.0 },
+                                palette = palette,
+                                onClick = onOpenReview
+                            )
+                        }
+                    }
+                    items(dayGroups, key = { it.dateKey }) { group ->
+                        TapeDaySection(
+                            group = group,
+                            palette = palette,
+                            onTransactionClick = onTransactionClick
+                        )
+                    }
+                    item {
+                        TapeSourceFooter(
+                            sourceLabel = sourceLabel,
+                            palette = palette
+                        )
+                    }
+                    item { Spacer(modifier = Modifier.height(92.dp)) }
+                }
+            }
         }
-        if (isFeedLoading) {
-            item {
-                HomeLoadingSummary()
-            }
-        } else {
-            item {
-                MonthSummary(
-                    feedState = feedState,
-                    onExplainSpend = onExplainSpend
-                )
-            }
-            item {
-                SummaryRail(
-                    title = "By merchant",
-                    groups = feedState.transactions.monthSpendMerchantGroups().take(5),
-                    onGroupClick = onMerchantClick
-                )
-            }
-            item {
-                SummaryRail(
-                    title = "By category",
-                    groups = feedState.transactions.monthSpendCategoryGroups().take(5),
-                    onGroupClick = onCategoryClick
-                )
-            }
-        }
-        item {
-            Spacer(modifier = Modifier.height(104.dp))
+
+        if (!sampleFallback && monthTransactions.isNotEmpty()) {
+            TapePinnedStrip(
+                breakdown = breakdown,
+                reviewRows = reviewRows,
+                palette = palette,
+                modifier = Modifier.align(Alignment.BottomCenter),
+                onExplainSpend = onExplainSpend,
+                onOpenReview = onOpenReview
+            )
         }
     }
 }
 
 @Composable
+private fun TapeDeskBar(
+    sourceLabel: String,
+    palette: TapePalette,
+    onOpenSync: () -> Unit,
+    onSettings: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .padding(start = 15.dp, end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "SORTED",
+            color = palette.inkSoft,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 2.sp,
+            maxLines = 1
+        )
+        Text(
+            text = sourceLabel.uppercase(Locale.US),
+            modifier = Modifier
+                .weight(1f)
+                .clickable(onClick = onOpenSync)
+                .padding(horizontal = 10.dp),
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 1.sp
+        )
+        IconButton(onClick = onSettings, modifier = Modifier.size(38.dp)) {
+            SettingsGlyph(
+                color = palette.inkFaint,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun TapePaper(
+    modifier: Modifier,
+    palette: TapePalette,
+    content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit
+) {
+    Column(
+        modifier = modifier
+            .background(palette.tape)
+            .drawBehind {
+                val strokeWidth = 1.dp.toPx()
+                drawLine(
+                    color = palette.ruleFaint,
+                    start = Offset(strokeWidth / 2f, 0f),
+                    end = Offset(strokeWidth / 2f, size.height),
+                    strokeWidth = strokeWidth
+                )
+                drawLine(
+                    color = palette.ruleFaint,
+                    start = Offset(size.width - strokeWidth / 2f, 0f),
+                    end = Offset(size.width - strokeWidth / 2f, size.height),
+                    strokeWidth = strokeWidth
+                )
+            }
+    ) {
+        TapeTornEdge(palette = palette, top = true)
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            content = content
+        )
+        TapeTornEdge(palette = palette, top = false)
+    }
+}
+
+@Composable
+private fun TapeTornEdge(
+    palette: TapePalette,
+    top: Boolean
+) {
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(8.dp)
+            .background(palette.tape)
+    ) {
+        val teeth = 18
+        val step = size.width / teeth
+        val baseY = if (top) size.height else 0f
+        for (i in 0 until teeth) {
+            val x = i * step
+            val peakY = if (top) 0f else size.height
+            drawLine(
+                color = palette.ruleFaint,
+                start = Offset(x, baseY),
+                end = Offset(x + step / 2f, peakY),
+                strokeWidth = 1.dp.toPx()
+            )
+            drawLine(
+                color = palette.ruleFaint,
+                start = Offset(x + step / 2f, peakY),
+                end = Offset(x + step, baseY),
+                strokeWidth = 1.dp.toPx()
+            )
+        }
+    }
+}
+
+@Composable
+private fun TapeMonthSelector(
+    months: List<String>,
+    selectedMonthKey: String?,
+    palette: TapePalette,
+    onMonthSelected: (String) -> Unit
+) {
+    val selectedIndex = months.indexOf(selectedMonthKey).takeIf { it >= 0 } ?: 0
+    val older = months.getOrNull(selectedIndex + 1)
+    val newer = months.getOrNull(selectedIndex - 1)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TapeArrowButton(
+            label = "<",
+            enabled = older != null,
+            palette = palette,
+            onClick = { older?.let(onMonthSelected) }
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        TapeStamp(
+            text = selectedMonthKey?.monthStampLabel() ?: "NO MONTH",
+            palette = palette,
+            color = palette.amber
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        TapeArrowButton(
+            label = ">",
+            enabled = newer != null,
+            palette = palette,
+            onClick = { newer?.let(onMonthSelected) }
+        )
+        Spacer(modifier = Modifier.weight(1f))
+        Text(
+            text = "SEARCH",
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 8.sp,
+            letterSpacing = 1.sp
+        )
+    }
+}
+
+@Composable
+private fun TapeArrowButton(
+    label: String,
+    enabled: Boolean,
+    palette: TapePalette,
+    onClick: () -> Unit
+) {
+    Text(
+        text = label,
+        modifier = Modifier
+            .size(26.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(top = 3.dp),
+        color = if (enabled) palette.inkSoft else palette.inkFaint.copy(alpha = 0.42f),
+        fontFamily = SortedTapeFontFamily,
+        fontSize = 15.sp,
+        textAlign = TextAlign.Center,
+        maxLines = 1
+    )
+}
+
+@Composable
+private fun TapeCloseOutBlock(
+    breakdown: MonthBreakdown,
+    reviewRows: List<TransactionUi>,
+    palette: TapePalette,
+    onExplainSpend: () -> Unit
+) {
+    val heldOut = (breakdown.totalDebits - breakdown.spends).coerceAtLeast(0.0)
+    val reviewAmount = reviewRows.sumOf { it.inrAmountValue ?: 0.0 }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .border(1.dp, palette.rule)
+            .clickable(onClick = onExplainSpend)
+            .padding(horizontal = 12.dp, vertical = 12.dp)
+    ) {
+        Text(
+            text = "SPEND - MONTH TO DATE",
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            letterSpacing = 1.5.sp,
+            maxLines = 1
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = breakdown.spends.formatRupee(),
+            color = palette.ink,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 31.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        TapeDoubleRule(palette = palette)
+        TapeSummationRow(
+            label = "${breakdown.spendCount} LINES INCLUDED",
+            value = breakdown.spends.formatRupee(),
+            palette = palette
+        )
+        TapeSummationRow(
+            label = "${breakdown.debitCount - breakdown.spendCount} LINES HELD OUT",
+            value = "(${heldOut.formatRupee()})",
+            palette = palette
+        )
+        TapeSummationRow(
+            label = "${reviewRows.size} LINES UNSTAMPED",
+            value = reviewAmount.formatRupee(),
+            palette = palette,
+            color = palette.query
+        )
+        if (breakdown.refunds > 0.0) {
+            TapeSummationRow(
+                label = "REFUND SIGNALS",
+                value = "NOT SUBTRACTED",
+                palette = palette
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(palette.ruleFaint)
+                .padding(top = 10.dp)
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "WHY THIS NUMBER",
+                modifier = Modifier.weight(1f),
+                color = palette.amber,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 1.3.sp
+            )
+            Text(
+                text = ">",
+                color = palette.amber,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 15.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun TapeDoubleRule(palette: TapePalette) {
+    Column(modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(palette.rule)
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(palette.rule)
+        )
+    }
+}
+
+@Composable
+private fun TapeSummationRow(
+    label: String,
+    value: String,
+    palette: TapePalette,
+    color: Color = palette.inkSoft
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+            color = color,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 0.7.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = value,
+            color = color,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun TapeQueryStrip(
+    count: Int,
+    amount: Double,
+    palette: TapePalette,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .border(1.dp, palette.query)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TapeStamp(text = "?", palette = palette, color = palette.query)
+        Spacer(modifier = Modifier.width(9.dp))
+        Text(
+            text = "$count LINES NEED A STAMP - ${amount.formatRupee()}",
+            modifier = Modifier.weight(1f),
+            color = palette.query,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 1.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = ">",
+            color = palette.query,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 15.sp
+        )
+    }
+}
+
+@Composable
+private fun TapeDaySection(
+    group: TapeDayGroup,
+    palette: TapePalette,
+    onTransactionClick: (TransactionUi) -> Unit
+) {
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(width = 0.dp, color = Color.Transparent)
+                .padding(top = 8.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = group.label.uppercase(Locale.US),
+                modifier = Modifier.weight(1f),
+                color = palette.inkSoft,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 1.3.sp,
+                maxLines = 1
+            )
+            Text(
+                text = group.spendSubtotal.formatRupee(),
+                color = palette.inkSoft,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(palette.rule)
+        )
+        group.transactions.forEach { transaction ->
+            TapeTransactionLine(
+                transaction = transaction,
+                palette = palette,
+                onClick = { onTransactionClick(transaction) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun TapeTransactionLine(
+    transaction: TransactionUi,
+    palette: TapePalette,
+    onClick: () -> Unit
+) {
+    val style = transaction.tapeLineStyle(palette)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = style.glyph,
+                modifier = Modifier.width(14.dp),
+                color = style.accent,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 11.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 1
+            )
+            Text(
+                text = transaction.merchant.uppercase(Locale.US),
+                modifier = Modifier.weight(1f),
+                color = style.ink,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                letterSpacing = 0.8.sp
+            )
+            Text(
+                text = style.amount,
+                color = style.ink,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                textDecoration = style.textDecoration
+            )
+        }
+        Row(
+            modifier = Modifier.padding(start = 14.dp, top = 5.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TapeStamp(
+                text = style.stamp,
+                palette = palette,
+                color = style.accent,
+                filled = style.filledStamp
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            TapeStamp(
+                text = transaction.source.uppercase(Locale.US),
+                palette = palette,
+                color = palette.inkFaint
+            )
+            Spacer(modifier = Modifier.width(7.dp))
+            Text(
+                text = style.note,
+                color = palette.inkFaint,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 8.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                letterSpacing = 0.5.sp
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 14.dp, top = 8.dp)
+                .height(1.dp)
+                .background(palette.ruleFaint)
+        )
+    }
+}
+
+private data class TapeLineStyle(
+    val glyph: String,
+    val stamp: String,
+    val amount: String,
+    val note: String,
+    val accent: Color,
+    val ink: Color,
+    val filledStamp: Boolean,
+    val textDecoration: androidx.compose.ui.text.style.TextDecoration? = null
+)
+
+private fun TransactionUi.tapeLineStyle(palette: TapePalette): TapeLineStyle {
+    val value = inrAmountValue ?: amountValue
+    val amountLabel = value.formatRupee()
+    val review = needsReview()
+    return when {
+        review -> TapeLineStyle(
+            glyph = "?",
+            stamp = "?",
+            amount = amountLabel,
+            note = reviewReason().lowercase(Locale.US),
+            accent = palette.query,
+            ink = palette.ink,
+            filledStamp = false
+        )
+        direction == DirectionUi.Credit -> TapeLineStyle(
+            glyph = "+",
+            stamp = transactionType.displayName().uppercase(Locale.US).take(8),
+            amount = "+$amountLabel",
+            note = "credit signal - not subtracted",
+            accent = palette.credit,
+            ink = palette.inkSoft,
+            filledStamp = false
+        )
+        !transactionType.countsAsSpend() -> TapeLineStyle(
+            glyph = "H",
+            stamp = transactionType.displayName().uppercase(Locale.US).take(8),
+            amount = amountLabel,
+            note = "held out of spend",
+            accent = palette.held,
+            ink = palette.inkSoft,
+            filledStamp = true,
+            textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough
+        )
+        else -> TapeLineStyle(
+            glyph = "",
+            stamp = category.uppercase(Locale.US).take(9),
+            amount = amountLabel,
+            note = listOf(paymentMode, transactionDate.orEmpty()).filter(String::isNotBlank).joinToString(" - "),
+            accent = palette.inkSoft,
+            ink = palette.ink,
+            filledStamp = false
+        )
+    }
+}
+
+@Composable
+private fun TapeStamp(
+    text: String,
+    palette: TapePalette,
+    color: Color,
+    filled: Boolean = false
+) {
+    Text(
+        text = text,
+        modifier = Modifier
+            .border(1.dp, color, RoundedCornerShape(2.dp))
+            .background(if (filled) color else Color.Transparent, RoundedCornerShape(2.dp))
+            .padding(horizontal = 6.dp, vertical = 3.dp),
+        color = if (filled) palette.tape else color,
+        fontFamily = SortedTapeFontFamily,
+        fontSize = 8.sp,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        letterSpacing = 0.8.sp
+    )
+}
+
+@Composable
+private fun TapeSourceFooter(
+    sourceLabel: String,
+    palette: TapePalette
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+    ) {
+        TapeDoubleRule(palette = palette)
+        Text(
+            text = sourceLabel.uppercase(Locale.US),
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+            letterSpacing = 1.sp
+        )
+    }
+}
+
+@Composable
+private fun TapePinnedStrip(
+    breakdown: MonthBreakdown,
+    reviewRows: List<TransactionUi>,
+    palette: TapePalette,
+    modifier: Modifier,
+    onExplainSpend: () -> Unit,
+    onOpenReview: () -> Unit
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(palette.tape)
+            .border(1.dp, palette.ruleFaint)
+            .padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = breakdown.spends.formatRupee(),
+            color = palette.ink,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = "${breakdown.spendCount} IN - ${breakdown.debitCount - breakdown.spendCount} OUT",
+            modifier = Modifier.weight(1f),
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 8.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 0.7.sp
+        )
+        if (reviewRows.isNotEmpty()) {
+            Text(
+                text = "? ${reviewRows.size}",
+                modifier = Modifier
+                    .border(1.dp, palette.query, RoundedCornerShape(2.dp))
+                    .clickable(onClick = onOpenReview)
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                color = palette.query,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+        Text(
+            text = "WHY?",
+            modifier = Modifier
+                .border(1.dp, palette.amber, RoundedCornerShape(2.dp))
+                .clickable(onClick = onExplainSpend)
+                .padding(horizontal = 8.dp, vertical = 5.dp),
+            color = palette.amber,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun EmptyTapeState(
+    needsPermission: Boolean,
+    palette: TapePalette,
+    onRequestSmsPermission: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 18.dp)
+            .border(1.dp, palette.rule)
+            .padding(horizontal = 18.dp, vertical = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        TapeDoubleRule(palette = palette)
+        Text(
+            text = "NO LINES YET",
+            color = palette.inkSoft,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 2.sp,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(22.dp))
+        Text(
+            text = "Sorted prints a line for every transaction alert on this phone. Nothing is uploaded, and no account is linked.",
+            color = palette.inkSoft,
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+            textAlign = TextAlign.Center
+        )
+        if (needsPermission) {
+            Spacer(modifier = Modifier.height(20.dp))
+            Text(
+                text = "ALLOW SORTED TO READ SMS",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, palette.amber)
+                    .clickable(onClick = onRequestSmsPermission)
+                    .padding(vertical = 13.dp),
+                color = palette.amber,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                letterSpacing = 1.sp
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = "or add a line by hand",
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            letterSpacing = 1.sp
+        )
+    }
+}
+
+private fun List<TransactionUi>.tapeSourceReceipt(feedState: FeedState): String {
+    if (isEmpty()) {
+        return if (feedState.needsSmsPermission) "NO SOURCE CONNECTED" else feedState.label
+    }
+    val counts = groupBy { it.source.uppercase(Locale.US) }
+        .entries
+        .sortedBy { it.key }
+        .joinToString(" - ") { "${it.value.size} ${it.key}" }
+    val suffix = if (feedState.needsSmsPermission) " - SMS OFF" else " - SYNC 2M"
+    return counts + suffix
+}
+
+private fun String.monthStampLabel(): String {
+    val year = substringBefore("-", "")
+    val month = monthNameLabel().uppercase(Locale.US)
+    return if (year.length == 4) "$month $year" else month
+}
+
+@Composable
 private fun InsightsTabContent(
     feedState: FeedState,
+    selectedMonthKey: String?,
     modifier: Modifier,
     onSettings: () -> Unit,
     onMerchantClick: (SummaryGroup) -> Unit,
@@ -1467,161 +3027,1055 @@ private fun InsightsTabContent(
     onTransactionClick: (TransactionUi) -> Unit,
     onOpenReview: () -> Unit
 ) {
-    val recentTransactions = remember(feedState.transactions) {
-        feedState.transactions.sortedByDescending { transaction ->
-            transaction.transactionDate.orEmpty()
-        }
+    val palette = tapePalette()
+    val months = remember(feedState.transactions) { feedState.transactions.availableMonthKeys() }
+    val activeMonthKey = selectedMonthKey?.takeIf { it in months } ?: feedState.transactions.selectedMonthKey()
+    val previousMonthKey = remember(months, activeMonthKey) {
+        val index = months.indexOf(activeMonthKey)
+        months.getOrNull(index + 1)
     }
-    val recentDateGroups = remember(recentTransactions) {
-        recentTransactions
-            .take(80)
-            .groupBy { transaction -> transaction.transactionDate ?: "unknown" }
-            .map { (dateKey, rows) ->
-                RecentDateGroup(
-                    dateKey = dateKey,
-                    label = dateKey.recentDateLabel(),
-                    transactions = rows,
-                    outflow = rows
+    val breakdown = remember(feedState.transactions, activeMonthKey) {
+        feedState.transactions.monthBreakdown(activeMonthKey)
+    }
+    val previousBreakdown = remember(feedState.transactions, previousMonthKey) {
+        previousMonthKey?.let { feedState.transactions.monthBreakdown(it) }
+    }
+    val monthRows = remember(feedState.transactions, activeMonthKey) {
+        feedState.transactions.latestMonthTransactions(activeMonthKey)
+            .filter { it.inrAmountValue != null }
+    }
+    val categories = remember(feedState.transactions, activeMonthKey) {
+        feedState.transactions.monthSpendCategoryGroups(activeMonthKey)
+    }
+    val merchants = remember(feedState.transactions, activeMonthKey) {
+        feedState.transactions.monthSpendMerchantGroups(activeMonthKey)
+    }
+    val reviewRows = remember(feedState.transactions, activeMonthKey) {
+        feedState.transactions.reviewCandidates(activeMonthKey)
+    }
+    val refundRows = remember(monthRows) {
+        monthRows
+            .filter { it.direction == DirectionUi.Credit }
+            .filter { row ->
+                row.transactionType == TransactionType.REFUND ||
+                    row.transactionType == TransactionType.REWARD ||
+                    row.category == "Refund" ||
+                    row.category == "Reward" ||
+                    row.detail.contains("refund", ignoreCase = true) ||
+                    row.detail.contains("reversal", ignoreCase = true) ||
+                    row.detail.contains("cashback", ignoreCase = true)
+            }
+            .sortedByDescending { it.inrAmountValue ?: 0.0 }
+    }
+    val recurringRows = remember(feedState.transactions, activeMonthKey) {
+        feedState.transactions
+            .filter { it.isInSelectedMonth(activeMonthKey) }
+            .recurringCandidates()
+    }
+    val sourceRows = remember(monthRows) {
+        monthRows
+            .groupBy { it.source }
+            .map { (source, rows) ->
+                SourceHealthRow(
+                    source = source,
+                    totalCount = rows.size,
+                    spendCount = rows.count { it.direction == DirectionUi.Debit && it.transactionType.countsAsSpend() },
+                    reviewCount = rows.count(TransactionUi::needsReview),
+                    fxCount = rows.count { !it.countsInInrTotals() },
+                    totalAmount = rows
                         .filter { it.direction == DirectionUi.Debit }
                         .sumOf { it.inrAmountValue ?: 0.0 }
                 )
             }
+            .sortedByDescending { it.totalCount }
     }
-    val recentGroupKey = remember(recentDateGroups) {
-        recentDateGroups.joinToString("|") { it.dateKey }
-    }
-    var expandedRecentDates by remember(recentGroupKey) {
-        mutableStateOf(recentDateGroups.take(2).map { it.dateKey }.toSet())
-    }
-    val monthTransactions = remember(feedState.transactions) {
-        feedState.transactions.latestMonthDebitTransactions()
-            .filter { it.inrAmountValue != null }
-    }
-    val breakdown = remember(feedState.transactions) {
-        feedState.transactions.monthBreakdown()
-    }
-    val categoryGroups = remember(feedState.transactions) {
-        feedState.transactions.monthCategoryGroups()
-    }
-    val merchantGroups = remember(feedState.transactions) {
-        feedState.transactions.monthMerchantGroups()
-    }
-    val reviewTransactions = remember(feedState.transactions) {
-        feedState.transactions.reviewCandidates()
-    }
-    val storyItems = remember(feedState.transactions) {
-        feedState.transactions.monthStoryItems()
-    }
-    val refundSignals = remember(feedState.transactions) {
-        feedState.transactions.monthRefundSignals()
-    }
-    val recurringCandidates = remember(feedState.transactions) {
-        feedState.transactions.recurringCandidates()
-    }
-    val sourceGroups = remember(monthTransactions) {
-        monthTransactions
-            .groupBy { it.source }
-            .map { (source, rows) ->
-                SummaryGroup(
-                    label = source,
-                    count = rows.size,
-                    total = rows.sumOf { it.inrAmountValue ?: 0.0 },
-                    currency = "INR",
-                    category = source
-                )
-            }
-            .sortedByDescending { it.total }
-    }
-    val paymentGroups = remember(monthTransactions) {
-        monthTransactions
-            .groupBy { it.paymentMode }
-            .map { (paymentMode, rows) ->
-                SummaryGroup(
-                    label = paymentMode,
-                    count = rows.size,
-                    total = rows.sumOf { it.inrAmountValue ?: 0.0 },
-                    currency = "INR",
-                    category = rows.firstOrNull()?.category ?: paymentMode
-                )
-            }
-            .sortedByDescending { it.total }
-            .take(5)
-    }
+    var activeSection by remember { mutableStateOf("WHERE") }
+    val tabs = listOf("WHERE", "WHO", "REPEATS", "CHANGED", "HELD", "?", "SOURCES")
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(palette.desk)
     ) {
-        item {
-            Header(title = "Insights", onSettings = onSettings)
-        }
-        item {
-            InsightPulseCard(
-                breakdown = breakdown,
-                transactions = monthTransactions,
-                feedLabel = feedState.label
+        Column(modifier = Modifier.fillMaxSize()) {
+            IndexDeskBar(
+                monthKey = activeMonthKey,
+                indexedCount = monthRows.size,
+                palette = palette,
+                onSettings = onSettings
             )
-        }
-        item {
-            ReviewQueueCard(
-                transactions = reviewTransactions,
-                onTransactionClick = onTransactionClick,
-                onOpenInbox = onOpenReview
+            IndexTabRail(
+                tabs = tabs,
+                activeTab = activeSection,
+                palette = palette,
+                onTabSelected = { activeSection = it }
             )
-        }
-        item {
-            MonthStoryCard(items = storyItems)
-        }
-        item {
-            RefundSignalsCard(
-                transactions = refundSignals,
-                onTransactionClick = onTransactionClick
-            )
-        }
-        item {
-            RecurringRadarCard(candidates = recurringCandidates)
-        }
-        item {
-            InsightBreakdownCard(
-                title = "Category split",
-                groups = categoryGroups,
-                emptyLabel = "No debit categories yet",
-                onGroupClick = onCategoryClick
-            )
-        }
-        item {
-            InsightBreakdownCard(
-                title = "Merchant focus",
-                groups = merchantGroups,
-                emptyLabel = "No merchant groups yet",
-                onGroupClick = onMerchantClick
-            )
-        }
-        item {
-            InsightMixCard(
-                sourceGroups = sourceGroups,
-                paymentGroups = paymentGroups
-            )
-        }
-        item {
-            RecentSectionTitle(totalGroups = recentDateGroups.size)
-        }
-        items(recentDateGroups, key = { it.dateKey }) { group ->
-            RecentDateGroupCard(
-                group = group,
-                expanded = group.dateKey in expandedRecentDates,
-                onToggle = {
-                    expandedRecentDates = if (group.dateKey in expandedRecentDates) {
-                        expandedRecentDates - group.dateKey
-                    } else {
-                        expandedRecentDates + group.dateKey
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .background(palette.tape)
+                    .drawBehind {
+                        val strokeWidth = 1.dp.toPx()
+                        drawLine(
+                            color = palette.ruleFaint,
+                            start = Offset(strokeWidth / 2f, 0f),
+                            end = Offset(strokeWidth / 2f, size.height),
+                            strokeWidth = strokeWidth
+                        )
+                        drawLine(
+                            color = palette.ruleFaint,
+                            start = Offset(size.width - strokeWidth / 2f, 0f),
+                            end = Offset(size.width - strokeWidth / 2f, size.height),
+                            strokeWidth = strokeWidth
+                        )
+                    },
+                content = {
+                    item {
+                        IndexSummaryBlock(
+                            breakdown = breakdown,
+                            indexedCount = monthRows.size,
+                            merchantCount = merchants.size,
+                            categoryCount = categories.size,
+                            reviewRows = reviewRows,
+                            palette = palette,
+                            onOpenReview = onOpenReview
+                        )
                     }
-                },
-                onTransactionClick = onTransactionClick
+                    item {
+                        IndexShareRule(
+                            groups = categories,
+                            total = breakdown.spends,
+                            palette = palette,
+                            onGroupClick = onCategoryClick
+                        )
+                    }
+                    if (activeSection == "WHERE" || activeSection == "?") {
+                        item {
+                            IndexGroupBlock(
+                                heading = "WHERE IT WENT",
+                                meta = "${categories.size} CATEGORIES",
+                                groups = categories.take(if (activeSection == "WHERE") 8 else 4),
+                                palette = palette,
+                                emptyLabel = "NO CATEGORIES PRINTED YET",
+                                onGroupClick = onCategoryClick
+                            )
+                        }
+                    }
+                    if (activeSection == "WHO" || activeSection == "?") {
+                        item {
+                            IndexGroupBlock(
+                                heading = "WHO TOOK IT",
+                                meta = "${merchants.size} MERCHANTS",
+                                groups = merchants.take(8),
+                                palette = palette,
+                                emptyLabel = "NO MERCHANTS PRINTED YET",
+                                onGroupClick = onMerchantClick
+                            )
+                        }
+                    }
+                    if (activeSection == "REPEATS") {
+                        item {
+                            IndexRepeatsBlock(
+                                candidates = recurringRows,
+                                palette = palette
+                            )
+                        }
+                    }
+                    if (activeSection == "CHANGED") {
+                        item {
+                            IndexChangedBlock(
+                                activeMonthKey = activeMonthKey,
+                                previousMonthKey = previousMonthKey,
+                                breakdown = breakdown,
+                                previousBreakdown = previousBreakdown,
+                                categories = categories,
+                                previousCategories = feedState.transactions.monthSpendCategoryGroups(previousMonthKey),
+                                palette = palette
+                            )
+                        }
+                    }
+                    if (activeSection == "HELD") {
+                        item {
+                            IndexHeldBlock(
+                                breakdown = breakdown,
+                                palette = palette
+                            )
+                        }
+                        item {
+                            IndexRefundBlock(
+                                refunds = refundRows,
+                                palette = palette,
+                                onTransactionClick = onTransactionClick
+                            )
+                        }
+                    }
+                    if (activeSection == "?") {
+                        item {
+                            IndexUnstampedBlock(
+                                reviewRows = reviewRows,
+                                palette = palette,
+                                onTransactionClick = onTransactionClick,
+                                onOpenReview = onOpenReview
+                            )
+                        }
+                    }
+                    if (activeSection == "SOURCES") {
+                        item {
+                            IndexSourcesBlock(
+                                rows = sourceRows,
+                                palette = palette
+                            )
+                        }
+                    }
+                    item {
+                        Spacer(modifier = Modifier.height(112.dp))
+                    }
+                }
             )
         }
-        item {
-            Spacer(modifier = Modifier.height(104.dp))
+        IndexPinnedStrip(
+            breakdown = breakdown,
+            reviewRows = reviewRows,
+            palette = palette,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            onOpenReview = onOpenReview
+        )
+    }
+}
+
+@Composable
+private fun IndexDeskBar(
+    monthKey: String?,
+    indexedCount: Int,
+    palette: TapePalette,
+    onSettings: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .padding(start = 15.dp, end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "INDEX",
+            color = palette.inkSoft,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 2.sp,
+            maxLines = 1
+        )
+        Text(
+            text = "${monthKey?.monthStampLabel() ?: "CURRENT"} - $indexedCount LINES INDEXED",
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 10.dp),
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 1.sp
+        )
+        IconButton(onClick = onSettings, modifier = Modifier.size(38.dp)) {
+            SettingsGlyph(
+                color = palette.inkFaint,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun IndexTabRail(
+    tabs: List<String>,
+    activeTab: String,
+    palette: TapePalette,
+    onTabSelected: (String) -> Unit
+) {
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 14.dp, end = 14.dp, bottom = 11.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        items(tabs) { tab ->
+            val active = tab == activeTab
+            Box(
+                modifier = Modifier
+                    .border(
+                        width = if (active) 2.dp else 1.dp,
+                        color = if (active) palette.amber else palette.rule
+                    )
+                    .clickable { onTabSelected(tab) }
+                    .padding(horizontal = 8.dp, vertical = 5.dp)
+            ) {
+                Text(
+                    text = tab,
+                    color = if (active) palette.amber else palette.inkFaint,
+                    fontFamily = SortedTapeFontFamily,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 1.sp,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun IndexSummaryBlock(
+    breakdown: MonthBreakdown,
+    indexedCount: Int,
+    merchantCount: Int,
+    categoryCount: Int,
+    reviewRows: List<TransactionUi>,
+    palette: TapePalette,
+    onOpenReview: () -> Unit
+) {
+    val heldOut = (breakdown.totalDebits - breakdown.spends + breakdown.income + breakdown.rewards + breakdown.refunds)
+        .coerceAtLeast(0.0)
+    val reviewAmount = reviewRows.sumOf { it.inrAmountValue ?: 0.0 }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 13.dp)
+            .border(1.dp, palette.rule)
+            .padding(start = 13.dp, end = 13.dp, top = 12.dp, bottom = 2.dp)
+    ) {
+        Text(
+            text = "INDEXED FROM THE TAPE",
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            letterSpacing = 2.sp
+        )
+        Text(
+            text = breakdown.spends.formatRupee(),
+            modifier = Modifier.padding(top = 7.dp),
+            color = palette.ink,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 31.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
+        TapeDoubleRule(palette = palette)
+        TapeSummationRow(" $indexedCount LINES INDEXED", breakdown.spends.formatRupee(), palette)
+        TapeSummationRow(" $merchantCount MERCHANTS - $categoryCount CATEGORIES", "", palette)
+        TapeSummationRow(" ${breakdown.debitCount - breakdown.spendCount} LINES HELD OUT", "(${heldOut.formatRupee()})", palette)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpenReview)
+                .padding(vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = " ${reviewRows.size} LINES UNSTAMPED",
+                modifier = Modifier.weight(1f),
+                color = palette.query,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 1.sp
+            )
+            Text(
+                text = reviewAmount.formatRupee(),
+                color = palette.query,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
+        TapeDoubleRule(palette = palette)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpenReview)
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "WHY THIS INDEX",
+                modifier = Modifier.weight(1f),
+                color = palette.amber,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 2.sp
+            )
+            Text(
+                text = ">",
+                color = palette.amber,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+@Composable
+private fun IndexShareRule(
+    groups: List<SummaryGroup>,
+    total: Double,
+    palette: TapePalette,
+    onGroupClick: (SummaryGroup) -> Unit
+) {
+    if (groups.isEmpty() || total <= 0.0) return
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            groups.take(6).forEachIndexed { index, group ->
+                val alpha = (0.82f - index * 0.10f).coerceAtLeast(0.24f)
+                Box(
+                    modifier = Modifier
+                        .weight((group.total / total).toFloat().coerceAtLeast(0.03f))
+                        .height(6.dp)
+                        .background(palette.amber.copy(alpha = alpha))
+                        .clickable { onGroupClick(group) }
+                )
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 7.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val first = groups.firstOrNull()
+            val second = groups.getOrNull(1)
+            Text(
+                text = listOfNotNull(
+                    first?.let { "${it.label.uppercase(Locale.US)} ${(it.total / total * 100).toInt()}%" },
+                    second?.let { "${it.label.uppercase(Locale.US)} ${(it.total / total * 100).toInt()}%" }
+                ).joinToString(" - "),
+                modifier = Modifier.weight(1f),
+                color = palette.inkFaint,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 8.sp,
+                letterSpacing = 1.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "TAP A SEGMENT",
+                color = palette.inkFaint,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 8.sp,
+                letterSpacing = 1.sp,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun IndexGroupBlock(
+    heading: String,
+    meta: String,
+    groups: List<SummaryGroup>,
+    palette: TapePalette,
+    emptyLabel: String,
+    onGroupClick: (SummaryGroup) -> Unit
+) {
+    IndexBlockShell(heading = heading, meta = meta, palette = palette) {
+        if (groups.isEmpty()) {
+            IndexEmptyLine(emptyLabel, palette)
+        } else {
+            groups.forEach { group ->
+                IndexEntryRow(
+                    name = group.label.uppercase(Locale.US),
+                    meta = "${group.count} LINE${if (group.count == 1) "" else "S"}",
+                    value = group.total.formatRupee(),
+                    palette = palette,
+                    onClick = { onGroupClick(group) }
+                )
+            }
+            IndexBlockFoot("INDEXED TOTAL", groups.sumOf { it.total }.formatRupee(), palette)
+        }
+    }
+}
+
+@Composable
+private fun IndexRepeatsBlock(
+    candidates: List<RecurringCandidate>,
+    palette: TapePalette
+) {
+    IndexBlockShell(
+        heading = "WHAT REPEATS",
+        meta = "${candidates.size} SIGNALS",
+        palette = palette
+    ) {
+        IndexCalendarStrip(
+            days = candidates.mapNotNull { it.lastSeenDate?.takeLast(2)?.toIntOrNull() },
+            palette = palette
+        )
+        if (candidates.isEmpty()) {
+            IndexEmptyLine("NOT ENOUGH LINES TO INDEX REPEATS YET", palette)
+        } else {
+            candidates.take(6).forEach { candidate ->
+                IndexEntryRow(
+                    name = candidate.merchant.uppercase(Locale.US),
+                    meta = "${candidate.lastSeenDate?.takeLast(2) ?: "--"}TH - ${candidate.count} SEEN - ${candidate.confidenceLabel.uppercase(Locale.US)}",
+                    value = candidate.expectedAmount.formatRupee(),
+                    palette = palette,
+                    delta = if (candidate.transactionType == TransactionType.INVESTMENT) "SIP" else null
+                )
+            }
+            IndexBlockFoot("RECURRING TOTAL - INSIDE SPEND", candidates.sumOf { it.expectedAmount }.formatRupee(), palette)
+        }
+    }
+}
+
+@Composable
+private fun IndexChangedBlock(
+    activeMonthKey: String?,
+    previousMonthKey: String?,
+    breakdown: MonthBreakdown,
+    previousBreakdown: MonthBreakdown?,
+    categories: List<SummaryGroup>,
+    previousCategories: List<SummaryGroup>,
+    palette: TapePalette
+) {
+    val change = breakdown.spends - (previousBreakdown?.spends ?: 0.0)
+    IndexBlockShell(
+        heading = "WHAT CHANGED",
+        meta = previousMonthKey?.let { "VS ${it.monthStampLabel()}" } ?: "NO PRIOR TAPE",
+        palette = palette
+    ) {
+        if (previousBreakdown == null) {
+            IndexEmptyLine("NO PREVIOUS TAPE TO COMPARE", palette)
+            return@IndexBlockShell
+        }
+        IndexEntryRow(
+            name = activeMonthKey?.monthStampLabel() ?: "CURRENT",
+            meta = "${breakdown.spendCount} LINES",
+            value = breakdown.spends.formatRupee(),
+            palette = palette
+        )
+        IndexEntryRow(
+            name = previousMonthKey?.monthStampLabel() ?: "PREVIOUS",
+            meta = "${previousBreakdown.spendCount} LINES",
+            value = previousBreakdown.spends.formatRupee(),
+            palette = palette,
+            dim = true
+        )
+        IndexEntryRow(
+            name = "CHANGE",
+            meta = "",
+            value = if (change < 0) "(${(-change).formatRupee()})" else change.formatRupee(),
+            palette = palette,
+            delta = if (previousBreakdown.spends > 0.0) {
+                val pct = change / previousBreakdown.spends * 100.0
+                "${if (pct >= 0) "+" else ""}${pct.toInt()}%"
+            } else {
+                "NEW"
+            },
+            query = change > 0
+        )
+        val previousByLabel = previousCategories.associateBy { it.label }
+        categories.take(4).forEach { group ->
+            val old = previousByLabel[group.label]?.total ?: 0.0
+            val deltaValue = group.total - old
+            IndexEntryRow(
+                name = group.label.uppercase(Locale.US),
+                meta = if (old == 0.0) "FIRST SEEN" else "${group.count} LINES",
+                value = if (deltaValue < 0) "(${(-deltaValue).formatRupee()})" else deltaValue.formatRupee(),
+                palette = palette,
+                delta = if (old == 0.0) "NEW" else {
+                    val pct = deltaValue / old * 100.0
+                    "${if (pct >= 0) "+" else ""}${pct.toInt()}%"
+                },
+                query = deltaValue > 0
+            )
+        }
+    }
+}
+
+@Composable
+private fun IndexHeldBlock(
+    breakdown: MonthBreakdown,
+    palette: TapePalette
+) {
+    IndexBlockShell(
+        heading = "HELD OUT OF SPEND",
+        meta = "${breakdown.debitCount - breakdown.spendCount} LINES",
+        palette = palette
+    ) {
+        val rows = listOf(
+            Triple("MOVED", "TRANSFERS", breakdown.transfers),
+            Triple("INVESTED", "ORDERS", breakdown.investments),
+            Triple("INCOME", "CREDITS", breakdown.income),
+            Triple("REWARDS", "CREDITS", breakdown.rewards)
+        ).filter { it.third > 0.0 }
+        if (rows.isEmpty()) {
+            IndexEmptyLine("NO HELD-OUT MONEY PRINTED", palette)
+        } else {
+            rows.forEach { (name, meta, value) ->
+                IndexEntryRow(
+                    mark = if (name == "INCOME" || name == "REWARDS") "↓" else "⤴",
+                    name = name,
+                    meta = meta,
+                    value = value.formatRupee(),
+                    palette = palette
+                )
+            }
+            IndexBlockFoot("HELD OUT TOTAL", rows.sumOf { it.third }.formatRupee(), palette)
+        }
+    }
+}
+
+@Composable
+private fun IndexRefundBlock(
+    refunds: List<TransactionUi>,
+    palette: TapePalette,
+    onTransactionClick: (TransactionUi) -> Unit
+) {
+    IndexBlockShell(
+        heading = "REFUND SIGNALS",
+        meta = "${refunds.size} FOUND",
+        palette = palette
+    ) {
+        if (refunds.isEmpty()) {
+            IndexEmptyLine("NO REFUND SIGNALS THIS MONTH", palette)
+        } else {
+            refunds.take(4).forEach { refund ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onTransactionClick(refund) }
+                        .padding(vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(6.dp)
+                            .height(34.dp)
+                            .border(1.dp, palette.credit)
+                    )
+                    Column(modifier = Modifier.padding(start = 9.dp).weight(1f)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IndexEntryLine(
+                                name = refund.merchant.uppercase(Locale.US),
+                                meta = refund.transactionDate.orEmpty(),
+                                value = "(${(refund.inrAmountValue ?: 0.0).formatRupee()})",
+                                palette = palette,
+                                valueColor = palette.credit
+                            )
+                        }
+                        Text(
+                            text = "POSSIBLE REFUND - NOT SUBTRACTED",
+                            color = palette.inkFaint,
+                            fontFamily = SortedTapeFontFamily,
+                            fontSize = 8.sp,
+                            letterSpacing = 1.sp,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+            IndexBlockFoot("SIGNALLED - NOT SUBTRACTED", refunds.sumOf { it.inrAmountValue ?: 0.0 }.formatRupee(), palette)
+        }
+    }
+}
+
+@Composable
+private fun IndexUnstampedBlock(
+    reviewRows: List<TransactionUi>,
+    palette: TapePalette,
+    onTransactionClick: (TransactionUi) -> Unit,
+    onOpenReview: () -> Unit
+) {
+    IndexBlockShell(
+        heading = "NEEDS A STAMP",
+        meta = "${reviewRows.size} LINES",
+        palette = palette
+    ) {
+        if (reviewRows.isEmpty()) {
+            IndexEmptyLine("NOTHING TO STAMP", palette)
+        } else {
+            reviewRows.take(6).forEach { transaction ->
+                IndexEntryRow(
+                    mark = "?",
+                    name = transaction.merchant.uppercase(Locale.US),
+                    meta = transaction.reviewReason().uppercase(Locale.US),
+                    value = (transaction.inrAmountValue ?: 0.0).formatRupee(),
+                    palette = palette,
+                    query = true,
+                    onClick = { onTransactionClick(transaction) }
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpenReview)
+                    .padding(top = 9.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "OPEN SORT INBOX",
+                    modifier = Modifier.weight(1f),
+                    color = palette.amber,
+                    fontFamily = SortedTapeFontFamily,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 1.sp
+                )
+                Text(">", color = palette.amber, fontFamily = SortedTapeFontFamily, fontSize = 16.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun IndexSourcesBlock(
+    rows: List<SourceHealthRow>,
+    palette: TapePalette
+) {
+    IndexBlockShell(
+        heading = "SOURCE HEALTH",
+        meta = "ON DEVICE",
+        palette = palette
+    ) {
+        if (rows.isEmpty()) {
+            IndexEmptyLine("NO SOURCE LINES PRINTED", palette)
+        } else {
+            rows.forEach { row ->
+                IndexEntryRow(
+                    name = row.source.uppercase(Locale.US),
+                    meta = "${row.totalCount} READ - ${row.spendCount} SPEND",
+                    value = "${row.reviewCount} REVIEW",
+                    palette = palette,
+                    query = row.reviewCount > 0
+                )
+            }
+            IndexBlockFoot("${rows.sumOf { it.totalCount }} MESSAGES READ - 0 UPLOADED", "", palette)
+        }
+    }
+}
+
+@Composable
+private fun IndexBlockShell(
+    heading: String,
+    meta: String,
+    palette: TapePalette,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 9.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(width = 0.dp, color = Color.Transparent)
+                .padding(top = 10.dp, bottom = 7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(18.dp)
+                    .height(1.dp)
+                    .background(palette.rule)
+            )
+            Text(
+                text = " $heading",
+                modifier = Modifier.weight(1f),
+                color = palette.ink,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 2.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = meta,
+                color = palette.inkFaint,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 8.sp,
+                letterSpacing = 1.sp,
+                maxLines = 1
+            )
+        }
+        content()
+    }
+}
+
+@Composable
+private fun IndexEntryRow(
+    name: String,
+    meta: String,
+    value: String,
+    palette: TapePalette,
+    mark: String = "",
+    delta: String? = null,
+    dim: Boolean = false,
+    query: Boolean = false,
+    onClick: (() -> Unit)? = null
+) {
+    val rowModifier = if (onClick != null) {
+        Modifier.clickable(onClick = onClick)
+    } else {
+        Modifier
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(rowModifier)
+            .drawBehind {
+                val y = size.height - 1.dp.toPx()
+                drawLine(
+                    color = palette.ruleFaint,
+                    start = Offset(0f, y),
+                    end = Offset(size.width, y),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = mark,
+            modifier = Modifier.width(if (mark.isBlank()) 0.dp else 14.dp),
+            color = if (query) palette.query else palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 10.sp,
+            maxLines = 1
+        )
+        IndexEntryLine(
+            name = name,
+            meta = meta,
+            value = value,
+            palette = palette,
+            valueColor = if (query) palette.query else if (dim) palette.inkSoft else palette.ink,
+            delta = delta,
+            dim = dim
+        )
+    }
+}
+
+@Composable
+private fun RowScope.IndexEntryLine(
+    name: String,
+    meta: String,
+    value: String,
+    palette: TapePalette,
+    valueColor: Color = palette.ink,
+    delta: String? = null,
+    dim: Boolean = false
+) {
+    Text(
+        text = name,
+        modifier = Modifier.widthIn(max = 136.dp),
+        color = if (dim) palette.inkSoft else palette.ink,
+        fontFamily = SortedTapeFontFamily,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 1.sp,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+    Box(
+        modifier = Modifier
+            .weight(1f)
+            .padding(horizontal = 7.dp)
+            .height(1.dp)
+            .background(palette.ruleFaint)
+    )
+    Text(
+        text = meta,
+        modifier = Modifier.widthIn(max = 82.dp),
+        color = palette.inkFaint,
+        fontFamily = SortedTapeFontFamily,
+        fontSize = 8.sp,
+        letterSpacing = 1.sp,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+    Spacer(modifier = Modifier.width(8.dp))
+    Text(
+        text = value,
+        color = valueColor,
+        fontFamily = SortedTapeFontFamily,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1
+    )
+    if (delta != null) {
+        Text(
+            text = " $delta",
+            modifier = Modifier.width(42.dp),
+            color = if (delta.startsWith("+") || delta == "NEW") palette.query else if (delta.startsWith("-")) palette.credit else palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 8.sp,
+            textAlign = TextAlign.End,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun IndexBlockFoot(
+    label: String,
+    value: String,
+    palette: TapePalette
+) {
+    TapeDoubleRule(palette = palette)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+            color = palette.ink,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 1.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = value,
+            color = palette.ink,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun IndexCalendarStrip(
+    days: List<Int>,
+    palette: TapePalette
+) {
+    val marked = days.toSet()
+    Column(modifier = Modifier.padding(bottom = 8.dp)) {
+        for (row in 0 until 4) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                for (col in 1..8) {
+                    val day = row * 8 + col
+                    if (day <= 31) {
+                        val active = day in marked
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(18.dp)
+                                .border(1.dp, if (active) palette.amber else palette.ruleFaint)
+                                .background(if (active) palette.amber else Color.Transparent),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = day.toString(),
+                                color = if (active) palette.tape else palette.inkFaint,
+                                fontFamily = SortedTapeFontFamily,
+                                fontSize = 8.sp,
+                                maxLines = 1
+                            )
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(3.dp))
+        }
+    }
+}
+
+@Composable
+private fun IndexEmptyLine(
+    label: String,
+    palette: TapePalette
+) {
+    Text(
+        text = label,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        color = palette.inkFaint,
+        fontFamily = SortedTapeFontFamily,
+        fontSize = 9.sp,
+        letterSpacing = 1.sp,
+        textAlign = TextAlign.Center
+    )
+}
+
+@Composable
+private fun IndexPinnedStrip(
+    breakdown: MonthBreakdown,
+    reviewRows: List<TransactionUi>,
+    palette: TapePalette,
+    modifier: Modifier,
+    onOpenReview: () -> Unit
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(palette.tape)
+            .border(1.dp, palette.ruleFaint)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = breakdown.spends.formatRupee(),
+            color = palette.ink,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
+        Text(
+            text = "  ${breakdown.spendCount} INDEXED",
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 8.dp),
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 8.sp,
+            letterSpacing = 1.sp,
+            maxLines = 1
+        )
+        Box(
+            modifier = Modifier
+                .border(1.dp, palette.query)
+                .clickable(onClick = onOpenReview)
+                .padding(horizontal = 12.dp, vertical = 9.dp)
+        ) {
+            Text(
+                text = "? ${reviewRows.size}",
+                color = palette.query,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold
+            )
         }
     }
 }
@@ -1692,7 +4146,10 @@ private fun SpendExplanationHero(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp),
+            .padding(horizontal = 20.dp)
+            .animateContentSize(
+                animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
+            ),
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(8.dp)
     ) {
@@ -1736,7 +4193,7 @@ private fun SpendExplanationHero(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 MiniMetric(
-                    label = "Moved",
+                    label = "Total outflow",
                     value = breakdown.totalDebits.formatInr(),
                     modifier = Modifier.weight(1f)
                 )
@@ -2631,7 +5088,13 @@ private fun RecentDateGroupCard(
                     modifier = Modifier.size(18.dp)
                 )
             }
-            AnimatedVisibility(visible = expanded) {
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn(animationSpec = tween(durationMillis = 160)) +
+                    expandVertically(animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing)),
+                exit = fadeOut(animationSpec = tween(durationMillis = 120)) +
+                    shrinkVertically(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing))
+            ) {
                 Column {
                     Spacer(modifier = Modifier.height(8.dp))
                     group.transactions.forEachIndexed { index, transaction ->
@@ -3469,7 +5932,11 @@ private fun RuleCenterEntryCard(onOpenRuleCenter: () -> Unit) {
 }
 
 @Composable
-private fun RuleCenterScreen(onBack: () -> Unit) {
+private fun RuleCenterScreen(
+    modifier: Modifier = Modifier,
+    onSettings: () -> Unit = {},
+    onBack: (() -> Unit)?
+) {
     val appContext = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     var rules by remember { mutableStateOf<List<CategoryRuleEntity>>(emptyList()) }
@@ -3490,7 +5957,10 @@ private fun RuleCenterScreen(onBack: () -> Unit) {
         reloadRules()
     }
 
-    Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
+    Scaffold(
+        modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.background
+    ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -3500,9 +5970,9 @@ private fun RuleCenterScreen(onBack: () -> Unit) {
             item {
                 Header(
                     title = "Rule Center",
-                    onSettings = {},
+                    onSettings = onSettings,
                     onBack = onBack,
-                    showActions = false
+                    showActions = onBack == null
                 )
             }
             item {
@@ -4052,62 +6522,179 @@ private fun SortedBottomBar(
     selectedTab: SortedTab,
     onTabSelected: (SortedTab) -> Unit
 ) {
+    val palette = tapePalette()
+    val tabs = listOf(SortedTab.Home, SortedTab.Insights, SortedTab.Capture, SortedTab.RuleCenter)
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(22.dp),
-        tonalElevation = 1.dp
+            .navigationBarsPadding(),
+        color = palette.desk,
+        tonalElevation = 0.dp
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 7.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            SortedTab.entries.forEach { tab ->
-                val selected = tab == selectedTab
-                val contentColor = if (selected) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                }
-                val itemBackground = if (selected) {
-                    MaterialTheme.colorScheme.surfaceVariant
-                } else {
-                    Color.Transparent
-                }
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(palette.ruleFaint)
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(58.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                tabs.forEach { tab ->
+                    val selected = tab == selectedTab
+                    val contentColor by animateColorAsState(
+                        targetValue = if (selected) palette.ink else palette.inkFaint,
+                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+                        label = "bottom_bar_content_${tab.label}"
+                    )
+                    val markerColor by animateColorAsState(
+                        targetValue = if (selected) palette.amber else Color.Transparent,
+                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+                        label = "bottom_bar_marker_${tab.label}"
+                    )
 
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(itemBackground)
-                        .clickable { onTabSelected(tab) }
-                        .padding(vertical = 7.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    SortedNavGlyph(
-                        icon = tab.icon,
-                        color = contentColor,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Text(
-                        text = tab.label,
-                        color = contentColor,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        textAlign = TextAlign.Center,
-                        maxLines = 1,
-                        letterSpacing = 0.sp
-                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(58.dp)
+                            .clickable {
+                                if (!selected) onTabSelected(tab)
+                            }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .width(26.dp)
+                                .height(2.dp)
+                                .background(markerColor)
+                        )
+                        Column(
+                            modifier = Modifier.align(Alignment.Center),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            SortedNavGlyph(
+                                icon = tab.icon,
+                                color = contentColor,
+                                active = selected,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = tab.label.uppercase(Locale.US),
+                                color = contentColor,
+                                fontFamily = SortedTapeFontFamily,
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SyncChooserBar(
+    visible: Boolean,
+    modifier: Modifier = Modifier,
+    onSync: (SyncSource) -> Unit
+) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = fadeIn(animationSpec = tween(durationMillis = 160)) +
+            expandVertically(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)),
+        exit = fadeOut(animationSpec = tween(durationMillis = 130)) +
+            shrinkVertically(animationSpec = tween(durationMillis = 190, easing = FastOutSlowInEasing))
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+            shape = RoundedCornerShape(22.dp),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.outline.copy(alpha = 0.20f)
+            ),
+            tonalElevation = 2.dp
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SyncChoiceChip("SMS", SyncSource.Sms, onSync)
+                SyncChoiceChip("Gmail", SyncSource.Gmail, onSync)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SyncStatusPill(
+    message: String?,
+    modifier: Modifier = Modifier
+) {
+    AnimatedVisibility(
+        visible = !message.isNullOrBlank(),
+        modifier = modifier,
+        enter = fadeIn(animationSpec = tween(durationMillis = 160)) +
+            expandVertically(animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)),
+        exit = fadeOut(animationSpec = tween(durationMillis = 140)) +
+            shrinkVertically(animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing))
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+            shape = RoundedCornerShape(16.dp),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+            )
+        ) {
+            Text(
+                text = message.orEmpty(),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                letterSpacing = 0.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun SyncChoiceChip(
+    label: String,
+    source: SyncSource,
+    onSync: (SyncSource) -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .clip(RoundedCornerShape(17.dp))
+            .clickable { onSync(source) },
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(17.dp)
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            letterSpacing = 0.sp
+        )
     }
 }
 
@@ -4124,65 +6711,86 @@ private fun SettingsGlyph(
 }
 
 @Composable
-private fun SortedNavGlyph(
-    icon: SortedNavIcon,
+private fun MonthArrowGlyph(
+    direction: Int,
     color: Color,
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier) {
-        val strokeWidth = 2.1.dp.toPx()
-        val stroke = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+        val strokeWidth = 2.dp.toPx()
+        val startX = if (direction < 0) size.width * 0.64f else size.width * 0.36f
+        val endX = if (direction < 0) size.width * 0.36f else size.width * 0.64f
+        drawLine(
+            color = color,
+            start = Offset(startX, size.height * 0.22f),
+            end = Offset(endX, size.height * 0.50f),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = color,
+            start = Offset(endX, size.height * 0.50f),
+            end = Offset(startX, size.height * 0.78f),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
+    }
+}
+
+@Composable
+private fun SortedNavGlyph(
+    icon: SortedNavIcon,
+    color: Color,
+    active: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val strokeWidth = (if (active) 2.dp else 1.5.dp).toPx()
+        val stroke = Stroke(width = strokeWidth, cap = StrokeCap.Square)
         val w = size.width
         val h = size.height
+        fun p(x: Float, y: Float) = Offset(w * (x / 24f), h * (y / 24f))
+        fun line(x1: Float, y1: Float, x2: Float, y2: Float) {
+            drawLine(color, p(x1, y1), p(x2, y2), strokeWidth, StrokeCap.Square)
+        }
+        fun polyline(points: List<Offset>) {
+            points.zipWithNext().forEach { (start, end) ->
+                drawLine(color, start, end, strokeWidth, StrokeCap.Square)
+            }
+        }
 
         when (icon) {
             SortedNavIcon.Home -> {
-                drawLine(color, Offset(w * 0.18f, h * 0.48f), Offset(w * 0.50f, h * 0.22f), strokeWidth, StrokeCap.Round)
-                drawLine(color, Offset(w * 0.50f, h * 0.22f), Offset(w * 0.82f, h * 0.48f), strokeWidth, StrokeCap.Round)
-                drawRoundRect(
-                    color = color,
-                    topLeft = Offset(w * 0.28f, h * 0.48f),
-                    size = Size(w * 0.44f, h * 0.34f),
-                    cornerRadius = CornerRadius(w * 0.07f, w * 0.07f)
-                )
-                drawRoundRect(
-                    color = Color.Transparent,
-                    topLeft = Offset(w * 0.42f, h * 0.62f),
-                    size = Size(w * 0.16f, h * 0.20f),
-                    cornerRadius = CornerRadius(w * 0.03f, w * 0.03f)
-                )
+                polyline(listOf(
+                    p(5f, 3.75f),
+                    p(19f, 3.75f),
+                    p(19f, 16.5f),
+                    p(17f, 18.25f),
+                    p(15f, 16.5f),
+                    p(13f, 18.25f),
+                    p(11f, 16.5f),
+                    p(9f, 18.25f),
+                    p(7f, 16.5f),
+                    p(5f, 18.25f),
+                    p(5f, 3.75f)
+                ))
+                line(8.25f, 8f, 15.75f, 8f)
+                line(8.25f, 11.5f, 13.5f, 11.5f)
             }
 
             SortedNavIcon.Insights -> {
-                drawRoundRect(
-                    color = color,
-                    topLeft = Offset(w * 0.18f, h * 0.55f),
-                    size = Size(w * 0.14f, h * 0.30f),
-                    cornerRadius = CornerRadius(w * 0.04f, w * 0.04f)
-                )
-                drawRoundRect(
-                    color = color,
-                    topLeft = Offset(w * 0.43f, h * 0.36f),
-                    size = Size(w * 0.14f, h * 0.49f),
-                    cornerRadius = CornerRadius(w * 0.04f, w * 0.04f)
-                )
-                drawRoundRect(
-                    color = color,
-                    topLeft = Offset(w * 0.68f, h * 0.20f),
-                    size = Size(w * 0.14f, h * 0.65f),
-                    cornerRadius = CornerRadius(w * 0.04f, w * 0.04f)
-                )
+                line(4f, 6.25f, 12f, 6.25f)
+                line(16f, 6.25f, 20f, 6.25f)
+                line(4f, 12f, 10f, 12f)
+                line(14f, 12f, 20f, 12f)
+                line(4f, 17.75f, 13f, 17.75f)
+                line(17f, 17.75f, 20f, 17.75f)
             }
 
             SortedNavIcon.Capture -> {
-                drawCircle(
-                    color = color,
-                    radius = w * 0.36f,
-                    center = Offset(w * 0.5f, h * 0.5f),
-                    style = stroke
-                )
-                drawLine(color, Offset(w * 0.34f, h * 0.5f), Offset(w * 0.66f, h * 0.5f), strokeWidth, StrokeCap.Round)
-                drawLine(color, Offset(w * 0.5f, h * 0.34f), Offset(w * 0.5f, h * 0.66f), strokeWidth, StrokeCap.Round)
+                line(12f, 4.5f, 12f, 14.5f)
+                line(7f, 9.5f, 17f, 9.5f)
+                line(4f, 19.25f, 20f, 19.25f)
             }
 
             SortedNavIcon.Sources -> {
@@ -4192,23 +6800,43 @@ private fun SortedNavGlyph(
                 drawLine(color, Offset(w * 0.42f, h * 0.68f), Offset(w * 0.78f, h * 0.68f), strokeWidth, StrokeCap.Round)
             }
 
+            SortedNavIcon.RuleCenter -> {
+                polyline(listOf(p(9.25f, 9.25f), p(9.25f, 6f), p(14.75f, 6f), p(14.75f, 9.25f)))
+                polyline(listOf(
+                    p(4.5f, 9.25f),
+                    p(19.5f, 9.25f),
+                    p(19.5f, 19f),
+                    p(4.5f, 19f),
+                    p(4.5f, 9.25f)
+                ))
+                line(9f, 14.25f, 15f, 14.25f)
+            }
+
             SortedNavIcon.Settings -> {
                 drawCircle(
                     color = color,
-                    radius = w * 0.32f,
-                    center = Offset(w * 0.5f, h * 0.5f),
+                    radius = w * (3.25f / 24f),
+                    center = p(12f, 12f),
                     style = stroke
                 )
+                line(12f, 3f, 12f, 5.5f)
+                line(12f, 18.5f, 12f, 21f)
+                line(4.2f, 7.5f, 6.4f, 8.75f)
+                line(17.6f, 15.25f, 19.8f, 16.5f)
+                line(4.2f, 16.5f, 6.4f, 15.25f)
+                line(17.6f, 8.75f, 19.8f, 7.5f)
+            }
+
+            SortedNavIcon.Sync -> {
                 drawCircle(
                     color = color,
-                    radius = w * 0.10f,
+                    radius = w * 0.34f,
                     center = Offset(w * 0.5f, h * 0.5f),
                     style = stroke
                 )
-                drawLine(color, Offset(w * 0.5f, h * 0.04f), Offset(w * 0.5f, h * 0.18f), strokeWidth, StrokeCap.Round)
-                drawLine(color, Offset(w * 0.5f, h * 0.82f), Offset(w * 0.5f, h * 0.96f), strokeWidth, StrokeCap.Round)
-                drawLine(color, Offset(w * 0.04f, h * 0.5f), Offset(w * 0.18f, h * 0.5f), strokeWidth, StrokeCap.Round)
-                drawLine(color, Offset(w * 0.82f, h * 0.5f), Offset(w * 0.96f, h * 0.5f), strokeWidth, StrokeCap.Round)
+                drawLine(color, Offset(w * 0.50f, h * 0.28f), Offset(w * 0.50f, h * 0.62f), strokeWidth, StrokeCap.Round)
+                drawLine(color, Offset(w * 0.50f, h * 0.62f), Offset(w * 0.34f, h * 0.48f), strokeWidth, StrokeCap.Round)
+                drawLine(color, Offset(w * 0.50f, h * 0.62f), Offset(w * 0.66f, h * 0.48f), strokeWidth, StrokeCap.Round)
             }
         }
     }
@@ -4216,72 +6844,77 @@ private fun SortedNavGlyph(
 
 @Composable
 private fun HomeLoadingSummary() {
-    val blockColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
-    val softBlockColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)
+    val isDark = isDarkModeActive()
+    val transition = rememberInfiniteTransition(label = "home_loading_constellation")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 7600, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "home_loading_phase"
+    )
 
-    Surface(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
+            .height(626.dp)
+            .padding(horizontal = 8.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        ConstellationField(
+            nodes = emptyList(),
+            phase = phase,
+            isDark = isDark,
+            modifier = Modifier.fillMaxSize()
+        )
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 26.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
             Text(
-                text = "Loading",
+                text = "Monthly spend",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "₹••,•••.••",
+                color = MaterialTheme.colorScheme.onBackground,
+                fontSize = 38.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "reading local sources",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
+                maxLines = 1,
                 letterSpacing = 0.sp
             )
             Spacer(modifier = Modifier.height(10.dp))
-            Box(
-                modifier = Modifier
-                    .width(210.dp)
-                    .height(34.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(blockColor)
-            )
-            Spacer(modifier = Modifier.height(18.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(14.dp)
-                    .clip(RoundedCornerShape(8.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = if (isDark) 0.50f else 0.78f),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.18f else 0.30f)
+                ),
+                shape = RoundedCornerShape(16.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .weight(1.2f)
-                        .height(14.dp)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.68f))
-                )
-                Box(
-                    modifier = Modifier
-                        .weight(0.8f)
-                        .height(14.dp)
-                        .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.58f))
-                )
-                Box(
-                    modifier = Modifier
-                        .weight(0.55f)
-                        .height(14.dp)
-                        .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.52f))
-                )
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                HomeLoadingTile(
-                    blockColor = blockColor,
-                    softBlockColor = softBlockColor,
-                    modifier = Modifier.weight(1f)
-                )
-                HomeLoadingTile(
-                    blockColor = blockColor,
-                    softBlockColor = softBlockColor,
-                    modifier = Modifier.weight(1f)
+                Text(
+                    text = "Preparing view",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.sp
                 )
             }
         }
@@ -4315,6 +6948,705 @@ private fun HomeLoadingTile(
                 .clip(RoundedCornerShape(7.dp))
                 .background(blockColor)
         )
+    }
+}
+
+@Composable
+private fun HomeConstellationHeader(
+    months: List<String>,
+    selectedMonthKey: String?,
+    onMonthSelected: (String) -> Unit,
+    onSettings: () -> Unit
+) {
+    val selectedIndex = months.indexOf(selectedMonthKey).takeIf { it >= 0 } ?: 0
+    val hasNewer = selectedIndex > 0
+    val hasOlder = selectedIndex >= 0 && selectedIndex < months.lastIndex
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 20.dp, end = 12.dp, top = 18.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        SortedLogoMark(modifier = Modifier.size(24.dp))
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = "Sorted",
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.onBackground,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            letterSpacing = 0.sp
+        )
+        if (months.isNotEmpty()) {
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(18.dp),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = {
+                            if (hasOlder) onMonthSelected(months[selectedIndex + 1])
+                        },
+                        modifier = Modifier.size(30.dp)
+                    ) {
+                        MonthArrowGlyph(
+                            direction = -1,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (hasOlder) 1f else 0.28f),
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                    Text(
+                        text = selectedMonthKey?.monthShortLabel() ?: "Month",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        letterSpacing = 0.sp
+                    )
+                    IconButton(
+                        onClick = {
+                            if (hasNewer) onMonthSelected(months[selectedIndex - 1])
+                        },
+                        modifier = Modifier.size(30.dp)
+                    ) {
+                        MonthArrowGlyph(
+                            direction = 1,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (hasNewer) 1f else 0.28f),
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.width(4.dp))
+        }
+        IconButton(onClick = onSettings) {
+            SettingsGlyph(
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.size(21.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ConstellationHome(
+    feedState: FeedState,
+    selectedMonthKey: String?,
+    onExplainSpend: () -> Unit,
+    onMerchantClick: (SummaryGroup) -> Unit,
+    onCategoryClick: (SummaryGroup) -> Unit
+) {
+    val isDark = isDarkModeActive()
+    val breakdown = feedState.transactions.monthBreakdown(selectedMonthKey)
+    val merchantGroups = feedState.transactions.monthSpendMerchantGroups(selectedMonthKey)
+    val categoryGroups = feedState.transactions.monthSpendCategoryGroups(selectedMonthKey)
+    val topMerchant = merchantGroups.firstOrNull()
+    val topCategory = categoryGroups.firstOrNull()
+    val reviewCandidates = feedState.transactions.reviewCandidates(selectedMonthKey)
+
+    val nodes = listOfNotNull(
+        topMerchant?.let { group ->
+            HomeConstellationNode(
+                id = "merchant",
+                label = group.label,
+                value = group.total.formatRupeeCompact(),
+                detail = "${group.count} transactions",
+                x = 0.5f,
+                y = 340f / 650f,
+                orbitAngle = 210f,
+                orbitRadius = 92f,
+                visibleAtZoom = 1.12f,
+                accent = if (isDark) Color(0xFFFBC02D) else Color(0xFF0F8F7A),
+                onClick = { onMerchantClick(group) }
+            )
+        },
+        topCategory?.let { group ->
+            val share = if (breakdown.spends > 0.0) ((group.total / breakdown.spends) * 100.0).roundToInt() else 0
+            HomeConstellationNode(
+                id = "category",
+                label = group.label,
+                value = "$share%",
+                detail = "of spend",
+                x = 0.5f,
+                y = 340f / 650f,
+                orbitAngle = 150f,
+                orbitRadius = 94f,
+                visibleAtZoom = 1.16f,
+                accent = if (isDark) Color(0xFFFBC02D) else Color(0xFF7A4FD8),
+                onClick = { onCategoryClick(group) }
+            )
+        },
+        if (reviewCandidates.isNotEmpty()) {
+            HomeConstellationNode(
+                id = "review",
+                label = "To review",
+                value = reviewCandidates.size.toString(),
+                detail = reviewCandidates.sumOf { it.inrAmountValue ?: 0.0 }.formatRupeeCompact(),
+                x = 0.5f,
+                y = 340f / 650f,
+                orbitAngle = 330f,
+                orbitRadius = 98f,
+                visibleAtZoom = 1.18f,
+                accent = if (isDark) Color(0xFFFBC02D) else Color(0xFFE8622F),
+                needsAttention = true,
+                onClick = onExplainSpend
+            )
+        } else {
+            null
+        },
+        if (breakdown.recurringInvestments > 0.0) {
+            HomeConstellationNode(
+                id = "invest",
+                label = "SIPs",
+                value = breakdown.recurringInvestments.formatRupeeCompact(),
+                detail = "recurring",
+                x = 0.5f,
+                y = 340f / 650f,
+                orbitAngle = 42f,
+                orbitRadius = 106f,
+                visibleAtZoom = 1.22f,
+                accent = if (isDark) Color(0xFFFBC02D) else Color(0xFF0F9A54),
+                outsideSpend = true,
+                onClick = onExplainSpend
+            )
+        } else {
+            null
+        },
+        if (breakdown.oneTimeInvestments > 0.0) {
+            HomeConstellationNode(
+                id = "invest_once",
+                label = "One-time",
+                value = breakdown.oneTimeInvestments.formatRupeeCompact(),
+                detail = "investment",
+                x = 0.5f,
+                y = 340f / 650f,
+                orbitAngle = 14f,
+                orbitRadius = 118f,
+                visibleAtZoom = 1.36f,
+                accent = if (isDark) Color(0xFFFBC02D) else Color(0xFF2B83F6),
+                outsideSpend = true,
+                onClick = onExplainSpend
+            )
+        } else {
+            null
+        },
+        if (breakdown.transfers > 0.0) {
+            HomeConstellationNode(
+                id = "moved",
+                label = "Money moved",
+                value = breakdown.transfers.formatRupeeCompact(),
+                detail = "not spend",
+                x = 0.5f,
+                y = 340f / 650f,
+                orbitAngle = 108f,
+                orbitRadius = 108f,
+                visibleAtZoom = 1.24f,
+                accent = if (isDark) Color(0xFFFBC02D) else Color(0xFF1F74C7),
+                outsideSpend = true,
+                onClick = onExplainSpend
+            )
+        } else {
+            null
+        },
+        merchantGroups.getOrNull(1)?.let { group ->
+            HomeConstellationNode(
+                id = "merchant_2",
+                label = group.label,
+                value = group.total.formatRupeeCompact(),
+                detail = "${group.count} transactions",
+                x = 0.5f,
+                y = 340f / 650f,
+                orbitAngle = 258f,
+                orbitRadius = 126f,
+                visibleAtZoom = 1.42f,
+                accent = if (isDark) Color(0xFFFBC02D) else Color(0xFFE64E89),
+                onClick = { onMerchantClick(group) }
+            )
+        },
+        merchantGroups.getOrNull(2)?.let { group ->
+            HomeConstellationNode(
+                id = "merchant_3",
+                label = group.label,
+                value = group.total.formatRupeeCompact(),
+                detail = "${group.count} transactions",
+                x = 0.5f,
+                y = 340f / 650f,
+                orbitAngle = 18f,
+                orbitRadius = 128f,
+                visibleAtZoom = 1.56f,
+                accent = if (isDark) Color(0xFFFBC02D) else Color(0xFF2B83F6),
+                onClick = { onMerchantClick(group) }
+            )
+        },
+        categoryGroups.getOrNull(1)?.let { group ->
+            val share = if (breakdown.spends > 0.0) ((group.total / breakdown.spends) * 100.0).roundToInt() else 0
+            HomeConstellationNode(
+                id = "category_2",
+                label = group.label,
+                value = "$share%",
+                detail = "of spend",
+                x = 0.5f,
+                y = 340f / 650f,
+                orbitAngle = 294f,
+                orbitRadius = 134f,
+                visibleAtZoom = 1.48f,
+                accent = if (isDark) Color(0xFFFBC02D) else Color(0xFF00A7A5),
+                onClick = { onCategoryClick(group) }
+            )
+        },
+        categoryGroups.getOrNull(2)?.let { group ->
+            val share = if (breakdown.spends > 0.0) ((group.total / breakdown.spends) * 100.0).roundToInt() else 0
+            HomeConstellationNode(
+                id = "category_3",
+                label = group.label,
+                value = "$share%",
+                detail = "of spend",
+                x = 0.5f,
+                y = 340f / 650f,
+                orbitAngle = 72f,
+                orbitRadius = 136f,
+                visibleAtZoom = 1.64f,
+                accent = if (isDark) Color(0xFFFBC02D) else Color(0xFFFFB000),
+                onClick = { onCategoryClick(group) }
+            )
+        }
+    )
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(626.dp)
+            .padding(horizontal = 8.dp)
+    ) {
+        val density = LocalDensity.current
+        var targetClusterZoom by remember { mutableStateOf(1f) }
+        var zoomFocus by remember { mutableStateOf(Offset(0.5f, 340f / 650f)) }
+        var deepZoomArmed by remember { mutableStateOf(true) }
+        val clusterZoom by animateFloatAsState(
+            targetValue = targetClusterZoom,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            ),
+            label = "cluster_zoom"
+        )
+        var phase by remember { mutableStateOf(0f) }
+        LaunchedEffect(Unit) {
+            val startMillis = withFrameMillis { it }
+            while (true) {
+                phase = (withFrameMillis { it } - startMillis) / 9000f
+            }
+        }
+
+        ConstellationField(
+            nodes = nodes,
+            phase = phase,
+            isDark = isDark,
+            clusterZoom = clusterZoom,
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val pressedCount = event.changes.count { it.pressed }
+                            if (pressedCount == 0) break
+                            if (pressedCount >= 2) {
+                                val centroid = event.calculateCentroid(useCurrent = true)
+                                val zoom = event.calculateZoom()
+                                if (zoom.isFinite() && zoom > 0f) {
+                                    zoomFocus = Offset(
+                                        x = (centroid.x / size.width).coerceIn(0f, 1f),
+                                        y = (centroid.y / size.height).coerceIn(0f, 1f)
+                                    )
+                                    targetClusterZoom = (targetClusterZoom * zoom).coerceIn(1f, 2.85f)
+                                }
+                                event.changes.forEach { it.consume() }
+                            }
+                        }
+                    }
+                }
+        )
+
+        LaunchedEffect(targetClusterZoom, zoomFocus) {
+            if (targetClusterZoom < 1.35f) {
+                deepZoomArmed = true
+            }
+            if (targetClusterZoom >= 2.52f && deepZoomArmed) {
+                val focusNode = nodes
+                    .filter { it.id.startsWith("merchant") || it.id.startsWith("category") }
+                    .minByOrNull { node ->
+                        val nodeOffset = node.orbitOffset(
+                            phase = phase,
+                            zoom = targetClusterZoom,
+                            widthPx = with(density) { maxWidth.toPx() },
+                            heightPx = with(density) { maxHeight.toPx() }
+                        )
+                        val dx = zoomFocus.x - nodeOffset.x / with(density) { maxWidth.toPx() }
+                        val dy = zoomFocus.y - nodeOffset.y / with(density) { maxHeight.toPx() }
+                        dx * dx + dy * dy
+                }
+                if (focusNode != null) {
+                    deepZoomArmed = false
+                    targetClusterZoom = 2.85f
+                    delay(180)
+                    focusNode.onClick()
+                    targetClusterZoom = 1f
+                }
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 2.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "${breakdown.monthKey?.monthNameLabel() ?: "Current"} spend",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(9.dp))
+            Text(
+                text = breakdown.spends.formatRupee(),
+                color = MaterialTheme.colorScheme.onBackground,
+                fontSize = 43.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(5.dp))
+            Text(
+                text = "${breakdown.spendCount} transactions",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                letterSpacing = 0.sp
+            )
+            Spacer(modifier = Modifier.height(11.dp))
+            Surface(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable(onClick = onExplainSpend),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = if (isDark) 0.50f else 0.78f),
+                shape = RoundedCornerShape(16.dp),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.24f else 0.36f)
+                )
+            ) {
+                Text(
+                    text = "Why this number?",
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.sp
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            ZoomCueArrow(
+                color = MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.62f else 0.72f),
+                modifier = Modifier.size(width = 20.dp, height = 24.dp)
+            )
+        }
+
+        nodes.forEach { node ->
+            val visibility = if (node.visibleAtZoom <= 1f) {
+                1f
+            } else {
+                ((clusterZoom - node.visibleAtZoom) / 0.14f).coerceIn(0f, 1f)
+            }
+            if (visibility <= 0.01f) return@forEach
+
+            val nodeOffset = node.orbitOffset(
+                phase = phase,
+                zoom = clusterZoom,
+                widthPx = with(density) { maxWidth.toPx() },
+                heightPx = with(density) { maxHeight.toPx() }
+            )
+            val x = with(density) { nodeOffset.x.toDp() }
+            val y = with(density) { nodeOffset.y.toDp() }
+            ConstellationDataSphere(
+                node = node,
+                modifier = Modifier
+                    .offset(
+                        x = x - 28.dp,
+                        y = y - 28.dp
+                    )
+                    .graphicsLayer {
+                        alpha = visibility
+                        scaleX = 0.92f + 0.08f * visibility
+                        scaleY = 0.92f + 0.08f * visibility
+                    }
+            )
+        }
+
+    }
+}
+
+private fun HomeConstellationNode.orbitOffset(
+    phase: Float,
+    zoom: Float,
+    widthPx: Float,
+    heightPx: Float
+): Offset {
+    val orbitSpeed = when (id) {
+        "merchant" -> 0.24f
+        "review" -> -0.22f
+        "category" -> 0.20f
+        "invest" -> -0.18f
+        "invest_once" -> 0.16f
+        "moved" -> 0.19f
+        "merchant_2" -> -0.34f
+        "merchant_3" -> 0.30f
+        "category_2" -> 0.32f
+        "category_3" -> -0.28f
+        else -> 0.22f
+    }
+    val wobble = sin(phase * PI.toFloat() * 2f + orbitAngle) * 3.5f
+    val angle = ((orbitAngle + phase * 360f * orbitSpeed + wobble) * PI.toFloat()) / 180f
+    val baseScale = widthPx / 384f
+    val radius = orbitRadius * baseScale * (0.62f + (zoom - 1f) * 0.20f)
+    val centerX = widthPx * x
+    val centerY = heightPx * y
+    return Offset(
+        x = centerX + radius * cos(angle),
+        y = centerY + radius * 0.70f * sin(angle)
+    )
+}
+
+@Composable
+private fun ConstellationField(
+    nodes: List<HomeConstellationNode>,
+    phase: Float,
+    isDark: Boolean,
+    clusterZoom: Float = 1f,
+    modifier: Modifier = Modifier
+) {
+    val primary = MaterialTheme.colorScheme.primary
+    val text = MaterialTheme.colorScheme.onBackground
+    Canvas(modifier = modifier) {
+        val center = Offset(size.width * 0.50f, size.height * (340f / 650f))
+        val baseScale = size.width / 384f
+        val zoom = clusterZoom.coerceIn(1f, 1.85f)
+        val sphereRx = 154f * baseScale * zoom
+        val sphereRy = 148f * baseScale * zoom
+        val cycle = phase * PI.toFloat() * 2f
+        val breathe = 1f + (if (isDark) 0.018f else 0.03f) * sin(phase * PI.toFloat() * 2f)
+        val detailAlpha = ((zoom - 1f) / 0.55f).coerceIn(0f, 1f)
+
+        fun noise(seed: Int): Float {
+            val x = sin(seed * 12.9898f + 78.233f) * 43758.5453f
+            return x - kotlin.math.floor(x)
+        }
+
+        fun particlePosition(i: Int): Offset {
+            val ph = noise(i * 19 + 7) * PI.toFloat() * 2f
+            val baseLongitude = noise(i * 17 + 3) * PI.toFloat() * 2f
+            val baseLatitude = kotlin.math.asin((noise(i * 31 + 9) * 2f - 1f).coerceIn(-0.96f, 0.96f))
+            val longitudeDrift = 0.16f * sin(cycle + ph) + 0.05f * sin(cycle * 2f + ph * 0.7f)
+            val latitudeDrift = 0.06f * cos(cycle + ph * 1.4f)
+            val longitude = baseLongitude + longitudeDrift
+            val latitude = (baseLatitude + latitudeDrift).coerceIn(-1.20f, 1.20f)
+            val shell = (
+                0.42f +
+                    0.58f * kotlin.math.sqrt(noise(i * 47 + 21)) +
+                    0.025f * sin(cycle + ph * 1.9f)
+                ).coerceIn(0.36f, 1.03f)
+            val depth = cos(longitude) * cos(latitude)
+            val projected = 0.82f + 0.18f * ((depth + 1f) / 2f)
+            val wob = (1f + noise(i * 13 + 5) * 3f) * baseScale
+            val x = center.x + sphereRx * shell * projected * cos(latitude) * sin(longitude) * breathe + wob * sin(cycle + ph)
+            val y = center.y + sphereRy * shell * sin(latitude) * breathe + wob * cos(cycle + ph * 1.3f)
+            return Offset(x, y)
+        }
+
+        val particleCount = 1800
+        for (i in 0 until particleCount step 6) {
+            val a = particlePosition(i)
+            val b = particlePosition((i + 17).coerceAtMost(particleCount - 1))
+            val maxDistance = 46f * baseScale * (1f + detailAlpha * 0.46f)
+            val distance = kotlin.math.hypot(a.x - b.x, a.y - b.y)
+            if (distance < maxDistance) {
+                val alpha = (if (isDark) 0.068f else 0.12f) * (1f - distance / maxDistance) * (1f + detailAlpha * 0.5f)
+                drawLine(
+                    color = text.copy(alpha = alpha.coerceIn(0f, 1f)),
+                    start = a,
+                    end = b,
+                    strokeWidth = 0.6.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+        }
+
+        for (i in 0 until particleCount) {
+            val point = particlePosition(i)
+            if (point.x < -8f || point.x > size.width + 8f || point.y < -8f || point.y > size.height + 8f) continue
+            val spark = noise(i * 23 + 11) < 0.05f
+            val base = if (spark) 0.55f + noise(i * 29 + 13) * 0.3f else 0.06f + noise(i * 29 + 13) * 0.2f
+            val twinkleCycle = 1f + (i % 3).toFloat()
+            val twinkle = 0.6f + 0.4f * sin(cycle * twinkleCycle + noise(i * 41 + 17) * PI.toFloat() * 2f)
+            val alpha = (base * twinkle * if (isDark) 1.18f + detailAlpha * 0.30f else 1.70f + detailAlpha * 0.36f)
+                .coerceIn(0f, 1f)
+            val radius = ((if (spark) 1.1f + noise(i * 43 + 19) * 0.7f else 0.4f + noise(i * 43 + 19) * 0.7f) * baseScale * (1f + detailAlpha * 0.18f)).coerceAtLeast(0.35f)
+            drawCircle(
+                color = when (i % 6) {
+                    0, 3 -> primary.copy(alpha = alpha)
+                    else -> text.copy(alpha = alpha)
+                },
+                radius = radius,
+                center = point
+            )
+            if (spark) {
+                drawCircle(
+                    color = primary.copy(alpha = (alpha * 0.14f).coerceIn(0f, 1f)),
+                    radius = radius * 3.4f,
+                    center = point
+                )
+            }
+        }
+
+        nodes.forEach { node ->
+            val visibility = ((zoom - node.visibleAtZoom) / 0.14f).coerceIn(0f, 1f)
+            if (visibility <= 0.01f) return@forEach
+
+            val labelOffset = node.orbitOffset(
+                phase = phase,
+                zoom = zoom,
+                widthPx = size.width,
+                heightPx = size.height
+            )
+            val dx = center.x - labelOffset.x
+            val dy = center.y - labelOffset.y
+            val len = kotlin.math.hypot(dx, dy).coerceAtLeast(1f)
+            val nodeOffset = Offset(
+                labelOffset.x + (dx / len) * 34f * baseScale,
+                labelOffset.y + (dy / len) * 34f * baseScale
+            )
+            drawLine(
+                color = node.accent.copy(alpha = (if (isDark) 0.20f else 0.30f) * visibility),
+                start = nodeOffset,
+                end = labelOffset,
+                strokeWidth = 0.8.dp.toPx(),
+                cap = StrokeCap.Round
+            )
+            drawCircle(
+                color = node.accent.copy(alpha = (if (node.needsAttention) 0.22f else 0.12f) * visibility),
+                radius = if (node.needsAttention) 10.dp.toPx() else 6.dp.toPx(),
+                center = nodeOffset
+            )
+            drawCircle(
+                color = node.accent.copy(alpha = visibility),
+                radius = if (node.needsAttention) 3.5.dp.toPx() else 2.7.dp.toPx(),
+                center = nodeOffset
+            )
+        }
+    }
+}
+
+@Composable
+private fun ZoomCueArrow(
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val strokeWidth = 2.dp.toPx()
+        drawLine(
+            color = color,
+            start = Offset(size.width * 0.50f, size.height * 0.16f),
+            end = Offset(size.width * 0.50f, size.height * 0.78f),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = color,
+            start = Offset(size.width * 0.26f, size.height * 0.54f),
+            end = Offset(size.width * 0.50f, size.height * 0.78f),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = color,
+            start = Offset(size.width * 0.74f, size.height * 0.54f),
+            end = Offset(size.width * 0.50f, size.height * 0.78f),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
+    }
+}
+
+@Composable
+private fun ConstellationDataSphere(
+    node: HomeConstellationNode,
+    modifier: Modifier = Modifier
+) {
+    val isDark = isDarkModeActive()
+    val sphereSize = if (node.needsAttention) 64.dp else 56.dp
+    Surface(
+        modifier = modifier
+            .size(sphereSize)
+            .clip(CircleShape)
+            .clickable(onClick = node.onClick),
+        color = node.accent.copy(alpha = if (isDark) 0.16f else 0.28f),
+        shape = CircleShape,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            node.accent.copy(alpha = if (node.needsAttention) 0.42f else 0.30f)
+        )
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                drawCircle(
+                    color = node.accent.copy(alpha = if (isDark) 0.16f else 0.20f),
+                    radius = size.minDimension * 0.48f,
+                    center = Offset(size.width * 0.50f, size.height * 0.50f)
+                )
+                drawCircle(
+                    color = node.accent.copy(alpha = if (isDark) 0.34f else 0.42f),
+                    radius = size.minDimension * 0.13f,
+                    center = Offset(size.width * 0.38f, size.height * 0.34f)
+                )
+            }
+            Column(
+                modifier = Modifier.padding(horizontal = 7.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = node.value,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    letterSpacing = 0.sp
+                )
+                Text(
+                    text = node.label,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 7.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    letterSpacing = 0.sp
+                )
+            }
+        }
     }
 }
 
@@ -4391,14 +7723,14 @@ private fun MonthSummary(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 HomeMetricTile(
-                    label = "Money moved",
+                    label = "Total outflow",
                     value = breakdown.totalDebits.formatInr(),
                     accent = categoryColor("Food"),
                     modifier = Modifier.weight(1f)
                 )
                 HomeMetricTile(
-                    label = "Investments",
-                    value = breakdown.investments.formatInr(),
+                    label = "Recurring SIPs",
+                    value = breakdown.recurringInvestments.formatInr(),
                     accent = categoryColor("Investment"),
                     modifier = Modifier.weight(1f)
                 )
@@ -4595,8 +7927,7 @@ private fun HomeSignalChip(
     }
 }
 
-private fun List<TransactionUi>.monthBreakdown(): MonthBreakdown {
-    val monthKey = selectedMonthKey()
+private fun List<TransactionUi>.monthBreakdown(monthKey: String? = selectedMonthKey()): MonthBreakdown {
     val monthTransactions = filter {
         it.inrAmountValue != null && it.isInSelectedMonth(monthKey)
     }
@@ -4609,9 +7940,11 @@ private fun List<TransactionUi>.monthBreakdown(): MonthBreakdown {
     val transfers = debitTransactions
         .filter { it.transactionType == TransactionType.TRANSFER }
         .sumOf { it.inrAmountValue ?: 0.0 }
-    val investments = debitTransactions
-        .filter { it.transactionType == TransactionType.INVESTMENT }
-        .sumOf { it.inrAmountValue ?: 0.0 }
+    val investmentTransactions = debitTransactions.filter { it.transactionType == TransactionType.INVESTMENT }
+    val recurringInvestmentTransactions = investmentTransactions.filter { it.isRecurringInvestmentPattern(this) }
+    val investments = investmentTransactions.sumOf { it.inrAmountValue ?: 0.0 }
+    val recurringInvestments = recurringInvestmentTransactions.sumOf { it.inrAmountValue ?: 0.0 }
+    val oneTimeInvestments = investments - recurringInvestments
     val creditTransactions = monthTransactions.filter { it.direction == DirectionUi.Credit }
     val refunds = creditTransactions
         .filter { it.transactionType == TransactionType.REFUND || it.category == "Refund" }
@@ -4631,6 +7964,8 @@ private fun List<TransactionUi>.monthBreakdown(): MonthBreakdown {
         spends = spends,
         transfers = transfers,
         investments = investments,
+        recurringInvestments = recurringInvestments,
+        oneTimeInvestments = oneTimeInvestments,
         refunds = refunds,
         income = income,
         rewards = rewards,
@@ -4638,34 +7973,65 @@ private fun List<TransactionUi>.monthBreakdown(): MonthBreakdown {
     )
 }
 
-private fun List<TransactionUi>.latestMonthDebitTransactions(): List<TransactionUi> {
-    val monthKey = selectedMonthKey()
+private fun List<TransactionUi>.latestMonthDebitTransactions(monthKey: String? = selectedMonthKey()): List<TransactionUi> {
     return filter {
         it.direction == DirectionUi.Debit &&
             it.isInSelectedMonth(monthKey)
     }
 }
 
-private fun List<TransactionUi>.latestMonthTransactions(): List<TransactionUi> {
-    val monthKey = selectedMonthKey()
+private fun List<TransactionUi>.latestMonthTransactions(monthKey: String? = selectedMonthKey()): List<TransactionUi> {
     return filter { it.isInSelectedMonth(monthKey) }
 }
 
-private fun List<TransactionUi>.latestMonthCreditTransactions(): List<TransactionUi> {
-    val monthKey = selectedMonthKey()
+private fun List<TransactionUi>.latestMonthCreditTransactions(monthKey: String? = selectedMonthKey()): List<TransactionUi> {
     return filter {
         it.direction == DirectionUi.Credit &&
             it.isInSelectedMonth(monthKey)
     }
 }
 
-private fun List<TransactionUi>.latestMonthSpendTransactions(): List<TransactionUi> {
-    val monthKey = selectedMonthKey()
+private fun List<TransactionUi>.latestMonthSpendTransactions(monthKey: String? = selectedMonthKey()): List<TransactionUi> {
     return filter {
         it.direction == DirectionUi.Debit &&
             it.transactionType.countsAsSpend() &&
             it.isInSelectedMonth(monthKey)
     }
+}
+
+private fun TransactionUi.isRecurringInvestmentPattern(allTransactions: List<TransactionUi>): Boolean {
+    if (direction != DirectionUi.Debit || transactionType != TransactionType.INVESTMENT) return false
+    val amount = inrAmountValue ?: return false
+    if (amount < 500.0) return false
+
+    val merchantKey = merchant.trim().lowercase(Locale.US)
+    val knownSipMerchant = listOf(
+        "indian clearing corporation",
+        "quant mutual fund",
+        "edelweiss mutual fund",
+        "hdfc mutual fund",
+        "icici prudential mutual fund",
+        "motilal oswal mutual fund"
+    ).any { merchantKey == it }
+    val recurringRail = paymentMode.equals(PaymentMode.NACH.displayName(), ignoreCase = true) ||
+        paymentMode.equals(PaymentMode.UPI_MANDATE.displayName(), ignoreCase = true)
+    if ((knownSipMerchant || recurringRail) && amount <= 10_000.0) return true
+
+    val amountKey = amount.toInvestmentAmountKey()
+    val recurringMonths = allTransactions
+        .asSequence()
+        .filter { transaction ->
+            transaction.direction == DirectionUi.Debit &&
+                transaction.transactionType == TransactionType.INVESTMENT &&
+                transaction.merchant.equals(merchant, ignoreCase = true) &&
+                transaction.transactionDate?.take(7) != null &&
+                (transaction.inrAmountValue ?: 0.0).toInvestmentAmountKey() == amountKey
+        }
+        .mapNotNull { it.transactionDate?.take(7) }
+        .distinct()
+        .count()
+
+    return amount <= 10_000.0 && recurringMonths >= 3
 }
 
 private fun List<TransactionUi>.explainBuckets(): List<ExplainBucket> {
@@ -4675,6 +8041,8 @@ private fun List<TransactionUi>.explainBuckets(): List<ExplainBucket> {
     val spendTransactions = debitTransactions.filter { it.transactionType.countsAsSpend() }
     val transferTransactions = debitTransactions.filter { it.transactionType == TransactionType.TRANSFER }
     val investmentTransactions = debitTransactions.filter { it.transactionType == TransactionType.INVESTMENT }
+    val recurringInvestmentTransactions = investmentTransactions.filter { it.isRecurringInvestmentPattern(this) }
+    val oneTimeInvestmentTransactions = investmentTransactions - recurringInvestmentTransactions.toSet()
     val otherDebitTransactions = debitTransactions.filter {
         !it.transactionType.countsAsSpend() &&
             it.transactionType != TransactionType.TRANSFER &&
@@ -4696,11 +8064,18 @@ private fun List<TransactionUi>.explainBuckets(): List<ExplainBucket> {
             transactions = spendTransactions
         ),
         ExplainBucket(
-            title = "Investments",
-            amount = investmentTransactions.sumOf { it.inrAmountValue ?: 0.0 },
-            count = investmentTransactions.size,
-            description = "SIPs, broker transfers, mutual funds, and investment deductions.",
-            transactions = investmentTransactions
+            title = "Recurring SIPs",
+            amount = recurringInvestmentTransactions.sumOf { it.inrAmountValue ?: 0.0 },
+            count = recurringInvestmentTransactions.size,
+            description = "Pattern-matched monthly SIP and mutual fund deductions.",
+            transactions = recurringInvestmentTransactions
+        ),
+        ExplainBucket(
+            title = "One-time investments",
+            amount = oneTimeInvestmentTransactions.sumOf { it.inrAmountValue ?: 0.0 },
+            count = oneTimeInvestmentTransactions.size,
+            description = "Lump-sum broker, fund, or investment transfers.",
+            transactions = oneTimeInvestmentTransactions
         ),
         ExplainBucket(
             title = "Transfers",
@@ -4763,8 +8138,8 @@ private fun List<TransactionUi>.monthMerchantGroups(): List<SummaryGroup> {
         .sortedByDescending { it.total }
 }
 
-private fun List<TransactionUi>.monthSpendMerchantGroups(): List<SummaryGroup> {
-    return latestMonthSpendTransactions()
+private fun List<TransactionUi>.monthSpendMerchantGroups(monthKey: String? = selectedMonthKey()): List<SummaryGroup> {
+    return latestMonthSpendTransactions(monthKey)
         .filter { it.inrAmountValue != null }
         .groupBy { it.merchant }
         .map { (merchant, transactions) ->
@@ -4795,8 +8170,8 @@ private fun List<TransactionUi>.monthCategoryGroups(): List<SummaryGroup> {
         .sortedByDescending { it.total }
 }
 
-private fun List<TransactionUi>.monthSpendCategoryGroups(): List<SummaryGroup> {
-    return latestMonthSpendTransactions()
+private fun List<TransactionUi>.monthSpendCategoryGroups(monthKey: String? = selectedMonthKey()): List<SummaryGroup> {
+    return latestMonthSpendTransactions(monthKey)
         .filter { it.inrAmountValue != null }
         .groupBy { it.category }
         .map { (category, transactions) ->
@@ -4811,8 +8186,8 @@ private fun List<TransactionUi>.monthSpendCategoryGroups(): List<SummaryGroup> {
         .sortedByDescending { it.total }
 }
 
-private fun List<TransactionUi>.reviewCandidates(): List<TransactionUi> {
-    return latestMonthTransactions()
+private fun List<TransactionUi>.reviewCandidates(monthKey: String? = selectedMonthKey()): List<TransactionUi> {
+    return latestMonthTransactions(monthKey)
         .filter { it.inrAmountValue != null }
         .filter(TransactionUi::needsReview)
         .sortedByDescending { it.inrAmountValue ?: 0.0 }
@@ -4976,11 +8351,21 @@ private fun List<TransactionUi>.monthStoryItems(): List<MonthStoryItem> {
                 category = largestSpend?.category ?: "Other"
             )
         },
-        if (breakdown.investments > 0.0) {
+        if (breakdown.recurringInvestments > 0.0) {
             MonthStoryItem(
                 label = "Kept separate",
+                value = "Recurring SIPs",
+                detail = breakdown.recurringInvestments.formatInr(),
+                category = "Investment"
+            )
+        } else {
+            null
+        },
+        if (breakdown.oneTimeInvestments > 0.0) {
+            MonthStoryItem(
+                label = "One-time move",
                 value = "Investments",
-                detail = breakdown.investments.formatInr(),
+                detail = breakdown.oneTimeInvestments.formatInr(),
                 category = "Investment"
             )
         } else {
@@ -5036,6 +8421,16 @@ private fun List<TransactionUi>.selectedMonthKey(): String? {
     }
 }
 
+private fun List<TransactionUi>.availableMonthKeys(): List<String> {
+    return mapNotNull { transaction ->
+        transaction.transactionDate
+            ?.take(7)
+            ?.takeIf { Regex("""\d{4}-\d{2}""").matches(it) }
+    }
+        .distinct()
+        .sortedDescending()
+}
+
 private fun TransactionUi.isInSelectedMonth(monthKey: String?): Boolean {
     return monthKey == null || transactionDate?.startsWith(monthKey) == true
 }
@@ -5070,238 +8465,511 @@ private fun DrilldownScreen(
     onBack: () -> Unit,
     onTransactionClick: (TransactionUi) -> Unit
 ) {
+    val palette = tapePalette()
     val transactions = remember(state, allTransactions) {
         state.filteredTransactions(allTransactions)
     }
+    val amountRows = remember(transactions) {
+        transactions.filter { it.inrAmountValue != null }
+    }
+    val total = remember(amountRows) {
+        amountRows.sumOf { it.inrAmountValue ?: 0.0 }
+    }
+    val average = remember(amountRows, total) {
+        if (amountRows.isNotEmpty()) total / amountRows.size else 0.0
+    }
+    val largest = remember(amountRows) {
+        amountRows.maxByOrNull { it.inrAmountValue ?: 0.0 }
+    }
+    val reviewCount = remember(amountRows) {
+        amountRows.count(TransactionUi::needsReview)
+    }
+    val sourceMix = remember(amountRows) {
+        amountRows
+            .groupingBy { it.source.uppercase(Locale.US) }
+            .eachCount()
+            .entries
+            .sortedByDescending { it.value }
+            .joinToString(" - ") { "${it.value} ${it.key}" }
+            .ifBlank { "NO SOURCE" }
+    }
+    val splitRows = remember(transactions, state.kind) {
+        val grouped = when (state.kind) {
+            DrilldownKind.Merchant -> transactions.groupBy { it.category }
+            DrilldownKind.Category -> transactions.groupBy { it.merchant }
+        }
+        grouped
+            .map { (label, rows) ->
+                SummaryGroup(
+                    label = label,
+                    count = rows.size,
+                    total = rows.sumOf { it.inrAmountValue ?: 0.0 },
+                    currency = "INR",
+                    category = rows.firstOrNull()?.category ?: label
+                )
+            }
+            .sortedByDescending { it.total }
+    }
+    val dateGroups = remember(transactions) {
+        transactions
+            .sortedWith(
+                compareByDescending<TransactionUi> { it.transactionDate.orEmpty() }
+                    .thenByDescending { it.inrAmountValue ?: 0.0 }
+            )
+            .groupBy { it.transactionDate.recentDateLabel().uppercase(Locale.US) }
+    }
 
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = palette.desk
     ) { padding ->
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(padding)
         ) {
-            item {
-                DrilldownHeader(
-                    state = state,
-                    transactions = transactions,
-                    onBack = onBack
-                )
-            }
-            item {
-                DrilldownIntelligenceCard(
-                    transactions = transactions,
-                    kind = state.kind
-                )
-            }
-            item {
-                DrilldownBreakdown(transactions = transactions, kind = state.kind)
-            }
-            item {
-                SectionLabel("Transactions")
-            }
-            items(transactions) { transaction ->
-                TransactionRow(
-                    transaction = transaction,
-                    onClick = { onTransactionClick(transaction) }
-                )
-            }
-            item {
-                Spacer(modifier = Modifier.height(80.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun DrilldownHeader(
-    state: DrilldownState,
-    transactions: List<TransactionUi>,
-    onBack: () -> Unit
-) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                }
-                Spacer(modifier = Modifier.width(4.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = state.title,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        letterSpacing = 0.sp
-                    )
-                    Text(
-                        text = state.kind.label(),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp,
-                        letterSpacing = 0.sp
+            SegmentDeskBar(
+                state = state,
+                transactions = transactions,
+                palette = palette,
+                onBack = onBack
+            )
+            TapePaper(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(horizontal = 14.dp),
+                palette = palette
+            ) {
+                item {
+                    SegmentCloseOutBlock(
+                        state = state,
+                        total = total,
+                        average = average,
+                        largest = largest,
+                        reviewCount = reviewCount,
+                        sourceMix = sourceMix,
+                        lineCount = transactions.size,
+                        palette = palette
                     )
                 }
-            }
-            Spacer(modifier = Modifier.height(14.dp))
-            Text(
-                text = state.group.total.formatMoney(state.group.currency),
-                color = MaterialTheme.colorScheme.primary,
-                fontSize = 30.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.sp
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "${transactions.size} transaction${if (transactions.size == 1) "" else "s"} this month",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp,
-                letterSpacing = 0.sp
-            )
-        }
-    }
-}
-
-@Composable
-private fun DrilldownIntelligenceCard(
-    transactions: List<TransactionUi>,
-    kind: DrilldownKind
-) {
-    val amountRows = transactions.filter { it.inrAmountValue != null }
-    val total = amountRows.sumOf { it.inrAmountValue ?: 0.0 }
-    val average = if (amountRows.isNotEmpty()) total / amountRows.size else 0.0
-    val largest = amountRows.maxByOrNull { it.inrAmountValue ?: 0.0 }
-    val reviewCount = amountRows.count(TransactionUi::needsReview)
-    val paymentMode = amountRows
-        .groupingBy { it.paymentMode }
-        .eachCount()
-        .maxByOrNull { it.value }
-        ?.key
-        ?: "None"
-    val sourceMix = amountRows
-        .groupingBy { it.source }
-        .eachCount()
-        .entries
-        .sortedByDescending { it.value }
-        .joinToString(" / ") { "${it.key} ${it.value}" }
-        .ifBlank { "None" }
-
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = if (kind == DrilldownKind.Merchant) "Merchant intelligence" else "Category intelligence",
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.sp
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                MiniMetric(
-                    label = "Average",
-                    value = average.formatInr(),
-                    modifier = Modifier.weight(1f)
-                )
-                MiniMetric(
-                    label = "Largest",
-                    value = largest?.inrAmountValue?.formatInr() ?: "None",
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                MiniMetric(
-                    label = "Payment",
-                    value = paymentMode,
-                    modifier = Modifier.weight(1f)
-                )
-                MiniMetric(
-                    label = "Review",
-                    value = reviewCount.toString(),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-            MiniMetric(
-                label = "Sources",
-                value = sourceMix,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-    }
-}
-
-@Composable
-private fun DrilldownBreakdown(
-    transactions: List<TransactionUi>,
-    kind: DrilldownKind
-) {
-    val sourceGroups = transactions
-        .groupBy { it.source }
-        .map { (source, rows) -> source to rows.size }
-        .sortedByDescending { it.second }
-    val secondaryGroups = when (kind) {
-        DrilldownKind.Merchant -> transactions
-            .groupBy { it.category }
-            .map { (category, rows) -> category to rows.size }
-            .sortedByDescending { it.second }
-
-        DrilldownKind.Category -> transactions
-            .groupBy { it.merchant }
-            .map { (merchant, rows) -> merchant to rows.size }
-            .sortedByDescending { it.second }
-            .take(4)
-    }
-
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Text(
-                text = if (kind == DrilldownKind.Merchant) "Category split" else "Merchant split",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 0.sp
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            secondaryGroups.forEach { (label, count) ->
-                DrilldownBreakdownRow(label = label, count = count)
-            }
-            if (sourceGroups.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    sourceGroups.forEach { (source, count) ->
-                        DetailChip("$source $count")
+                item {
+                    SegmentShareRule(
+                        rows = splitRows,
+                        total = total,
+                        palette = palette
+                    )
+                }
+                item {
+                    SegmentSplitBlock(
+                        state = state,
+                        rows = splitRows,
+                        palette = palette
+                    )
+                }
+                item {
+                    IndexBlockShell(
+                        heading = "LINES ON THIS SEGMENT",
+                        meta = "${transactions.size} PRINTED",
+                        palette = palette
+                    ) {
+                        if (transactions.isEmpty()) {
+                            IndexEmptyLine("NO LINES FOUND ON THIS SEGMENT", palette)
+                        }
                     }
                 }
+                dateGroups.forEach { (label, rows) ->
+                    item {
+                        SegmentDateHeader(
+                            label = label,
+                            total = rows.sumOf { it.inrAmountValue ?: 0.0 },
+                            palette = palette
+                        )
+                    }
+                    items(rows, key = { it.sourceHash }) { transaction ->
+                        SegmentTransactionLine(
+                            transaction = transaction,
+                            palette = palette,
+                            onClick = { onTransactionClick(transaction) }
+                        )
+                    }
+                }
+                item {
+                    Spacer(modifier = Modifier.height(80.dp))
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun SegmentDeskBar(
+    state: DrilldownState,
+    transactions: List<TransactionUi>,
+    palette: TapePalette,
+    onBack: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(palette.desk)
+            .padding(start = 12.dp, end = 12.dp, top = 14.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "<",
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .clickable(onClick = onBack)
+                .padding(top = 5.dp),
+            color = palette.amber,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = "INDEX",
+            color = palette.inkSoft,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 3.sp,
+            maxLines = 1
+        )
+        Text(
+            text = " / ${state.kind.segmentStamp()}",
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 10.sp,
+            letterSpacing = 2.sp,
+            maxLines = 1
+        )
+        Spacer(modifier = Modifier.weight(1f))
+        Text(
+            text = "${transactions.size} LINES",
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            letterSpacing = 1.4.sp,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun SegmentCloseOutBlock(
+    state: DrilldownState,
+    total: Double,
+    average: Double,
+    largest: TransactionUi?,
+    reviewCount: Int,
+    sourceMix: String,
+    lineCount: Int,
+    palette: TapePalette
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .border(1.dp, palette.rule)
+            .padding(horizontal = 12.dp, vertical = 13.dp)
+    ) {
+        Text(
+            text = state.kind.segmentTitle(),
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            letterSpacing = 1.7.sp,
+            maxLines = 1
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = state.title.uppercase(Locale.US),
+            color = palette.ink,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            lineHeight = 27.sp,
+            letterSpacing = 1.sp
+        )
+        Spacer(modifier = Modifier.height(9.dp))
+        Text(
+            text = total.formatRupee(),
+            color = palette.ink,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 32.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        TapeDoubleRule(palette = palette)
+        TapeSummationRow(
+            label = "$lineCount LINES PRINTED",
+            value = total.formatRupee(),
+            palette = palette
+        )
+        TapeSummationRow(
+            label = "AVERAGE LINE",
+            value = average.formatRupee(),
+            palette = palette
+        )
+        TapeSummationRow(
+            label = "LARGEST LINE",
+            value = largest?.inrAmountValue?.formatRupee() ?: "NONE",
+            palette = palette
+        )
+        TapeSummationRow(
+            label = "$reviewCount LINES UNSTAMPED",
+            value = if (reviewCount == 0) "CLEAR" else "NEEDS STAMP",
+            palette = palette,
+            color = if (reviewCount == 0) palette.inkSoft else palette.query
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(palette.ruleFaint)
+        )
+        Text(
+            text = sourceMix,
+            modifier = Modifier.padding(top = 9.dp),
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 8.sp,
+            letterSpacing = 1.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun SegmentShareRule(
+    rows: List<SummaryGroup>,
+    total: Double,
+    palette: TapePalette
+) {
+    if (rows.isEmpty() || total <= 0.0) return
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .height(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        rows.take(8).forEach { row ->
+            Box(
+                modifier = Modifier
+                    .weight(((row.total / total).coerceAtLeast(0.04)).toFloat())
+                    .fillMaxSize()
+                    .background(if (row.count > 1) palette.amber else palette.rule)
+            )
+        }
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = rows.take(2).joinToString(" - ") { "${it.label.uppercase(Locale.US)} ${(it.total / total * 100).toInt()}%" },
+            modifier = Modifier.weight(1f),
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 8.sp,
+            letterSpacing = 1.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = "SEGMENT MIX",
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 8.sp,
+            letterSpacing = 1.sp,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun SegmentSplitBlock(
+    state: DrilldownState,
+    rows: List<SummaryGroup>,
+    palette: TapePalette
+) {
+    IndexBlockShell(
+        heading = if (state.kind == DrilldownKind.Merchant) "CATEGORY SPLIT" else "MERCHANT SPLIT",
+        meta = "${rows.size} INDEXED",
+        palette = palette
+    ) {
+        if (rows.isEmpty()) {
+            IndexEmptyLine("NO SPLIT PRINTED", palette)
+        } else {
+            rows.take(6).forEach { row ->
+                IndexEntryRow(
+                    name = row.label.uppercase(Locale.US),
+                    meta = "${row.count} LINE${if (row.count == 1) "" else "S"}",
+                    value = row.total.formatRupee(),
+                    palette = palette
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SegmentDateHeader(
+    label: String,
+    total: Double,
+    palette: TapePalette
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .width(18.dp)
+                .height(1.dp)
+                .background(palette.rule)
+        )
+        Text(
+            text = " $label",
+            modifier = Modifier.weight(1f),
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 2.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = total.formatRupee(),
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun SegmentTransactionLine(
+    transaction: TransactionUi,
+    palette: TapePalette,
+    onClick: () -> Unit
+) {
+    val value = transaction.inrAmountValue ?: transaction.amountValue
+    val query = transaction.needsReview()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .drawBehind {
+                val y = size.height - 1.dp.toPx()
+                drawLine(
+                    color = palette.ruleFaint,
+                    start = Offset(16.dp.toPx(), y),
+                    end = Offset(size.width - 16.dp.toPx(), y),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = if (query) "?" else "",
+            modifier = Modifier.width(14.dp),
+            color = palette.query,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = transaction.merchant.uppercase(Locale.US),
+                    modifier = Modifier.weight(1f),
+                    color = palette.ink,
+                    fontFamily = SortedTapeFontFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 1.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = if (transaction.direction == DirectionUi.Credit) "(${value.formatRupee()})" else value.formatRupee(),
+                    color = if (transaction.direction == DirectionUi.Credit) palette.credit else if (query) palette.query else palette.ink,
+                    fontFamily = SortedTapeFontFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
+                )
+            }
+            Spacer(modifier = Modifier.height(7.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SegmentStamp(transaction.category.uppercase(Locale.US), palette)
+                Spacer(modifier = Modifier.width(6.dp))
+                SegmentStamp(transaction.source.uppercase(Locale.US), palette)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = transaction.detail.ifBlank { transaction.paymentMode }.take(42),
+                    modifier = Modifier.weight(1f),
+                    color = palette.inkFaint,
+                    fontFamily = SortedTapeFontFamily,
+                    fontSize = 9.sp,
+                    letterSpacing = 0.9.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SegmentStamp(
+    text: String,
+    palette: TapePalette
+) {
+    Text(
+        text = text,
+        modifier = Modifier
+            .border(1.dp, palette.rule, RoundedCornerShape(2.dp))
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        color = palette.inkSoft,
+        fontFamily = SortedTapeFontFamily,
+        fontSize = 8.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.7.sp,
+        maxLines = 1
+    )
+}
+
+private fun DrilldownKind.segmentStamp(): String {
+    return when (this) {
+        DrilldownKind.Merchant -> "MERCHANT"
+        DrilldownKind.Category -> "SEGMENT"
+    }
+}
+
+private fun DrilldownKind.segmentTitle(): String {
+    return when (this) {
+        DrilldownKind.Merchant -> "MERCHANT TAPE"
+        DrilldownKind.Category -> "SEGMENT TAPE"
     }
 }
 
@@ -5338,9 +9006,9 @@ private fun DrilldownState.filteredTransactions(
     allTransactions: List<TransactionUi>
 ): List<TransactionUi> {
     val sourceTransactions = if (spendOnly) {
-        allTransactions.latestMonthSpendTransactions()
+        allTransactions.latestMonthSpendTransactions(monthKey)
     } else {
-        allTransactions.latestMonthDebitTransactions()
+        allTransactions.latestMonthDebitTransactions(monthKey)
     }
 
     return sourceTransactions
@@ -5646,20 +9314,20 @@ private fun CategoryDot(category: String) {
 private fun categoryColor(category: String): Color {
     return if (isDarkModeActive()) {
         when (category) {
-            "Food" -> Color(0xFFFFC857)
-            "Groceries" -> Color(0xFFFFD76D)
-            "Investment" -> Color(0xFFE9B949)
-            "Refund" -> Color(0xFFFFE6A3)
-            "Subscriptions" -> Color(0xFFD7A928)
-            "Reward" -> Color(0xFFFFF0B8)
-            "Transfer" -> Color(0xFFC9951F)
-            "Shopping" -> Color(0xFFF3C969)
-            "Health" -> Color(0xFFFFDFA0)
-            "Entertainment" -> Color(0xFFE2B33B)
-            "Transport" -> Color(0xFFBC8926)
-            "Utilities" -> Color(0xFFFFC045)
-            "Fuel" -> Color(0xFFFFB020)
-            else -> MaterialTheme.colorScheme.onSurfaceVariant
+            "Food",
+            "Groceries",
+            "Investment",
+            "Refund",
+            "Subscriptions",
+            "Reward",
+            "Transfer",
+            "Shopping",
+            "Health",
+            "Entertainment",
+            "Transport",
+            "Utilities",
+            "Fuel" -> Color(0xFFFBC02D)
+            else -> Color(0xFFFBC02D)
         }
     } else {
         when (category) {
@@ -5691,19 +9359,19 @@ private fun categoryContainerColor(category: String): Color {
 private fun homeMixColor(category: String): Color {
     return if (isDarkModeActive()) {
         when (category) {
-            "Investment" -> Color(0xFFFFC857)
-            "Transfer" -> Color(0xFFB9832A)
-            "Shopping" -> Color(0xFFFF8A70)
-            "Groceries" -> Color(0xFFA7C957)
-            "Food" -> Color(0xFFFFB84D)
-            "Utilities" -> Color(0xFFFF9F45)
-            "Subscriptions" -> Color(0xFFB9A7FF)
-            "Health" -> Color(0xFFFFD08A)
-            "Refund" -> Color(0xFFFFE08A)
-            "Reward" -> Color(0xFFEAD86B)
-            "Transport" -> Color(0xFFD19A3A)
-            "Fuel" -> Color(0xFFFFAD33)
-            else -> Color(0xFFC9B889)
+            "Investment",
+            "Transfer",
+            "Shopping",
+            "Groceries",
+            "Food",
+            "Utilities",
+            "Subscriptions",
+            "Health",
+            "Refund",
+            "Reward",
+            "Transport",
+            "Fuel" -> Color(0xFFFBC02D)
+            else -> Color(0xFFFBC02D)
         }
     } else {
         categoryColor(category)
@@ -6018,6 +9686,10 @@ private fun Double.formatInr(): String {
     return "INR " + String.format(Locale.US, "%,.2f", this)
 }
 
+private fun Double.formatRupee(): String {
+    return "₹" + String.format(Locale.US, "%,.2f", this)
+}
+
 private fun Double.formatCompactInr(): String {
     val magnitude = if (this < 0.0) -this else this
     val value = when {
@@ -6026,6 +9698,16 @@ private fun Double.formatCompactInr(): String {
         else -> String.format(Locale.US, "%.0f", this)
     }.replace(".0", "")
     return "INR $value"
+}
+
+private fun Double.formatRupeeCompact(): String {
+    val magnitude = if (this < 0.0) -this else this
+    val value = when {
+        magnitude >= 100_000.0 -> String.format(Locale.US, "%.1fL", this / 100_000.0)
+        magnitude >= 1_000.0 -> String.format(Locale.US, "%.1fK", this / 1_000.0)
+        else -> String.format(Locale.US, "%.0f", this)
+    }.replace(".0", "")
+    return "₹$value"
 }
 
 private fun Double.formatMoney(currency: String?): String {
@@ -6145,6 +9827,26 @@ private fun String.monthNameLabel(): String {
         else -> "Month"
     }
     return monthName
+}
+
+private fun String.monthShortLabel(): String {
+    val year = substringBefore("-", "")
+    val shortMonth = when (substringAfter("-")) {
+        "01" -> "Jan"
+        "02" -> "Feb"
+        "03" -> "Mar"
+        "04" -> "Apr"
+        "05" -> "May"
+        "06" -> "Jun"
+        "07" -> "Jul"
+        "08" -> "Aug"
+        "09" -> "Sep"
+        "10" -> "Oct"
+        "11" -> "Nov"
+        "12" -> "Dec"
+        else -> "Month"
+    }
+    return if (year.length == 4) "$shortMonth ${year.takeLast(2)}" else shortMonth
 }
 
 private fun String?.recentDateLabel(): String {

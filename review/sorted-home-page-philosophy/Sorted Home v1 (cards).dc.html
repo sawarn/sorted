@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/nocturne-705cd29e-b9b5-4ee3-9365-975cd1ccc3ab/styles.css">
+  <script src="_ds/nocturne-705cd29e-b9b5-4ee3-9365-975cd1ccc3ab/_ds_bundle.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+  <style>
+    @keyframes sortedFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(var(--s-bob-amp, -6px)); } }
+    * { box-sizing: border-box; }
+  </style>
+</helmet>
+<div style="{{ pageOuterStyle }}">
+  <x-import component-from-global-scope="AndroidDevice" from="./android-frame.jsx" dark="{{ isDark }}" hint-size="412px,892px">
+    <div style="{{ appRootStyle }}">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:12px;letter-spacing:0.06em;text-transform:uppercase;color:var(--s-text-dim)">{{ monthLabel }}</div>
+          <h1 style="font-size:24px;margin:2px 0 0;font-weight:500">Your month</h1>
+        </div>
+        <button style="{{ toggleBtnStyle }}" onClick="{{ toggleTheme }}">
+          <i class="{{ themeIconClass }}" style="font-size:18px"></i>
+        </button>
+      </div>
+
+      <div style="{{ heroCardStyle }}">
+        <div style="font-size:13px;color:var(--s-text-dim)">This month, organized</div>
+        <div style="font-size:38px;font-weight:500;letter-spacing:-0.02em;margin:6px 0 2px">{{ heroTotal }}</div>
+        <div style="font-size:13px;color:var(--s-text-dim);margin-bottom:var(--space-4)">{{ heroNote }}</div>
+        <div style="display:flex;gap:var(--space-2);flex-wrap:wrap">
+          <sc-for list="{{ heroPills }}" as="pill" hint-placeholder-count="4">
+            <div style="{{ pill.style }}">
+              <span style="{{ pill.dotStyle }}"></span>{{ pill.label }}
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--s-text-dim)">
+        <i class="ph ph-hand-tap" style="font-size:14px"></i>
+        Tap any piece to see where it came from
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4)">
+        <sc-for list="{{ gridPieces }}" as="p" hint-placeholder-count="8">
+          <div style="{{ p.wrapStyle }}" style-hover="{{ p.hoverStyle }}" onClick="{{ p.onToggle }}">
+            <div style="display:flex;align-items:center;gap:var(--space-3)">
+              <div style="{{ p.iconWrapStyle }}"><i class="{{ p.icon }}" style="{{ p.iconColorStyle }}"></i></div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:12px;color:var(--s-text-dim)">{{ p.title }}</div>
+                <div style="font-size:21px;font-weight:500;margin-top:2px">{{ p.amount }}</div>
+                <div style="font-size:11px;color:var(--s-text-dim);margin-top:2px">{{ p.meta }}</div>
+              </div>
+              <i class="ph ph-caret-down" style="{{ p.chevronStyle }}"></i>
+            </div>
+            <div style="{{ p.detailStyle }}">
+              <div style="font-size:12px;color:var(--s-text-dim);margin:var(--space-3) 0 var(--space-2);line-height:1.5">{{ p.explain }}</div>
+              <sc-for list="{{ p.items }}" as="it" hint-placeholder-count="3">
+                <div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid var(--s-border);font-size:12.5px">
+                  <span>{{ it.label }}</span><span style="color:var(--s-text-dim);white-space:nowrap">{{ it.value }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:var(--space-3)">
+        <sc-for list="{{ slimPieces }}" as="s" hint-placeholder-count="2">
+          <div style="{{ s.wrapStyle }}" onClick="{{ s.onToggle }}">
+            <div style="display:flex;align-items:center;gap:var(--space-3)">
+              <i class="{{ s.icon }}" style="{{ s.iconColorStyle }}"></i>
+              <div style="flex:1">
+                <div style="font-size:13px">{{ s.title }}</div>
+                <div style="font-size:11.5px;color:var(--s-text-dim);margin-top:1px">{{ s.meta }}</div>
+              </div>
+              <i class="ph ph-caret-down" style="{{ s.chevronStyle }}"></i>
+            </div>
+            <div style="{{ s.detailStyle }}">
+              <div style="font-size:12px;color:var(--s-text-dim);margin:var(--space-3) 0 var(--space-2);line-height:1.5">{{ s.explain }}</div>
+              <sc-for list="{{ s.items }}" as="it" hint-placeholder-count="3">
+                <div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid var(--s-border);font-size:12.5px">
+                  <span>{{ it.label }}</span><span style="color:var(--s-text-dim);white-space:nowrap">{{ it.value }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="height:8px"></div>
+    </div>
+  </x-import>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { theme: 'dark', expandedId: null };
+
+  rawPieces = [
+    { id:'spend', kind:'grid', size:'lg', hue:'spend', icon:'ph ph-wallet',
+      title:'Total spend', amount:'₹52,561.88', meta:'68 transactions',
+      explain:'Debit transactions tagged as spend. Transfers to your own accounts and investment purchases are kept separate, and refunds are netted out automatically.',
+      items:[
+        {label:'Food & Dining', value:'₹14,230.00'},
+        {label:'Shopping', value:'₹11,800.00'},
+        {label:'Bills & Utilities', value:'₹9,120.00'},
+        {label:'Transport', value:'₹6,450.00'},
+        {label:'Entertainment', value:'₹4,300.00'},
+        {label:'Other', value:'₹6,661.88'},
+      ]},
+    { id:'income', kind:'grid', size:'md', hue:'income', icon:'ph ph-trend-up',
+      title:'Income', amount:'₹1,10,000', meta:'2 credits',
+      explain:'Credits recognized as salary or client payments.',
+      items:[
+        {label:'Salary · Aug 1', value:'₹95,000.00'},
+        {label:'Freelance payment', value:'₹15,000.00'},
+      ]},
+    { id:'moved', kind:'grid', size:'md', hue:'moved', icon:'ph ph-arrows-left-right',
+      title:'Money moved', amount:'₹38,200', meta:'9 transfers',
+      explain:"Transfers between your own accounts or to people you send money to regularly. Not counted as spend.",
+      items:[
+        {label:'To Savings ×3', value:'₹20,000.00'},
+        {label:'UPI · Dad', value:'₹8,200.00'},
+        {label:'UPI · Mom', value:'₹10,000.00'},
+      ]},
+    { id:'invest', kind:'grid', size:'md', hue:'invest', icon:'ph ph-chart-line-up',
+      title:'Investments', amount:'₹25,000', meta:'3 orders',
+      explain:"Money moved into mutual funds and stocks. It's still yours, so it stays out of spend.",
+      items:[
+        {label:'SIP · Axis Bluechip', value:'₹10,000.00'},
+        {label:'SIP · Parag Parikh Flexi', value:'₹5,000.00'},
+        {label:'Zerodha · Stocks', value:'₹10,000.00'},
+      ]},
+    { id:'recurring', kind:'grid', size:'md', hue:'recurring', icon:'ph ph-repeat',
+      title:'Recurring', amount:'₹6,840', meta:'6 subscriptions',
+      explain:'Subscriptions and bills that repeat monthly at roughly the same amount. Already counted inside spend.',
+      items:[
+        {label:'Rent contribution', value:'₹2,854.00'},
+        {label:'Gym membership', value:'₹1,500.00'},
+        {label:'Broadband', value:'₹1,499.00'},
+        {label:'Netflix', value:'₹649.00'},
+        {label:'iCloud+', value:'₹219.00'},
+        {label:'Spotify', value:'₹119.00'},
+      ]},
+    { id:'refunds', kind:'grid', size:'md', hue:'refund', icon:'ph ph-arrow-counter-clockwise',
+      title:'Refunds', amount:'₹3,412', meta:'3 credits',
+      explain:"Credits from merchants you'd already spent with. Netted against spend automatically.",
+      items:[
+        {label:'IndiGo · cancelled flight', value:'₹2,000.00'},
+        {label:'Amazon · order #4471', value:'₹1,200.00'},
+        {label:'Swiggy · refund', value:'₹212.00'},
+      ]},
+    { id:'merchants', kind:'grid', size:'md', hue:'spend', icon:'ph ph-storefront',
+      title:'Top merchant', amount:'Swiggy', meta:'₹6,200 · top of 24',
+      explain:'Ranked by total spend this month, across 24 merchants.',
+      items:[
+        {label:'Swiggy', value:'₹6,200.00'},
+        {label:'Amazon', value:'₹5,800.00'},
+        {label:'Zomato', value:'₹3,100.00'},
+        {label:'BigBasket', value:'₹2,900.00'},
+        {label:'Uber', value:'₹2,400.00'},
+      ]},
+    { id:'categories', kind:'grid', size:'lg', hue:'invest', icon:'ph ph-chart-pie',
+      title:'Top categories', amount:'Food & Dining', meta:'₹14,230 · top of 6',
+      explain:'How this month\u2019s spend splits across 6 categories.',
+      items:[
+        {label:'Food & Dining', value:'₹14,230.00'},
+        {label:'Shopping', value:'₹11,800.00'},
+        {label:'Bills & Utilities', value:'₹9,120.00'},
+        {label:'Transport', value:'₹6,450.00'},
+      ]},
+  ];
+
+  slimSource = [
+    { id:'sources', hue:'moved', icon:'ph ph-tray',
+      title:'Sources', meta:'84 SMS · 12 Gmail · synced 2m ago',
+      explain:'Sorted reads transaction alerts on your phone. Nothing is uploaded — everything stays local.',
+      items:[
+        {label:'SMS', value:'84 messages parsed'},
+        {label:'Gmail', value:'12 emails parsed'},
+        {label:'Last synced', value:'2 minutes ago'},
+      ]},
+    { id:'review', hue:'refund', icon:'ph ph-warning-circle',
+      title:'Needs a quick look', meta:'3 transactions',
+      explain:"We're not confident about these yet. Tap one to help Sorted classify it.",
+      items:[
+        {label:'UPI · 998211xxxx', value:'₹1,200 — no merchant name'},
+        {label:'IMPS transfer', value:'₹2,000 — spend or transfer?'},
+        {label:'POS purchase', value:'₹1,000 — category unclear'},
+      ]},
+  ];
+
+  toggleTheme = () => this.setState(s => ({ theme: s.theme === 'dark' ? 'light' : 'dark' }));
+  toggleExpand = (id) => this.setState(s => ({ expandedId: s.expandedId === id ? null : id }));
+
+  renderVals() {
+    const isDark = this.state.theme === 'dark';
+    const themeVars = isDark ? {
+      '--s-bg':'#161826', '--s-surface':'#232532', '--s-surface-2':'#2a2d40',
+      '--s-text':'#e9e9ed', '--s-text-dim':'rgba(233,233,237,0.58)',
+      '--s-hue-spend':'#9184d9', '--s-hue-income':'#7fb6a4', '--s-hue-invest':'#a79ae0',
+      '--s-hue-moved':'#8ea3c9', '--s-hue-refund':'#c98a94', '--s-hue-recurring':'#c2a878',
+      '--s-radius':'14px', '--s-shadow':'0 0 0 1px #3f424d, 0 6px 18px rgba(0,0,0,0.5)',
+      '--s-bob-amp':'-4px', '--s-bob-dur':'7s', '--s-ease':'ease-in-out', '--s-border':'rgba(233,233,237,0.08)',
+    } : {
+      '--s-bg':'#f6f3fb', '--s-surface':'#ffffff', '--s-surface-2':'#efe9fb',
+      '--s-text':'#211c37', '--s-text-dim':'rgba(33,28,55,0.55)',
+      '--s-hue-spend':'#6f5fd1', '--s-hue-income':'#2aa583', '--s-hue-invest':'#8b5cf6',
+      '--s-hue-moved':'#2f86c9', '--s-hue-refund':'#e0637a', '--s-hue-recurring':'#dd9a2e',
+      '--s-radius':'20px', '--s-shadow':'0 10px 28px rgba(111,95,209,0.18)',
+      '--s-bob-amp':'-9px', '--s-bob-dur':'3.4s', '--s-ease':'cubic-bezier(.34,1.56,.64,1)', '--s-border':'rgba(33,28,55,0.08)',
+    };
+
+    const mapPiece = (p, i, slim) => {
+      const expanded = this.state.expandedId === p.id;
+      const base = {
+        ...p, expanded,
+        onToggle: () => this.toggleExpand(p.id),
+        iconColorStyle: { color: `var(--s-hue-${p.hue})`, fontSize: slim ? '17px' : '18px' },
+        iconWrapStyle: slim ? {} : {
+          width:'36px', height:'36px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center',
+          background:`color-mix(in srgb, var(--s-hue-${p.hue}) 18%, transparent)`, flexShrink:0,
+        },
+        chevronStyle: { fontSize:'15px', color:'var(--s-text-dim)', transition:'transform .3s ease', transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)' },
+        detailStyle: { maxHeight: expanded ? '480px' : '0px', overflow:'hidden', transition:`max-height .4s var(--s-ease)` },
+      };
+      if (slim) {
+        base.wrapStyle = {
+          background:'var(--s-surface)', border:'1px solid var(--s-border)', borderRadius:'var(--s-radius)',
+          padding:'var(--space-4)', cursor:'pointer', opacity:0.9,
+        };
+      } else {
+        base.wrapStyle = {
+          gridColumn: p.size === 'lg' ? '1 / -1' : 'span 1',
+          background:'var(--s-surface)', border:'1px solid var(--s-border)', borderRadius:'var(--s-radius)',
+          padding:'var(--space-4)', boxShadow:'var(--s-shadow)', cursor:'pointer',
+          animation: expanded ? 'none' : `sortedFloat calc(var(--s-bob-dur) + ${(i % 3) * 0.6}s) var(--s-ease) infinite`,
+          animationDelay: `${i * 0.25}s`,
+          transition:'transform .25s var(--s-ease), box-shadow .25s ease',
+        };
+        base.hoverStyle = { transform:'translateY(-3px)' };
+      }
+      return base;
+    };
+
+    const gridPieces = this.rawPieces.map((p, i) => mapPiece(p, i, false));
+    const slimPieces = this.slimSource.map((p, i) => mapPiece(p, i, true));
+
+    const pillDef = (label, hue) => ({
+      label, style: {
+        display:'flex', alignItems:'center', gap:'6px', fontSize:'11.5px', color:'var(--s-text-dim)',
+        background:'var(--s-surface-2)', borderRadius:'999px', padding:'5px 10px 5px 8px',
+      },
+      dotStyle: { width:'7px', height:'7px', borderRadius:'50%', background:`var(--s-hue-${hue})`, display:'inline-block' },
+    });
+    const heroPills = [
+      pillDef('Spend ₹52.5k', 'spend'),
+      pillDef('Income ₹1.1L', 'income'),
+      pillDef('Moved ₹38.2k', 'moved'),
+      pillDef('Invest ₹25k', 'invest'),
+    ];
+
+    return {
+      isDark, gridPieces, slimPieces, heroPills,
+      toggleTheme: this.toggleTheme,
+      monthLabel: 'August 2026',
+      heroTotal: '₹2,25,762',
+      heroNote: 'Built from 68 transactions across spend, income, transfers and investments.',
+      themeIconClass: isDark ? 'ph ph-moon' : 'ph ph-sun',
+      pageOuterStyle: {
+        minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center',
+        background:'var(--color-bg)', fontFamily:'var(--font-body)', padding:'40px',
+      },
+      appRootStyle: {
+        ...themeVars, background:'var(--s-bg)', color:'var(--s-text)', minHeight:'100%',
+        fontFamily:'var(--font-body)', padding:'16px', display:'flex', flexDirection:'column',
+        gap:'var(--space-4)', transition:'background .4s ease, color .4s ease',
+      },
+      heroCardStyle: {
+        background:'linear-gradient(160deg, var(--s-surface-2), var(--s-surface))',
+        border:'1px solid var(--s-border)', borderRadius:'var(--s-radius)',
+        padding:'var(--space-6)', boxShadow:'var(--s-shadow)',
+      },
+      toggleBtnStyle: {
+        width:'38px', height:'38px', borderRadius:'50%', border:'1px solid var(--s-border)',
+        background:'var(--s-surface-2)', color:'var(--s-text)', display:'flex', alignItems:'center',
+        justifyContent:'center', cursor:'pointer',
+      },
+    };
+  }
+}
+</script>
+</body>
+</html>

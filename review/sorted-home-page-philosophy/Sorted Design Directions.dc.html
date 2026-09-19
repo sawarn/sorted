@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/nocturne-705cd29e-b9b5-4ee3-9365-975cd1ccc3ab/styles.css">
+  <script src="_ds/nocturne-705cd29e-b9b5-4ee3-9365-975cd1ccc3ab/_ds_bundle.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+  <style>
+    * { box-sizing: border-box; }
+    a { color: var(--color-accent-300); }
+    a:hover { color: var(--color-accent); }
+  </style>
+</helmet>
+<div style="background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);min-height:100vh;padding:56px 24px 80px">
+  <div style="max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:var(--space-8)">
+
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:var(--color-accent-300)">Sorted · design directions</div>
+      <h1 style="font-family:var(--font-heading);font-weight:500;font-size:40px;line-height:1.1;letter-spacing:-0.02em;margin:0;text-wrap:pretty">Four ways to build a transaction intelligence app</h1>
+      <p style="margin:0;max-width:60ch;color:var(--color-neutral-300);font-size:15px;line-height:1.6;text-wrap:pretty">A diagnosis of the brief, four meaningfully different directions described screen by screen, and a recommendation for launch.</p>
+    </div>
+
+    <div style="height:1px;background:linear-gradient(90deg,transparent,var(--color-neutral-700) 48px,var(--color-neutral-700) calc(100% - 48px),transparent)"></div>
+
+    <section style="display:flex;flex-direction:column;gap:14px">
+      <h2 style="font-family:var(--font-heading);font-weight:500;font-size:13px;letter-spacing:0.16em;text-transform:uppercase;margin:0;color:var(--color-neutral-300)">Diagnosis</h2>
+      <p style="margin:0;max-width:70ch;font-size:15.5px;line-height:1.65;text-wrap:pretty">The product's real asset is not the total — it is the <em style="font-style:normal;color:var(--color-accent-300)">audit trail behind the total</em>. Sorted knows which messages it read, which it could not parse, what it excluded, and what it is unsure about. No bank-linked app can show that, because they are handed clean data and have nothing to explain. So the design problem is not &ldquo;how do we visualise spending&rdquo; — it is <strong style="font-weight:500">how do we make explanation the primary interaction</strong>.</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:12px">
+        <sc-for list="{{ diagnosis }}" as="d" hint-placeholder-count="4">
+          <div style="border:1px solid var(--color-neutral-700);border-radius:var(--radius-md);padding:var(--space-4);background:var(--color-neutral-900)">
+            <div style="font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:var(--color-accent-300);margin-bottom:6px">{{ d.tag }}</div>
+            <div style="font-size:13.5px;line-height:1.55;color:var(--color-neutral-200);text-wrap:pretty">{{ d.text }}</div>
+          </div>
+        </sc-for>
+      </div>
+      <p style="margin:4px 0 0;max-width:70ch;font-size:14px;line-height:1.65;color:var(--color-neutral-300);text-wrap:pretty">Two structural risks run through all four directions. First, Home has two incompatible jobs in the brief — &ldquo;clean transaction feed&rdquo; and &ldquo;monthly summary&rdquo;; every direction below has to declare which one wins. Second, four bottom tabs plus Sort Inbox, Why This Number, Rule Center and Month Story means the navigation has more destinations than the tab bar can name, so each direction needs an explicit home for the review queue.</p>
+    </section>
+
+    <div style="height:1px;background:linear-gradient(90deg,transparent,var(--color-neutral-700) 48px,var(--color-neutral-700) calc(100% - 48px),transparent)"></div>
+
+    <sc-for list="{{ directions }}" as="dir" hint-placeholder-count="4">
+      <section style="display:flex;flex-direction:column;gap:var(--space-6)">
+        <div style="display:flex;align-items:flex-start;gap:16px">
+          <div style="{{ dir.numStyle }}">{{ dir.num }}</div>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px">
+            <h2 style="font-family:var(--font-heading);font-weight:500;font-size:27px;line-height:1.15;letter-spacing:-0.015em;margin:0">{{ dir.name }}</h2>
+            <div style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:var(--color-accent-300)">{{ dir.oneLine }}</div>
+            <p style="margin:2px 0 0;max-width:66ch;font-size:15px;line-height:1.65;color:var(--color-neutral-200);text-wrap:pretty">{{ dir.premise }}</p>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;padding-left:var(--space-2)">
+          <sc-for list="{{ dir.swatches }}" as="sw" hint-placeholder-count="5">
+            <div style="{{ sw.wrapStyle }}">
+              <span style="{{ sw.chipStyle }}"></span>
+              <span style="font-size:11px;color:var(--color-neutral-300);font-variant-numeric:tabular-nums">{{ sw.label }}</span>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:1px;background:var(--color-neutral-700);border:1px solid var(--color-neutral-700);border-radius:var(--radius-md);overflow:hidden">
+          <sc-for list="{{ dir.facets }}" as="f" hint-placeholder-count="8">
+            <div style="background:var(--color-bg);padding:var(--space-4) var(--space-4) var(--space-6)">
+              <div style="display:flex;align-items:center;gap:7px;margin-bottom:7px">
+                <i class="{{ f.icon }}" style="font-size:14px;color:var(--color-accent)"></i>
+                <span style="font-size:11.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--color-neutral-300)">{{ f.label }}</span>
+              </div>
+              <div style="font-size:13.5px;line-height:1.6;color:var(--color-neutral-100);text-wrap:pretty">{{ f.text }}</div>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px">
+          <div style="border-left:2px solid var(--color-accent);padding:2px 0 2px var(--space-4)">
+            <div style="font-size:11.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--color-accent-300);margin-bottom:5px">Why it feels premium</div>
+            <div style="font-size:13.5px;line-height:1.6;color:var(--color-neutral-100);text-wrap:pretty">{{ dir.premium }}</div>
+          </div>
+          <div style="border-left:2px solid var(--color-neutral-600);padding:2px 0 2px var(--space-4)">
+            <div style="font-size:11.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--color-neutral-400);margin-bottom:5px">Tradeoffs</div>
+            <div style="font-size:13.5px;line-height:1.6;color:var(--color-neutral-200);text-wrap:pretty">{{ dir.tradeoff }}</div>
+          </div>
+        </div>
+      </section>
+    </sc-for>
+
+    <div style="height:1px;background:linear-gradient(90deg,transparent,var(--color-neutral-700) 48px,var(--color-neutral-700) calc(100% - 48px),transparent)"></div>
+
+    <section style="display:flex;flex-direction:column;gap:14px">
+      <h2 style="font-family:var(--font-heading);font-weight:500;font-size:13px;letter-spacing:0.16em;text-transform:uppercase;margin:0;color:var(--color-neutral-300)">Recommendation</h2>
+      <p style="margin:0;max-width:70ch;font-size:16px;line-height:1.65;text-wrap:pretty">Launch on <strong style="font-weight:500;color:var(--color-accent-300)">Vault</strong> as the shipping product, and borrow exactly one move from <strong style="font-weight:500">Ledger Field</strong>: the month header.</p>
+      <p style="margin:0;max-width:70ch;font-size:14.5px;line-height:1.7;color:var(--color-neutral-200);text-wrap:pretty">Vault is the only direction that satisfies the north star — total to transaction list in two taps — without asking the user to learn a new visual language first. It is a feed, so the app is useful on day one with three parsed messages and still useful with three thousand. It is also the cheapest to build well on Android, which matters when the hard engineering is in the SMS parser, not the UI.</p>
+      <p style="margin:0;max-width:70ch;font-size:14.5px;line-height:1.7;color:var(--color-neutral-200);text-wrap:pretty">Ledger Field is the more distinctive product and the better story, but it is a second-release bet: the constellation only reads as intelligence once there is enough parsed history for the nodes to mean something, and a first-run user with an empty month sees an empty sky. Bring its month header into Vault now — the big explainable total with the excluded-and-unsure line attached to it — and keep the field itself as a candidate for the Insights &ldquo;Month Story&rdquo; view, where an expressive visual has earned its place.</p>
+      <p style="margin:0;max-width:70ch;font-size:14.5px;line-height:1.7;color:var(--color-neutral-200);text-wrap:pretty">Confetti is the right light mode for Vault, not a separate direction — take its color coding and playfulness and apply them to Vault's structure. Terminal is a power-user setting inside Vault (a density toggle and a compact row), not a product of its own.</p>
+      <div style="border:1px solid var(--color-accent-700);background:var(--color-accent-900);border-radius:var(--radius-md);padding:var(--space-6);display:flex;flex-direction:column;gap:9px">
+        <div style="font-size:11.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--color-accent-200)">The one-line version</div>
+        <div style="font-size:16px;line-height:1.55;color:var(--color-neutral-100);text-wrap:pretty">Ship Vault's structure, Ledger Field's month header, Confetti's light mode, Terminal's density toggle.</div>
+      </div>
+    </section>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:940,&quot;height&quot;:1400}}">
+class Component extends DCLogic {
+  diagnosis = [
+    { tag:'The moat', text:'Coverage and doubt. Sorted can say "I read 84 of 86 messages and I am unsure about three." Design should make that sentence visible, not bury it in a settings screen.' },
+    { tag:'The risk', text:'Looking like a budget tracker. The moment the first screen is a donut chart and a progress bar, the product is competing with apps that have cleaner data.' },
+    { tag:'The constraint', text:'No login, no cloud, local learning. Every screen must work offline, on first run with almost no data, and with no server-side enrichment to fall back on.' },
+    { tag:'The test', text:'Two taps from any number to the transactions behind it. If a direction cannot pass that test on every screen, it is the wrong direction.' },
+  ];
+
+  facetIcons = {
+    'Visual style':'ph ph-square-half',
+    'Typography':'ph ph-text-aa',
+    'Navigation':'ph ph-squares-four',
+    'Home':'ph ph-house',
+    'Insights':'ph ph-chart-donut',
+    'Sort Inbox':'ph ph-tray',
+    'Trust & uncertainty':'ph ph-seal-check',
+    'Motion':'ph ph-waveform',
+  };
+
+  raw = [
+    {
+      num:'A', name:'Vault', accent:'#f2c14e',
+      oneLine:'Calm, dark-first, feed-led',
+      premise:'A pitch-black ledger that behaves like a private document. One month header, one honest feed, nothing decorative. Everything else in the product is reached by tapping a number, never by browsing a dashboard.',
+      swatches:[
+        { label:'#000000', hex:'#000000' }, { label:'#0c0c0e', hex:'#0c0c0e' },
+        { label:'#f7f4ea', hex:'#f7f4ea' }, { label:'#f2c14e', hex:'#f2c14e' },
+        { label:'#7fbf9a', hex:'#7fbf9a' }, { label:'#d98b6a', hex:'#d98b6a' },
+      ],
+      facets:{
+        'Visual style':'True black ground, no cards. Content is separated by hairlines and space, not containers. One accent — amber — used for the total, the active tab and the review badge; never as a fill. Light mode is the same layout on warm paper (#fdf8ee) with the same amber.',
+        'Typography':'One family, two weights. Amount in 44/500 with tabular numerals and tight tracking; merchant names at 16/400; every label at 10–11px in 0.2em uppercase. Numbers always tabular so the feed aligns down the right edge.',
+        'Navigation':'Standard four-tab bar, Capture as a raised amber-tinted square. Sort Inbox is not a tab — it is a persistent row directly under the month header with a count, so review pressure is felt on Home without stealing a tab slot.',
+        'Home':'Month header: kicker "August spend", ₹52,561.88 at 44px, then one line — "68 transactions · ₹63,200 held out · 3 unsure" — where each of the three parts is tappable. Below it the Sort Inbox row, then the feed: day-grouped rows of merchant, category chip, amount, and a faint source glyph (SMS / Gmail / manual). Merchant grouping collapses repeat merchants into one row with a count, expandable in place.',
+        'Insights':'A vertical stack of one-sentence findings, each with the number that proves it and a chevron into the list: "Food is 27% of August — ₹14,230 across 41 transactions." Refund Signals, Recurring Radar and Source Health are the same row shape. No chart above the fold; a single small sparkline only where trend is the point.',
+        'Sort Inbox':'Full-height list of review rows. Each row states the reason in plain words ("Merchant unknown", "Gmail only, high value", "Possible duplicate") and offers two big actions inline — confirm the guess, or correct it. Filters as a scrolling segmented row. Empty state is the reward: "Nothing to sort."',
+        'Trust & uncertainty':'Uncertainty is never a warning colour. Unsure rows carry a hollow amber dot and sit in the feed where they belong, with a tap-to-resolve affordance. Excluded transfers and investments appear in the feed greyed with a struck-through amount, so the user sees what was held out rather than trusting that it was.',
+        'Motion':'Restrained. 180–240ms opacity and 8px translate, no bounce, no parallax. The only expressive moment is the month total counting up once on first open of a new month.',
+      },
+      premium:'Restraint plus alignment. Tabular numerals down one edge, hairlines that fade at their ends, a single accent, and type that never shouts. It reads like a private statement, not an app.',
+      tradeoff:'Least distinctive of the four — it can be mistaken for a well-made generic finance app in a screenshot. The intelligence only shows when you tap. Weakest on-screen personality in light mode.',
+    },
+    {
+      num:'B', name:'Confetti', accent:'#e8622f',
+      oneLine:'Light-first, colour-coded, friendly',
+      premise:'Same information architecture as Vault, opposite temperament. Colour does real work here: every money type owns a hue, so the month is legible at a glance before a word is read. Sorting money should feel less like admin.',
+      swatches:[
+        { label:'#fdf8ee', hex:'#fdf8ee' }, { label:'#e8622f', hex:'#e8622f' },
+        { label:'#0f8f7a', hex:'#0f8f7a' }, { label:'#7a4fd8', hex:'#7a4fd8' },
+        { label:'#1f74c7', hex:'#1f74c7' }, { label:'#221c12', hex:'#221c12' },
+      ],
+      facets:{
+        'Visual style':'Warm off-white ground, generous 22px radii, soft coloured shadows instead of borders. Each money type has a fixed hue used everywhere it appears — spend amber, review orange, categories violet, transfers blue, investments green. Dark mode keeps the hue system at lower saturation on near-black.',
+        'Typography':'Same single family, but larger and looser: amounts at 40/500, body at 16, labels sentence-case rather than uppercase. More line height, fewer all-caps labels, warmer copy voice ("we are not sure about three of these").',
+        'Navigation':'Four tabs with filled icons and visible labels; the active tab gets a coloured pill behind it. Capture is a floating circular button over the feed rather than a tab, so adding a transaction is reachable one-handed from any screen.',
+        'Home':'Month total on a large rounded panel, with a horizontal stacked bar directly under it — one coloured segment per category, tappable segment by segment. Under that, a row of merchant avatars (first letter on the category colour) as a quick jump. Then the feed, in rounded rows with the category hue as a left-edge tick.',
+        'Insights':'The most visual of the four, but every chart is captioned with the sentence it proves and is tappable into the list. Category donut, merchant leaderboard with avatars, Recurring Radar as a monthly calendar strip showing when each subscription hits. Month Story is a short scrollable sequence of coloured panels, one finding each.',
+        'Sort Inbox':'Framed as a small friendly task, not a backlog. Card-per-item with the transaction message quoted verbatim, the guess offered as two big chips, and a progress line ("2 of 3 sorted"). A completion state with a genuine, once-only moment of delight.',
+        'Trust & uncertainty':'Colour-coded honesty: excluded types keep their own hue and a dashed outline so they are visibly not spend. Confidence is shown as a short filled bar on the row rather than a percentage. Plain-language reasons everywhere.',
+        'Motion':'Springy but short. 260ms cubic-bezier overshoot on expansion, chips that scale on press, coloured segments that grow from zero on first paint. Light mode bounces; dark mode runs the same transitions with the overshoot removed.',
+      },
+      premium:'Confidence of colour. A coherent hue system applied without exception looks designed rather than decorated, and the generous type makes it feel calm despite being colourful.',
+      tradeoff:'Colour carries meaning, which is an accessibility liability and a localisation constraint. Risks reading as consumer-cheerful to the analytically-minded user who cares most about correctness. Dark mode becomes a derivative rather than a peer.',
+    },
+    {
+      num:'C', name:'Terminal', accent:'#9184d9',
+      oneLine:'Dense, fast, power-user',
+      premise:'Built for the user who has 900 transactions and wants all of them. Maximum rows per screen, keyboard-grade interactions, bulk correction, and a table you can actually scan. No illustration anywhere.',
+      swatches:[
+        { label:'#0e0f13', hex:'#0e0f13' }, { label:'#171922', hex:'#171922' },
+        { label:'#e9e9ed', hex:'#e9e9ed' }, { label:'#9184d9', hex:'#9184d9' },
+        { label:'#6f8fb0', hex:'#6f8fb0' }, { label:'#c98a94', hex:'#c98a94' },
+      ],
+      facets:{
+        'Visual style':'Cool near-black, 4px radii, 1px rules everywhere, 32px row height. Deliberately utilitarian — the aesthetic comes from precision and alignment rather than softness. Light mode is a high-contrast grey-on-white data view.',
+        'Typography':'13–14px body, 11px labels, a tabular numeric face for every figure. Hierarchy comes from weight and rule placement, not size; the largest type on the screen is the month total at 28px.',
+        'Navigation':'Tab bar compressed to 44px with icon-only tabs. A persistent filter/search bar pinned under the header on every list screen. Long-press enters multi-select on any list, which is how bulk correction is reached.',
+        'Home':'Compact summary strip — spend, held out, unsure, coverage — four figures in one row, each tappable. Under it, the feed as a true table: date, merchant, category, source, amount, in fixed columns with sticky day headers. Sort and group controls in the header (by date, merchant, category, amount). Density toggle offers comfortable and compact.',
+        'Insights':'A single sortable table of merchants and categories with columns for total, count, share, and month-over-month delta, plus a sparkline column. Findings appear as a collapsed one-line summary above the table for those who want the sentence instead. Rule Center lives here as an editable list of learned rules with hit counts.',
+        'Sort Inbox':'The strongest screen in this direction: a triage queue with the reason as a column, multi-select, bulk apply, and "apply to all future from this merchant" as a checkbox on every correction. Keyboard-like shortcuts via a persistent action bar at the bottom of the selection.',
+        'Trust & uncertainty':'Quantified. Confidence shown as a numeric score, coverage as a parsed-versus-skipped ratio, and every excluded transaction listed with its exclusion reason as a filterable column. Nothing is softened.',
+        'Motion':'Almost none by design — 120ms state changes, no expansion animation, instant list updates. Speed is the feeling.',
+      },
+      premium:'Precision. Perfect column alignment, real tabular numerals, instant response and no wasted pixel reads as professional tooling rather than a consumer app.',
+      tradeoff:'Intimidating on first run and hostile to the casual user, who is most of the market. Empty states look broken. Almost no emotional pull in a store screenshot, and it fights the brief\u2019s "calm and premium" instinct.',
+    },
+    {
+      num:'D', name:'Ledger Field', accent:'#ffd977',
+      oneLine:'Spatial, explanatory, distinctive',
+      premise:'The month as one explainable number surrounded by the signals that explain it. Position carries meaning: things inside spend sit close, things held out sit outside a visible boundary, things needing review glow. The feed still exists — it is one tap away, behind any signal.',
+      swatches:[
+        { label:'#000000', hex:'#000000' }, { label:'#f2c14e', hex:'#f2c14e' },
+        { label:'#ffd977', hex:'#ffd977' }, { label:'#f7f4ea', hex:'#f7f4ea' },
+        { label:'#e7dcc0', hex:'#e7dcc0' }, { label:'#9a9284', hex:'#9a9284' },
+      ],
+      facets:{
+        'Visual style':'Pitch black with a soft particle field and faint connecting lines behind the number — an intelligence field, not an object. Data sits on it as small low-opacity capsules with thin borders. Light mode keeps the structure and swaps the field to coloured confetti on warm paper.',
+        'Typography':'The total is the only large type on the screen: 44/500, tight tracking, tabular. Everything else is 11–12px capsule text. Extreme hierarchy is the point — one number, then annotations.',
+        'Navigation':'Four tabs, unchanged, so the spatial home does not cost navigability. Sort Inbox is the brightest capsule in the field and also a row on Insights, so it is reachable both emotionally and conventionally.',
+        'Home':'Month total at the top third. Around it, five capsules tethered by hairlines to nodes in the field: Swiggy · ₹6,200, Food · 27%, To review · 3, and — outside the dashed boundary — Money moved · ₹38,200 and Invested · ₹25,000. A calm source pill sits at the floor. Tapping the number opens Why This Number; tapping a capsule expands it into a full sheet listing the transactions behind it while the rest of the field dims.',
+        'Insights':'Where this direction earns its keep. Month Story becomes a guided pass through the same field — the view moves from node to node, each stop stating one finding with its list attached. Merchant and category intelligence are the same expand-in-place capsules, ranked.',
+        'Sort Inbox':'Opens from the glowing capsule as a full sheet. Same triage rows as Vault, but resolving an item animates the field re-settling — the total updates and the node dims out, so correction visibly changes the month.',
+        'Trust & uncertainty':'Structural rather than labelled. Held-out money is literally outside a dashed boundary; unsure items pulse; source health is a pill at the floor holding up everything above it. The spatial rules do the explaining before any text is read.',
+        'Motion':'The signature. The number lands first, the field forms around it, the capsules fade in last. On selection the particles gather and recolour toward the active signal. Dark mode drifts slowly; light mode drifts faster with a slight rotation.',
+      },
+      premium:'Nothing else in the category looks like it, and the motion reads as the product thinking. The extreme type hierarchy — one number, quiet annotations — is inherently expensive-looking.',
+      tradeoff:'Highest risk. Needs real history to read as intelligence, so first-run and low-data months look sparse. Capsules are harder to make reliably tappable than rows, it does not scale past six or seven signals, and it does not answer "show me every transaction" without falling back to a conventional list.',
+    },
+  ];
+
+  renderVals() {
+    const directions = this.raw.map(d => ({
+      ...d,
+      numStyle: {
+        width:'44px', height:'44px', flexShrink:0, borderRadius:'var(--radius-md)',
+        display:'flex', alignItems:'center', justifyContent:'center',
+        fontFamily:'var(--font-heading)', fontSize:'19px', fontWeight:500, letterSpacing:'0.02em',
+        color: d.accent,
+        background:`color-mix(in srgb, ${d.accent} 12%, transparent)`,
+        border:`1px solid color-mix(in srgb, ${d.accent} 38%, transparent)`,
+      },
+      swatches: d.swatches.map(s => ({
+        label: s.label,
+        wrapStyle: {
+          display:'flex', alignItems:'center', gap:'7px', padding:'5px 10px 5px 7px',
+          border:'1px solid var(--color-neutral-700)', borderRadius:'999px',
+          background:'var(--color-neutral-900)',
+        },
+        chipStyle: {
+          width:'13px', height:'13px', borderRadius:'4px', background:s.hex,
+          border:'1px solid var(--color-neutral-600)', display:'inline-block', flexShrink:0,
+        },
+      })),
+      facets: Object.keys(d.facets).map(k => ({
+        label: k, text: d.facets[k], icon: this.facetIcons[k] || 'ph ph-circle',
+      })),
+    }));
+    return { diagnosis: this.diagnosis, directions };
+  }
+}
+</script>
+</body>
+</html>
