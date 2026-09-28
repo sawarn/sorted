@@ -61,6 +61,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -1136,16 +1137,16 @@ private fun SortedTheme(
         )
     } else {
         lightColorScheme(
-            background = Color(0xFFFFFAFE),
-            surface = Color(0xFFFFFFFF),
-            surfaceVariant = Color(0xFFEAF4FF),
-            primary = Color(0xFFFF3F86),
-            secondary = Color(0xFF00AEEF),
-            tertiary = Color(0xFF7C4DFF),
-            onBackground = Color(0xFF151018),
-            onSurface = Color(0xFF151018),
-            onSurfaceVariant = Color(0xFF665A68),
-            onPrimary = Color(0xFFFFFFFF)
+            background = Color(0xFFE8DFCB),
+            surface = Color(0xFFFFFDF6),
+            surfaceVariant = Color(0xFFE6DDC7),
+            primary = Color(0xFFA86A06),
+            secondary = Color(0xFF4F5C4F),
+            tertiary = Color(0xFFB4501A),
+            onBackground = Color(0xFF2A2419),
+            onSurface = Color(0xFF2A2419),
+            onSurfaceVariant = Color(0xFF6D614F),
+            onPrimary = Color(0xFFFFFDF6)
         )
     }
     val activity = LocalContext.current.findComponentActivity()
@@ -2030,13 +2031,14 @@ private fun SortedHome(
     }
 
     selected?.let { transaction ->
+        val sheetPalette = tapePalette()
         ModalBottomSheet(
             onDismissRequest = {
                 correctionSaveState = CorrectionSaveState()
                 selected = null
             },
-            containerColor = MaterialTheme.colorScheme.surface,
-            shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)
+            containerColor = sheetPalette.tape,
+            shape = RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp)
         ) {
             TransactionDetail(
                 transaction = transaction,
@@ -2995,6 +2997,286 @@ private fun EmptyTapeState(
             fontSize = 9.sp,
             letterSpacing = 1.sp
         )
+    }
+}
+
+@Composable
+private fun TapeBackDeskBar(
+    title: String,
+    meta: String,
+    palette: TapePalette,
+    onBack: (() -> Unit)? = null,
+    onSettings: (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(palette.desk)
+            .padding(start = 12.dp, end = 10.dp, top = 13.dp, bottom = 11.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (onBack != null) {
+            Text(
+                text = "<",
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable(onClick = onBack)
+                    .padding(top = 4.dp),
+                color = palette.amber,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.width(7.dp))
+        }
+        Text(
+            text = title.uppercase(Locale.US),
+            color = palette.inkSoft,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 3.sp,
+            maxLines = 1
+        )
+        Text(
+            text = " - ${meta.uppercase(Locale.US)}",
+            modifier = Modifier.weight(1f),
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            letterSpacing = 1.4.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (onSettings != null) {
+            IconButton(onClick = onSettings, modifier = Modifier.size(36.dp)) {
+                SettingsGlyph(
+                    color = palette.inkFaint,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TapeRoute(
+    title: String,
+    meta: String,
+    onBack: (() -> Unit)? = null,
+    onSettings: (() -> Unit)? = null,
+    content: androidx.compose.foundation.lazy.LazyListScope.(TapePalette) -> Unit
+) {
+    val palette = tapePalette()
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(palette.desk)
+    ) {
+        TapeBackDeskBar(
+            title = title,
+            meta = meta,
+            palette = palette,
+            onBack = onBack,
+            onSettings = onSettings
+        )
+        TapePaper(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(horizontal = 14.dp),
+            palette = palette
+        ) {
+            content(palette)
+            item { Spacer(modifier = Modifier.height(92.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun TapeLedgerBlock(
+    heading: String,
+    meta: String,
+    palette: TapePalette,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 9.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp, bottom = 7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(18.dp)
+                    .height(1.dp)
+                    .background(palette.rule)
+            )
+            Text(
+                text = " ${heading.uppercase(Locale.US)}",
+                modifier = Modifier.weight(1f),
+                color = palette.ink,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 2.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = meta.uppercase(Locale.US),
+                color = palette.inkFaint,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 8.sp,
+                letterSpacing = 1.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        content()
+    }
+}
+
+@Composable
+private fun TapeActionText(
+    label: String,
+    palette: TapePalette,
+    color: Color = palette.amber,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Text(
+        text = label.uppercase(Locale.US),
+        modifier = modifier
+            .border(1.dp, if (enabled) color else palette.rule, RoundedCornerShape(2.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        color = if (enabled) color else palette.inkFaint,
+        fontFamily = SortedTapeFontFamily,
+        fontSize = 9.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 1.sp,
+        textAlign = TextAlign.Center,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+}
+
+@Composable
+private fun TapeFilterRail(
+    title: String,
+    choices: List<String>,
+    selected: String,
+    palette: TapePalette,
+    onSelected: (String) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = title.uppercase(Locale.US),
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 8.sp,
+            letterSpacing = 1.5.sp,
+            maxLines = 1
+        )
+        Spacer(modifier = Modifier.height(7.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(choices) { choice ->
+                AddStamp(
+                    text = choice.uppercase(Locale.US),
+                    selected = choice == selected,
+                    palette = palette,
+                    color = palette.amber,
+                    onClick = { onSelected(choice) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TapeInlineLine(
+    transaction: TransactionUi,
+    palette: TapePalette,
+    reason: String? = null,
+    onClick: () -> Unit
+) {
+    val value = transaction.inrAmountValue ?: transaction.amountValue
+    val style = transaction.tapeLineStyle(palette)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .drawBehind {
+                val y = size.height - 1.dp.toPx()
+                drawLine(
+                    color = palette.ruleFaint,
+                    start = Offset(0f, y),
+                    end = Offset(size.width, y),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+            .padding(vertical = 8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = style.glyph,
+                modifier = Modifier.width(14.dp),
+                color = style.accent,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 10.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 1
+            )
+            Text(
+                text = transaction.merchant.uppercase(Locale.US),
+                modifier = Modifier.weight(1f),
+                color = style.ink,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.8.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = if (transaction.direction == DirectionUi.Credit) "+${value.formatRupee()}" else value.formatRupee(),
+                color = style.ink,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                textDecoration = style.textDecoration
+            )
+        }
+        Row(
+            modifier = Modifier.padding(start = 14.dp, top = 5.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TapeStamp(style.stamp, palette, style.accent, style.filledStamp)
+            Spacer(modifier = Modifier.width(6.dp))
+            TapeStamp(transaction.source.uppercase(Locale.US), palette, palette.inkFaint)
+            Spacer(modifier = Modifier.width(7.dp))
+            Text(
+                text = (reason ?: style.note).uppercase(Locale.US),
+                modifier = Modifier.weight(1f),
+                color = if (reason != null) palette.query else palette.inkFaint,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 8.sp,
+                letterSpacing = 0.7.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -4092,47 +4374,41 @@ private fun SpendExplanationScreen(
     val reviewTransactions = remember(feedState.transactions) { feedState.transactions.reviewCandidates() }
     val sourceRows = remember(feedState.transactions) { feedState.transactions.sourceHealthRows() }
 
-    Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
+    TapeRoute(
+        title = "WHY",
+        meta = breakdown.monthKey?.monthStampLabel() ?: "CURRENT TAPE",
+        onBack = onBack
+    ) { palette ->
+        item {
+            SpendExplanationHero(
+                breakdown = breakdown,
+                feedLabel = feedState.label,
+                reviewTransactions = reviewTransactions,
+                palette = palette,
+                onOpenReview = onOpenReview
+            )
+        }
+        items(
+            buckets.filter { it.count > 0 || it.title == "Included spend" },
+            key = { it.title }
+        ) { bucket ->
+            ExplainBucketCard(
+                bucket = bucket,
+                palette = palette,
+                onTransactionClick = onTransactionClick
+            )
+        }
+        item {
+            SourceHealthMiniCard(sourceRows = sourceRows, palette = palette)
+        }
+        if (reviewTransactions.isNotEmpty()) {
             item {
-                Header(
-                    title = "Why this number",
-                    onSettings = {},
-                    onBack = onBack,
-                    showActions = false
+                ReviewQueueCard(
+                    transactions = reviewTransactions,
+                    palette = palette,
+                    onTransactionClick = onTransactionClick,
+                    onOpenInbox = onOpenReview
                 )
-            }
-            item {
-                SpendExplanationHero(breakdown = breakdown, feedLabel = feedState.label)
-            }
-            items(
-                buckets.filter { it.count > 0 || it.title == "Included spend" },
-                key = { it.title }
-            ) { bucket ->
-                ExplainBucketCard(
-                    bucket = bucket,
-                    onTransactionClick = onTransactionClick
-                )
-            }
-            item {
-                SourceHealthMiniCard(sourceRows = sourceRows)
-            }
-            if (reviewTransactions.isNotEmpty()) {
-                item {
-                    ReviewQueueCard(
-                        transactions = reviewTransactions,
-                        onTransactionClick = onTransactionClick,
-                        onOpenInbox = onOpenReview
-                    )
-                }
-            }
-            item {
-                Spacer(modifier = Modifier.height(80.dp))
             }
         }
     }
@@ -4141,66 +4417,61 @@ private fun SpendExplanationScreen(
 @Composable
 private fun SpendExplanationHero(
     breakdown: MonthBreakdown,
-    feedLabel: String
+    feedLabel: String,
+    reviewTransactions: List<TransactionUi>,
+    palette: TapePalette,
+    onOpenReview: () -> Unit
 ) {
-    Surface(
+    val heldOut = (breakdown.totalDebits - breakdown.spends).coerceAtLeast(0.0)
+    val reviewAmount = reviewTransactions.sumOf { it.inrAmountValue ?: 0.0 }
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .animateContentSize(
-                animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
-            ),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .border(1.dp, palette.rule)
+            .animateContentSize(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing))
+            .padding(horizontal = 12.dp, vertical = 12.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = breakdown.monthKey?.monthSpendLabel() ?: "Current spend",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 0.sp
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = breakdown.spends.formatInr(),
-                color = MaterialTheme.colorScheme.primary,
-                fontSize = 31.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                letterSpacing = 0.sp
-            )
-            Spacer(modifier = Modifier.height(14.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                MiniMetric(
-                    label = "Included",
-                    value = "${breakdown.spendCount} spends",
-                    modifier = Modifier.weight(1f)
-                )
-                MiniMetric(
-                    label = "Source",
-                    value = feedLabel,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                MiniMetric(
-                    label = "Total outflow",
-                    value = breakdown.totalDebits.formatInr(),
-                    modifier = Modifier.weight(1f)
-                )
-                MiniMetric(
-                    label = "Excluded",
-                    value = (breakdown.transfers + breakdown.investments).formatInr(),
-                    modifier = Modifier.weight(1f)
+        Text(
+            text = "MONTH SPEND CLOSE-OUT",
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            letterSpacing = 1.7.sp,
+            maxLines = 1
+        )
+        Text(
+            text = breakdown.spends.formatRupee(),
+            modifier = Modifier.padding(top = 8.dp),
+            color = palette.ink,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 32.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        TapeDoubleRule(palette = palette)
+        TapeSummationRow("${breakdown.spendCount} LINES INCLUDED", breakdown.spends.formatRupee(), palette)
+        TapeSummationRow("${breakdown.debitCount - breakdown.spendCount} LINES HELD OUT", "(${heldOut.formatRupee()})", palette)
+        TapeSummationRow("TOTAL DEBIT MOVEMENT", breakdown.totalDebits.formatRupee(), palette)
+        TapeSummationRow("${reviewTransactions.size} LINES UNSTAMPED", reviewAmount.formatRupee(), palette, palette.query)
+        if (breakdown.refunds > 0.0 || breakdown.rewards > 0.0) {
+            TapeSummationRow("REFUND / REWARD SIGNALS", "NOT SUBTRACTED", palette, palette.credit)
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TapeStamp(feedLabel.uppercase(Locale.US).take(18), palette, palette.inkFaint)
+            Spacer(modifier = Modifier.weight(1f))
+            if (reviewTransactions.isNotEmpty()) {
+                TapeActionText(
+                    label = "OPEN QUERIES",
+                    palette = palette,
+                    color = palette.query,
+                    onClick = onOpenReview
                 )
             }
         }
@@ -4210,74 +4481,38 @@ private fun SpendExplanationHero(
 @Composable
 private fun ExplainBucketCard(
     bucket: ExplainBucket,
+    palette: TapePalette,
     onTransactionClick: (TransactionUi) -> Unit
 ) {
     val previewRows = bucket.transactions
         .sortedByDescending { it.inrAmountValue ?: 0.0 }
         .take(5)
 
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
+    TapeLedgerBlock(
+        heading = bucket.title,
+        meta = "${bucket.count} LINES",
+        palette = palette
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = bucket.title,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 0.sp
-                    )
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Text(
-                        text = bucket.description,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        letterSpacing = 0.sp
-                    )
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = bucket.amount.formatInr(),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        letterSpacing = 0.sp
-                    )
-                    Text(
-                        text = "${bucket.count} rows",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                        letterSpacing = 0.sp
-                    )
-                }
-            }
-            if (previewRows.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(10.dp))
-                previewRows.forEachIndexed { index, transaction ->
-                    RecentInlineTransactionRow(
-                        transaction = transaction,
-                        onClick = { onTransactionClick(transaction) }
-                    )
-                    if (index != previewRows.lastIndex) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(1.dp)
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                        )
-                    }
-                }
-            }
+        TapeSummationRow("BUCKET TOTAL", bucket.amount.formatRupee(), palette)
+        Text(
+            text = bucket.description.uppercase(Locale.US),
+            modifier = Modifier.padding(top = 3.dp, bottom = 6.dp),
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 8.sp,
+            letterSpacing = 0.8.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        previewRows.forEach { transaction ->
+            TapeInlineLine(
+                transaction = transaction,
+                palette = palette,
+                onClick = { onTransactionClick(transaction) }
+            )
+        }
+        if (previewRows.isNotEmpty()) {
+            IndexBlockFoot("PREVIEW SUBTOTAL", previewRows.sumOf { it.inrAmountValue ?: 0.0 }.formatRupee(), palette)
         }
     }
 }
@@ -4306,74 +4541,68 @@ private fun SortInboxScreen(
     }
     val total = filteredTransactions.sumOf { it.inrAmountValue ?: 0.0 }
 
-    Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            item {
-                Header(
-                    title = "Sort Inbox",
-                    onSettings = {},
-                    onBack = onBack,
-                    showActions = false
+    TapeRoute(
+        title = "QUERY",
+        meta = "${filteredTransactions.size} LINES NEED A STAMP",
+        onBack = onBack
+    ) { palette ->
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .border(1.dp, palette.query)
+                    .padding(horizontal = 12.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    text = "SORT INBOX",
+                    color = palette.inkFaint,
+                    fontFamily = SortedTapeFontFamily,
+                    fontSize = 9.sp,
+                    letterSpacing = 1.7.sp,
+                    maxLines = 1
+                )
+                Text(
+                    text = total.formatRupee(),
+                    modifier = Modifier.padding(top = 8.dp),
+                    color = palette.query,
+                    fontFamily = SortedTapeFontFamily,
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                TapeDoubleRule(palette = palette)
+                TapeSummationRow("${filteredTransactions.size} QUERY LINES", total.formatRupee(), palette, palette.query)
+                TapeSummationRow("SOURCE", feedState.label.uppercase(Locale.US), palette)
+                Spacer(modifier = Modifier.height(10.dp))
+                TapeFilterRail(
+                    title = "STAMP FILTER",
+                    choices = filters.map { it.label },
+                    selected = selectedFilter,
+                    palette = palette,
+                    onSelected = { selectedFilter = it }
                 )
             }
+        }
+        if (filteredTransactions.isEmpty()) {
             item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    shape = RoundedCornerShape(8.dp)
+                TapeLedgerBlock(
+                    heading = "Nothing to stamp",
+                    meta = "clear",
+                    palette = palette
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "${filteredTransactions.size} review rows",
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 21.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            letterSpacing = 0.sp
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = total.formatInr(),
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            letterSpacing = 0.sp
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        ChoiceRail(
-                            title = "Filter",
-                            choices = filters.map { it.label },
-                            selected = selectedFilter,
-                            onSelected = { selectedFilter = it }
-                        )
-                    }
+                    IndexEmptyLine("CURRENT MONTH LINES LOOK SORTED", palette)
                 }
             }
-            if (filteredTransactions.isEmpty()) {
-                item {
-                    EmptyStateCard(
-                        title = "Nothing to review",
-                        detail = "Current month transactions look sorted."
-                    )
-                }
-            } else {
-                items(filteredTransactions, key = { it.sourceHash }) { transaction ->
-                    ReviewCandidateRow(
-                        transaction = transaction,
-                        reason = transaction.reviewReason(),
-                        onClick = { onTransactionClick(transaction) }
-                    )
-                }
-            }
-            item {
-                Spacer(modifier = Modifier.height(80.dp))
+        } else {
+            items(filteredTransactions, key = { it.sourceHash }) { transaction ->
+                TapeInlineLine(
+                    transaction = transaction,
+                    palette = palette,
+                    reason = transaction.reviewReason(),
+                    onClick = { onTransactionClick(transaction) }
+                )
             }
         }
     }
@@ -4620,70 +4849,44 @@ private fun RecurringCandidateRow(candidate: RecurringCandidate) {
 @Composable
 private fun ReviewQueueCard(
     transactions: List<TransactionUi>,
+    palette: TapePalette,
     onTransactionClick: (TransactionUi) -> Unit,
     onOpenInbox: () -> Unit
 ) {
     val previewRows = transactions.take(6)
     val total = transactions.sumOf { it.inrAmountValue ?: 0.0 }
 
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
+    TapeLedgerBlock(
+        heading = "Unstamped lines",
+        meta = "${transactions.size} queries",
+        palette = palette
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Unsorted",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 0.sp
-                    )
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Text(
-                        text = total.formatInr(),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        letterSpacing = 0.sp
-                    )
-                }
-                Text(
-                    text = "${transactions.size} rows",
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.sp
+        TapeSummationRow("QUERY TOTAL", total.formatRupee(), palette, palette.query)
+        if (previewRows.isEmpty()) {
+            IndexEmptyLine("NO REVIEW ITEMS", palette)
+        } else {
+            previewRows.forEach { transaction ->
+                TapeInlineLine(
+                    transaction = transaction,
+                    palette = palette,
+                    reason = transaction.reviewReason(),
+                    onClick = { onTransactionClick(transaction) }
                 )
             }
-            Spacer(modifier = Modifier.height(12.dp))
-            if (previewRows.isEmpty()) {
-                Text(
-                    text = "No review items",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp,
-                    letterSpacing = 0.sp
+        }
+        if (transactions.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TapeActionText(
+                    label = "Open Sort Inbox",
+                    palette = palette,
+                    color = palette.query,
+                    onClick = onOpenInbox
                 )
-            } else {
-                previewRows.forEachIndexed { index, transaction ->
-                    ReviewCandidateRow(
-                        transaction = transaction,
-                        onClick = { onTransactionClick(transaction) }
-                    )
-                    if (index != previewRows.lastIndex) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-                }
-            }
-            if (transactions.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(10.dp))
-                TextButton(onClick = onOpenInbox) {
-                    Text("Open Sort Inbox")
-                }
             }
         }
     }
@@ -5230,22 +5433,34 @@ private fun CaptureTabContent(
     onSettings: () -> Unit,
     onSave: (ManualTransactionDraft) -> Unit
 ) {
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+    val palette = tapePalette()
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(palette.desk)
     ) {
-        item {
-            Header(title = "Capture", onSettings = onSettings)
-        }
-        item {
-            ManualAddCard(
-                feedState = feedState,
-                saveState = saveState,
-                onSave = onSave
-            )
-        }
-        item {
-            Spacer(modifier = Modifier.height(104.dp))
+        AddDeskBar(
+            palette = palette,
+            onSettings = onSettings
+        )
+        TapePaper(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(horizontal = 14.dp),
+            palette = palette
+        ) {
+            item {
+                ManualAddCard(
+                    feedState = feedState,
+                    saveState = saveState,
+                    onSave = onSave,
+                    palette = palette
+                )
+            }
+            item {
+                Spacer(modifier = Modifier.height(104.dp))
+            }
         }
     }
 }
@@ -5254,17 +5469,27 @@ private fun CaptureTabContent(
 private fun ManualAddCard(
     feedState: FeedState,
     saveState: ManualSaveState,
-    onSave: (ManualTransactionDraft) -> Unit
+    onSave: (ManualTransactionDraft) -> Unit,
+    palette: TapePalette
 ) {
     var merchant by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(LocalDate.now().toString()) }
-    var category by remember { mutableStateOf("Food") }
+    var category by remember { mutableStateOf("Other") }
     var miscCategory by remember { mutableStateOf("Manual") }
     var paymentMode by remember { mutableStateOf(PaymentMode.UPI) }
     var transactionType by remember { mutableStateOf(TransactionType.EXPENSE) }
     var direction by remember { mutableStateOf(Direction.DEBIT) }
     var validationError by remember { mutableStateOf<String?>(null) }
+    var showPreview by remember { mutableStateOf(false) }
+    var printedAck by remember { mutableStateOf(false) }
+
+    LaunchedEffect(saveState.message) {
+        if (saveState.message != null) {
+            printedAck = true
+            showPreview = false
+        }
+    }
 
     val categories = listOf(
         "Food",
@@ -5305,198 +5530,747 @@ private fun ManualAddCard(
             .distinctBy { it.merchant.uppercase(Locale.US) }
             .take(10)
     }
-
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
+    val parsedAmount = amount.toDoubleOrNull()
+    val isHeldOut = transactionType != TransactionType.EXPENSE &&
+        transactionType != TransactionType.SUBSCRIPTION
+    val spendDelta = if (
+        parsedAmount != null &&
+        parsedAmount > 0.0 &&
+        direction == Direction.DEBIT &&
+        transactionType.countsAsSpend()
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = "Add transaction",
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.sp
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            if (recentMerchants.isNotEmpty()) {
-                ChoiceRail(
-                    title = "Recent merchants",
-                    choices = recentMerchants.map { it.merchant },
-                    selected = merchant,
-                    onSelected = { selectedMerchant ->
-                        val template = recentMerchants.firstOrNull { it.merchant == selectedMerchant }
-                        merchant = selectedMerchant
-                        if (template != null) {
-                            category = template.category
-                            miscCategory = template.miscCategory
-                            paymentMode = PaymentMode.entries.firstOrNull {
-                                it.displayName() == template.paymentMode
-                            } ?: paymentMode
-                            transactionType = template.transactionType
-                            direction = if (template.direction == DirectionUi.Credit) Direction.CREDIT else Direction.DEBIT
-                        }
-                    }
-                )
-                Spacer(modifier = Modifier.height(12.dp))
+        parsedAmount
+    } else {
+        0.0
+    }
+    val breakdown = remember(feedState.transactions) { feedState.transactions.monthBreakdown() }
+    val afterSpend = breakdown.spends + spendDelta
+    val afterLines = breakdown.spendCount + if (spendDelta > 0.0) 1 else 0
+    val selectedTypeLabel = when (transactionType) {
+        TransactionType.EXPENSE -> "SPEND"
+        TransactionType.SUBSCRIPTION -> "SPEND"
+        TransactionType.TRANSFER -> "MOVED"
+        TransactionType.INVESTMENT -> "INVESTED"
+        TransactionType.INCOME -> "INCOME"
+        TransactionType.REFUND -> "REFUND"
+        TransactionType.REWARD -> "REWARD"
+        TransactionType.UNKNOWN -> "SPEND"
+    }
+    val canPreview = parsedAmount != null && parsedAmount > 0.0 && !saveState.isSaving
+
+    fun applyType(label: String) {
+        when (label) {
+            "SPEND" -> {
+                transactionType = TransactionType.EXPENSE
+                direction = Direction.DEBIT
+                if (category in listOf("Investment", "Transfer", "Income", "Refund", "Reward")) category = "Other"
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SelectableChip(
-                    label = "Debit",
-                    selected = direction == Direction.DEBIT,
-                    modifier = Modifier.weight(1f),
-                    onClick = { direction = Direction.DEBIT }
-                )
-                SelectableChip(
-                    label = "Credit",
-                    selected = direction == Direction.CREDIT,
-                    modifier = Modifier.weight(1f),
-                    onClick = { direction = Direction.CREDIT }
-                )
+            "MOVED" -> {
+                transactionType = TransactionType.TRANSFER
+                direction = Direction.DEBIT
+                category = "Transfer"
             }
-            Spacer(modifier = Modifier.height(12.dp))
-            OutlinedTextField(
-                value = amount,
-                onValueChange = { value ->
-                    amount = value.filter { it.isDigit() || it == '.' }.take(12)
-                },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Amount") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            OutlinedTextField(
-                value = merchant,
-                onValueChange = { merchant = it.take(48) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Merchant") },
-                singleLine = true
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            OutlinedTextField(
-                value = date,
-                onValueChange = { date = it.take(10) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Date") },
-                singleLine = true
-            )
-            Spacer(modifier = Modifier.height(14.dp))
-            ChoiceRail(
-                title = "Category",
-                choices = categories,
-                selected = category,
-                onSelected = { selected ->
-                    category = selected
-                    if (selected == "Investment") transactionType = TransactionType.INVESTMENT
-                    if (selected == "Transfer") transactionType = TransactionType.TRANSFER
-                }
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            ChoiceRail(
-                title = "Type",
-                choices = transactionTypes.map { it.displayName() },
-                selected = transactionType.displayName(),
-                onSelected = { selected ->
-                    transactionType = transactionTypes.first { it.displayName() == selected }
-                    category = when (transactionType) {
-                        TransactionType.INVESTMENT -> "Investment"
-                        TransactionType.TRANSFER -> "Transfer"
-                        TransactionType.INCOME -> "Income"
-                        TransactionType.REFUND -> "Refund"
-                        TransactionType.REWARD -> "Reward"
-                        else -> category
-                    }
-                }
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            ChoiceRail(
-                title = "Payment",
-                choices = paymentModes.map { it.displayName() },
-                selected = paymentMode.displayName(),
-                onSelected = { selected ->
-                    paymentMode = paymentModes.first { it.displayName() == selected }
-                }
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            OutlinedTextField(
-                value = miscCategory,
-                onValueChange = { miscCategory = it.take(36) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Merchant tag") },
-                singleLine = true
-            )
-            val statusText = validationError ?: saveState.error ?: saveState.message
-            if (statusText != null) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = statusText,
-                    color = if (validationError == null && saveState.error == null) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        Color(0xFFFF8E8E)
-                    },
-                    fontSize = 13.sp,
-                    letterSpacing = 0.sp
-                )
+            "INVESTED" -> {
+                transactionType = TransactionType.INVESTMENT
+                direction = Direction.DEBIT
+                category = "Investment"
             }
-            Spacer(modifier = Modifier.height(16.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextButton(
-                    modifier = Modifier.weight(1f),
-                    onClick = {
-                        amount = ""
-                        merchant = ""
-                        date = LocalDate.now().toString()
-                        category = "Food"
-                        miscCategory = "Manual"
-                        paymentMode = PaymentMode.UPI
-                        transactionType = TransactionType.EXPENSE
-                        direction = Direction.DEBIT
-                        validationError = null
-                    }
-                ) {
-                    Text("Clear")
-                }
-                Button(
-                    modifier = Modifier.weight(1f),
-                    enabled = !saveState.isSaving,
-                    onClick = {
-                        val parsedAmount = amount.toDoubleOrNull()
-                        validationError = when {
-                            parsedAmount == null || parsedAmount <= 0.0 -> "Enter a valid amount."
-                            merchant.isBlank() -> "Enter a merchant."
-                            date.toLocalDateOrNull() == null -> "Use date as YYYY-MM-DD."
-                            else -> null
-                        }
-                        if (validationError == null && parsedAmount != null) {
-                            onSave(
-                                ManualTransactionDraft(
-                                    merchant = merchant.trim(),
-                                    amount = parsedAmount,
-                                    date = date,
-                                    category = category,
-                                    miscCategory = miscCategory.ifBlank { "Manual" },
-                                    paymentMode = paymentMode,
-                                    transactionType = transactionType,
-                                    direction = direction
-                                )
-                            )
-                        }
-                    }
-                ) {
-                    Text(if (saveState.isSaving) "Saving" else "Save")
-                }
+            "REFUND" -> {
+                transactionType = TransactionType.REFUND
+                direction = Direction.CREDIT
+                category = "Refund"
+            }
+            "INCOME" -> {
+                transactionType = TransactionType.INCOME
+                direction = Direction.CREDIT
+                category = "Income"
+            }
+            "REWARD" -> {
+                transactionType = TransactionType.REWARD
+                direction = Direction.CREDIT
+                category = "Reward"
             }
         }
     }
+
+    fun resetLine() {
+        amount = ""
+        merchant = ""
+        date = LocalDate.now().toString()
+        category = "Other"
+        miscCategory = "Manual"
+        paymentMode = PaymentMode.UPI
+        transactionType = TransactionType.EXPENSE
+        direction = Direction.DEBIT
+        validationError = null
+        showPreview = false
+        printedAck = false
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Text(
+            text = if (printedAck) "PRINTED" else if (showPreview) "THIS WILL PRINT AS" else "PRINT A LINE",
+            color = palette.inkSoft,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 2.4.sp,
+            maxLines = 1
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        AddAmountBlock(
+            amount = amount,
+            palette = palette,
+            onAmountChange = {
+                amount = it.filter { char -> char.isDigit() || char == '.' }.take(12)
+                printedAck = false
+            }
+        )
+        TapeDoubleRule(palette = palette)
+        AddInputLine(
+            label = "MERCHANT",
+            value = merchant,
+            placeholder = "---",
+            palette = palette,
+            onValueChange = {
+                merchant = it.take(48)
+                printedAck = false
+            }
+        )
+        if (recentMerchants.isNotEmpty()) {
+            AddStampRail(
+                stamps = recentMerchants.take(4).map { it.merchant.uppercase(Locale.US).take(14) },
+                selected = merchant.uppercase(Locale.US),
+                palette = palette,
+                selectedColor = palette.amber,
+                onSelected = { selected ->
+                    val template = recentMerchants.firstOrNull {
+                        it.merchant.equals(selected, ignoreCase = true) ||
+                            it.merchant.uppercase(Locale.US).take(14) == selected
+                    }
+                    if (template != null) {
+                        merchant = template.merchant
+                        category = template.category
+                        miscCategory = template.miscCategory
+                        paymentMode = PaymentMode.entries.firstOrNull {
+                            it.displayName() == template.paymentMode
+                        } ?: paymentMode
+                        transactionType = template.transactionType
+                        direction = if (template.direction == DirectionUi.Credit) Direction.CREDIT else Direction.DEBIT
+                    }
+                    printedAck = false
+                }
+            )
+        }
+        AddInputLine(
+            label = "DATE · MODE",
+            value = date,
+            placeholder = LocalDate.now().toString(),
+            palette = palette,
+            suffix = paymentMode.displayName().uppercase(Locale.US),
+            keyboardType = KeyboardType.Number,
+            onValueChange = {
+                date = it.take(10)
+                printedAck = false
+            }
+        )
+        AddSectionLabel("TYPE", palette)
+        AddStampRail(
+            stamps = listOf("SPEND", "MOVED", "INVESTED", "REFUND", "INCOME", "REWARD"),
+            selected = selectedTypeLabel,
+            palette = palette,
+            selectedColor = if (isHeldOut) palette.held else palette.amber,
+            onSelected = {
+                applyType(it)
+                printedAck = false
+            }
+        )
+        if (isHeldOut) {
+            AddHeldOutBox(
+                title = "HELD OUT OF SPEND",
+                body = "This line prints on the tape but does not enter your month spend total.",
+                palette = palette
+            )
+            TapeSummationRow(
+                label = "${breakdown.monthKey?.monthNameLabel()?.uppercase(Locale.US) ?: "MONTH"} SPEND",
+                value = "UNCHANGED",
+                palette = palette,
+                color = palette.held
+            )
+        } else {
+            AddSectionLabel("CATEGORY", palette)
+            AddStampRail(
+                stamps = categories
+                    .filterNot { it in listOf("Investment", "Transfer", "Income", "Refund", "Reward") }
+                    .map { it.uppercase(Locale.US) },
+                selected = category.uppercase(Locale.US),
+                palette = palette,
+                selectedColor = palette.amber,
+                onSelected = {
+                    category = it.lowercase(Locale.US).replaceFirstChar { char -> char.titlecase(Locale.US) }
+                    printedAck = false
+                }
+            )
+        }
+        AddSectionLabel("SOURCE", palette)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            AddStamp("MANUAL", selected = true, palette = palette, color = palette.inkSoft, modifier = Modifier.weight(1f))
+            AddStamp(paymentMode.displayName().uppercase(Locale.US), selected = false, palette = palette, color = palette.inkSoft, modifier = Modifier.weight(1f))
+            AddStamp(if (direction == Direction.CREDIT) "CREDIT" else "DEBIT", selected = false, palette = palette, color = palette.inkSoft, modifier = Modifier.weight(1f))
+        }
+        val statusText = validationError ?: saveState.error ?: saveState.message
+        if (statusText != null) {
+            AddNotice(
+                text = statusText.uppercase(Locale.US),
+                palette = palette,
+                color = if (validationError == null && saveState.error == null) palette.amber else palette.query
+            )
+        }
+        if (showPreview || printedAck) {
+            AddPrintPreview(
+                merchant = merchant.ifBlank { "---" },
+                amount = parsedAmount ?: 0.0,
+                category = category,
+                mode = paymentMode.displayName(),
+                date = date,
+                afterSpend = afterSpend,
+                beforeSpend = breakdown.spends,
+                afterLines = afterLines,
+                isHeldOut = isHeldOut,
+                printed = printedAck,
+                palette = palette
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            AddActionButton(
+                label = if (printedAck) "ADD ANOTHER" else "CLEAR",
+                enabled = true,
+                palette = palette,
+                color = palette.inkFaint,
+                modifier = Modifier.weight(1f),
+                onClick = { resetLine() }
+            )
+            AddActionButton(
+                label = when {
+                    saveState.isSaving -> "PRINTING"
+                    printedAck -> "VIEW ON TAPE"
+                    showPreview -> "PRINT"
+                    canPreview -> "PREVIEW LINE"
+                    else -> "ENTER AN AMOUNT"
+                },
+                enabled = canPreview && !saveState.isSaving || printedAck,
+                palette = palette,
+                color = palette.amber,
+                modifier = Modifier.weight(1.45f),
+                onClick = {
+                    validationError = when {
+                        parsedAmount == null || parsedAmount <= 0.0 -> "Enter an amount."
+                        date.toLocalDateOrNull() == null -> "Use date as YYYY-MM-DD."
+                        else -> null
+                    }
+                    if (validationError != null) return@AddActionButton
+                    if (!showPreview && !printedAck) {
+                        showPreview = true
+                        return@AddActionButton
+                    }
+                    if (printedAck) {
+                        resetLine()
+                        return@AddActionButton
+                    }
+                    onSave(
+                        ManualTransactionDraft(
+                            merchant = merchant.trim().ifBlank { "Manual line" },
+                            amount = parsedAmount ?: 0.0,
+                            date = date,
+                            category = category,
+                            miscCategory = miscCategory.ifBlank { "Manual" },
+                            paymentMode = paymentMode,
+                            transactionType = transactionType,
+                            direction = direction
+                        )
+                    )
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun AddDeskBar(
+    palette: TapePalette,
+    onSettings: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(palette.desk)
+            .padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "ADD",
+            color = palette.inkSoft,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 4.sp,
+            maxLines = 1
+        )
+        Text(
+            text = "  -  MANUAL LINE PRINTER",
+            modifier = Modifier.weight(1f),
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            letterSpacing = 1.4.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        IconButton(onClick = onSettings, modifier = Modifier.size(38.dp)) {
+            SettingsGlyph(
+                color = palette.inkFaint,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun AddAmountBlock(
+    amount: String,
+    palette: TapePalette,
+    onAmountChange: (String) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "AMOUNT",
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            letterSpacing = 1.7.sp,
+            maxLines = 1
+        )
+        Spacer(modifier = Modifier.height(7.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "₹",
+                color = if (amount.isBlank()) palette.inkFaint else palette.ink,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 36.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+            BasicTextField(
+                value = amount,
+                onValueChange = onAmountChange,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                textStyle = androidx.compose.ui.text.TextStyle(
+                    color = palette.ink,
+                    fontFamily = SortedTapeFontFamily,
+                    fontSize = 36.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.sp
+                ),
+                modifier = Modifier.weight(1f),
+                decorationBox = { innerTextField ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (amount.isBlank()) {
+                            Text(
+                                text = "0",
+                                color = palette.inkFaint,
+                                fontFamily = SortedTapeFontFamily,
+                                fontSize = 36.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
+                        }
+                        innerTextField()
+                    }
+                }
+            )
+        }
+        Text(
+            text = if (amount.isBlank()) "TAP AMOUNT" else "RUPEES · MANUAL",
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 8.sp,
+            letterSpacing = 1.sp,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun AddInputLine(
+    label: String,
+    value: String,
+    placeholder: String,
+    palette: TapePalette,
+    onValueChange: (String) -> Unit,
+    suffix: String? = null,
+    keyboardType: KeyboardType = KeyboardType.Text
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .drawBehind {
+                val y = size.height - 1.dp.toPx()
+                drawLine(
+                    color = palette.ruleFaint,
+                    start = Offset(0f, y),
+                    end = Offset(size.width, y),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+            .padding(vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.width(104.dp),
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 8.sp,
+            letterSpacing = 1.2.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+            textStyle = androidx.compose.ui.text.TextStyle(
+                color = palette.ink,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.6.sp,
+                textAlign = TextAlign.End
+            ),
+            modifier = Modifier.weight(1f),
+            decorationBox = { innerTextField ->
+                Box(contentAlignment = Alignment.CenterEnd) {
+                    if (value.isBlank()) {
+                        Text(
+                            text = placeholder,
+                            color = palette.inkFaint,
+                            fontFamily = SortedTapeFontFamily,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 0.6.sp,
+                            maxLines = 1
+                        )
+                    }
+                    innerTextField()
+                }
+            }
+        )
+        if (suffix != null) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = suffix,
+                color = palette.inkFaint,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 8.sp,
+                letterSpacing = 1.sp,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun AddSectionLabel(
+    text: String,
+    palette: TapePalette
+) {
+    Text(
+        text = text,
+        modifier = Modifier.padding(top = 11.dp, bottom = 7.dp),
+        color = palette.inkFaint,
+        fontFamily = SortedTapeFontFamily,
+        fontSize = 8.sp,
+        letterSpacing = 1.8.sp,
+        maxLines = 1
+    )
+}
+
+@Composable
+private fun AddStampRail(
+    stamps: List<String>,
+    selected: String,
+    palette: TapePalette,
+    selectedColor: Color,
+    onSelected: (String) -> Unit
+) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        items(stamps) { stamp ->
+            AddStamp(
+                text = stamp,
+                selected = stamp.equals(selected, ignoreCase = true),
+                palette = palette,
+                color = selectedColor,
+                onClick = { onSelected(stamp) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun AddStamp(
+    text: String,
+    selected: Boolean,
+    palette: TapePalette,
+    color: Color,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null
+) {
+    val borderColor = if (selected) color else palette.rule
+    val background = if (selected) color.copy(alpha = 0.18f) else Color.Transparent
+    Text(
+        text = text,
+        modifier = modifier
+            .border(1.dp, borderColor, RoundedCornerShape(2.dp))
+            .background(background)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+        color = if (selected) color else palette.inkSoft,
+        fontFamily = SortedTapeFontFamily,
+        fontSize = 9.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.9.sp,
+        textAlign = TextAlign.Center,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+}
+
+@Composable
+private fun AddHeldOutBox(
+    title: String,
+    body: String,
+    palette: TapePalette
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp)
+            .border(1.dp, palette.held)
+            .padding(horizontal = 10.dp, vertical = 9.dp)
+    ) {
+        Text(
+            text = title,
+            color = palette.held,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 8.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 1.4.sp
+        )
+        Spacer(modifier = Modifier.height(5.dp))
+        Text(
+            text = body,
+            color = palette.inkSoft,
+            fontSize = 12.sp,
+            lineHeight = 17.sp
+        )
+    }
+}
+
+@Composable
+private fun AddNotice(
+    text: String,
+    palette: TapePalette,
+    color: Color
+) {
+    Text(
+        text = text,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp)
+            .border(1.dp, color)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        color = color,
+        fontFamily = SortedTapeFontFamily,
+        fontSize = 8.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 1.sp,
+        textAlign = TextAlign.Center
+    )
+}
+
+@Composable
+private fun AddPrintPreview(
+    merchant: String,
+    amount: Double,
+    category: String,
+    mode: String,
+    date: String,
+    afterSpend: Double,
+    beforeSpend: Double,
+    afterLines: Int,
+    isHeldOut: Boolean,
+    printed: Boolean,
+    palette: TapePalette
+) {
+    Column(modifier = Modifier.padding(top = 14.dp)) {
+        AddPreviewLine(
+            merchant = merchant,
+            amount = amount,
+            category = category,
+            mode = mode,
+            date = date,
+            printed = printed,
+            heldOut = isHeldOut,
+            palette = palette
+        )
+        TapeDoubleRule(palette = palette)
+        Text(
+            text = if (printed) "AFTER PRINTING" else "AFTER PRINTING",
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 8.sp,
+            letterSpacing = 1.6.sp
+        )
+        TapeSummationRow(
+            label = "MONTH SPEND",
+            value = afterSpend.formatRupee(),
+            palette = palette
+        )
+        if (!isHeldOut) {
+            TapeSummationRow(
+                label = "WAS",
+                value = beforeSpend.formatRupee(),
+                palette = palette
+            )
+            TapeSummationRow(
+                label = "LINES",
+                value = afterLines.toString(),
+                palette = palette
+            )
+        } else {
+            TapeSummationRow(
+                label = "COUNTS IN SPEND",
+                value = "NO",
+                palette = palette,
+                color = palette.held
+            )
+        }
+        if (printed) {
+            Text(
+                text = "ADDED TO TAPE",
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .border(1.dp, palette.amber)
+                    .padding(horizontal = 11.dp, vertical = 8.dp),
+                color = palette.amber,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 1.6.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun AddPreviewLine(
+    merchant: String,
+    amount: Double,
+    category: String,
+    mode: String,
+    date: String,
+    printed: Boolean,
+    heldOut: Boolean,
+    palette: TapePalette
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, if (printed) palette.amber else palette.rule)
+            .padding(horizontal = 10.dp, vertical = 9.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = merchant.uppercase(Locale.US),
+                modifier = Modifier.weight(1f),
+                color = palette.ink,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 1.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = amount.formatRupee(),
+                color = if (heldOut) palette.held else palette.ink,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                textDecoration = if (heldOut) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
+                maxLines = 1
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AddStamp(category.uppercase(Locale.US), selected = true, palette = palette, color = if (heldOut) palette.held else palette.amber)
+            Spacer(modifier = Modifier.width(6.dp))
+            AddStamp("MANUAL", selected = false, palette = palette, color = palette.inkSoft)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "$date · ${mode.uppercase(Locale.US)}${if (printed) " · JUST NOW" else ""}",
+                modifier = Modifier.weight(1f),
+                color = palette.inkFaint,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 8.sp,
+                letterSpacing = 0.8.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun AddActionButton(
+    label: String,
+    enabled: Boolean,
+    palette: TapePalette,
+    color: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Text(
+        text = label,
+        modifier = modifier
+            .border(1.dp, if (enabled) color else palette.rule)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 11.dp),
+        color = if (enabled) color else palette.inkFaint,
+        fontFamily = SortedTapeFontFamily,
+        fontSize = 9.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 1.sp,
+        textAlign = TextAlign.Center,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
 }
 
 @Composable
@@ -5574,18 +6348,23 @@ private fun SourcesTabContent(
         item {
             SourceHealthCard(
                 feedState = feedState,
-                gmailState = gmailState
+                gmailState = gmailState,
+                palette = tapePalette()
             )
         }
         if (feedState.needsSmsPermission) {
             item {
-                PermissionPrompt(onRequestPermission = onRequestSmsPermission)
+                PermissionPrompt(
+                    palette = tapePalette(),
+                    onRequestPermission = onRequestSmsPermission
+                )
             }
         }
         item {
             GmailImportCard(
                 state = gmailState,
                 setupInfo = gmailSetupInfo,
+                palette = tapePalette(),
                 onImport = onImportGmail
             )
         }
@@ -5604,44 +6383,30 @@ private fun SettingsScreen(
     onOpenRuleCenter: () -> Unit,
     onBack: () -> Unit
 ) {
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            item {
-                Header(
-                    title = "Settings",
-                    onSettings = {},
-                    onBack = onBack,
-                    showActions = false
-                )
-            }
-            item {
-                ThemeSettingsCard(
-                    selected = themeMode,
-                    onSelected = onThemeModeChange
-                )
-            }
-            item {
-                LocalDataSettingsCard(feedState = feedState)
-            }
-            item {
-                SourceSettingsCard(
-                    feedState = feedState,
-                    gmailState = gmailState
-                )
-            }
-            item {
-                RuleCenterEntryCard(onOpenRuleCenter = onOpenRuleCenter)
-            }
-            item {
-                Spacer(modifier = Modifier.height(60.dp))
-            }
+    TapeRoute(
+        title = "DEVICE",
+        meta = "PRIVATE RECEIPT",
+        onBack = onBack
+    ) { palette ->
+        item {
+            ThemeSettingsCard(
+                selected = themeMode,
+                palette = palette,
+                onSelected = onThemeModeChange
+            )
+        }
+        item {
+            LocalDataSettingsCard(feedState = feedState, palette = palette)
+        }
+        item {
+            SourceSettingsCard(
+                feedState = feedState,
+                gmailState = gmailState,
+                palette = palette
+            )
+        }
+        item {
+            RuleCenterEntryCard(onOpenRuleCenter = onOpenRuleCenter, palette = palette)
         }
     }
 }
@@ -5649,36 +6414,34 @@ private fun SettingsScreen(
 @Composable
 private fun ThemeSettingsCard(
     selected: AppThemeMode,
+    palette: TapePalette,
     onSelected: (AppThemeMode) -> Unit
 ) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
+    TapeLedgerBlock(
+        heading = "Appearance",
+        meta = selected.label,
+        palette = palette
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = "Appearance",
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.sp
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                AppThemeMode.entries.forEach { mode ->
-                    ThemeModeTile(
-                        mode = mode,
-                        selected = mode == selected,
-                        onClick = { onSelected(mode) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+        Text(
+            text = "SCREEN INK MODE IS STORED ON THIS DEVICE.",
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 8.sp,
+            letterSpacing = 1.sp
+        )
+        Spacer(modifier = Modifier.height(9.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            AppThemeMode.entries.forEach { mode ->
+                ThemeModeTile(
+                    mode = mode,
+                    selected = mode == selected,
+                    palette = palette,
+                    onClick = { onSelected(mode) },
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
     }
@@ -5688,76 +6451,62 @@ private fun ThemeSettingsCard(
 private fun ThemeModeTile(
     mode: AppThemeMode,
     selected: Boolean,
+    palette: TapePalette,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val containerColor by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+    val borderColor by animateColorAsState(
+        targetValue = if (selected) palette.amber else palette.rule,
         label = "theme_tile_container"
     )
-    val titleColor = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-    val detailColor = if (selected) {
-        MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f)
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    val swatchColor = if (selected && mode != AppThemeMode.Dark) {
-        MaterialTheme.colorScheme.onPrimary
-    } else {
-        mode.swatchColor()
-    }
-
-    Surface(
-        onClick = onClick,
-        modifier = modifier.height(74.dp),
-        color = containerColor,
-        shape = RoundedCornerShape(8.dp)
+    Column(
+        modifier = modifier
+            .height(76.dp)
+            .border(1.dp, borderColor, RoundedCornerShape(2.dp))
+            .background(if (selected) palette.amber.copy(alpha = 0.14f) else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(9.dp),
+        verticalArrangement = Arrangement.Center
     ) {
-        Column(
-            modifier = Modifier.padding(10.dp),
-            verticalArrangement = Arrangement.Center
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(14.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(swatchColor)
-                )
-                Spacer(modifier = Modifier.width(7.dp))
-                Text(
-                    text = mode.label,
-                    color = titleColor,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    letterSpacing = 0.sp
-                )
-            }
-            Spacer(modifier = Modifier.height(5.dp))
-            Text(
-                text = mode.description,
-                color = detailColor,
-                fontSize = 11.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                letterSpacing = 0.sp
-            )
-        }
+        Box(
+            modifier = Modifier
+                .width(28.dp)
+                .height(4.dp)
+                .background(mode.swatchColor())
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = mode.label.uppercase(Locale.US),
+            color = if (selected) palette.amber else palette.ink,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 1.sp
+        )
+        Text(
+            text = mode.description.uppercase(Locale.US),
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 7.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 0.7.sp
+        )
     }
 }
 
 private fun AppThemeMode.swatchColor(): Color {
     return when (this) {
-        AppThemeMode.System -> Color(0xFF7C4DFF)
+        AppThemeMode.System -> Color(0xFF9AA79A)
         AppThemeMode.Dark -> Color(0xFF000000)
-        AppThemeMode.Light -> Color(0xFFFF4D8D)
+        AppThemeMode.Light -> Color(0xFFF2C14E)
     }
 }
 
 @Composable
-private fun LocalDataSettingsCard(feedState: FeedState) {
+private fun LocalDataSettingsCard(feedState: FeedState, palette: TapePalette) {
     val sourceCounts = feedState.transactions.groupingBy { it.source }.eachCount().toSortedMap()
     val monthBreakdown = feedState.transactions.monthBreakdown()
     val reviewCount = feedState.transactions.reviewCandidates().size
@@ -5767,60 +6516,16 @@ private fun LocalDataSettingsCard(feedState: FeedState) {
         sourceCounts.entries.joinToString(" / ") { (source, count) -> "$source $count" }
     }
 
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
+    TapeLedgerBlock(
+        heading = "Local tape",
+        meta = "on device",
+        palette = palette
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = "Local data",
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.sp
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                SettingsMetricCell(
-                    label = "Transactions",
-                    value = feedState.transactions.size.toString(),
-                    modifier = Modifier.weight(1f)
-                )
-                SettingsMetricCell(
-                    label = "Current month",
-                    value = monthBreakdown.monthKey ?: "Unknown",
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Spacer(modifier = Modifier.height(14.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                SettingsMetricCell(
-                    label = "Month spend",
-                    value = monthBreakdown.spends.formatInr(),
-                    modifier = Modifier.weight(1f)
-                )
-                SettingsMetricCell(
-                    label = "Unsorted",
-                    value = reviewCount.toString(),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Spacer(modifier = Modifier.height(14.dp))
-            SettingsMetricCell(
-                label = "Sources",
-                value = sourceSummary,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
+        IndexEntryRow("TRANSACTIONS", "ALL SOURCES", feedState.transactions.size.toString(), palette)
+        IndexEntryRow("CURRENT MONTH", "ACTIVE TAPE", monthBreakdown.monthKey ?: "UNKNOWN", palette)
+        IndexEntryRow("MONTH SPEND", "${monthBreakdown.spendCount} LINES", monthBreakdown.spends.formatRupee(), palette)
+        IndexEntryRow("UNSTAMPED", "NEEDS REVIEW", reviewCount.toString(), palette, query = reviewCount > 0)
+        IndexBlockFoot("SOURCES", sourceSummary.uppercase(Locale.US), palette)
     }
 }
 
@@ -5855,7 +6560,8 @@ private fun SettingsMetricCell(
 @Composable
 private fun SourceSettingsCard(
     feedState: FeedState,
-    gmailState: GmailUiState
+    gmailState: GmailUiState,
+    palette: TapePalette
 ) {
     val gmailLabel = if (gmailState.error != null) "Needs attention" else gmailState.label
     val autoSyncLabel = gmailState.autoSyncLabel
@@ -5863,67 +6569,57 @@ private fun SourceSettingsCard(
         ?.replaceFirstChar { it.titlecase(Locale.getDefault()) }
         ?: "Manual"
 
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
+    TapeLedgerBlock(
+        heading = "Sources",
+        meta = "permissions",
+        palette = palette
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = "Sources",
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.sp
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            SettingsInfoRow("SMS", if (feedState.needsSmsPermission) "Permission needed" else "Enabled")
-            SettingsInfoRow("Gmail", gmailLabel)
-            SettingsInfoRow("Auto sync", autoSyncLabel)
-            SettingsInfoRow("Storage", "Local only")
-        }
+        SettingsInfoRow("SMS", if (feedState.needsSmsPermission) "PERMISSION NEEDED" else "ENABLED", palette)
+        SettingsInfoRow("GMAIL", gmailLabel.uppercase(Locale.US), palette)
+        SettingsInfoRow("AUTO SYNC", autoSyncLabel.uppercase(Locale.US), palette)
+        SettingsInfoRow("STORAGE", "LOCAL ONLY", palette)
     }
 }
 
 @Composable
-private fun RuleCenterEntryCard(onOpenRuleCenter: () -> Unit) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onOpenRuleCenter),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
+private fun RuleCenterEntryCard(onOpenRuleCenter: () -> Unit, palette: TapePalette) {
+    TapeLedgerBlock(
+        heading = "Rules",
+        meta = "saved stamps",
+        palette = palette,
+        modifier = Modifier.clickable(onClick = onOpenRuleCenter)
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Rule Center",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 18.sp,
+                    text = "OPEN RULE LEDGER",
+                    color = palette.ink,
+                    fontFamily = SortedTapeFontFamily,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.sp
+                    letterSpacing = 1.sp
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Learned merchant corrections and category overrides.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp,
+                    text = "LEARNED MERCHANT CORRECTIONS AND CATEGORY OVERRIDES",
+                    color = palette.inkFaint,
+                    fontFamily = SortedTapeFontFamily,
+                    fontSize = 8.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    letterSpacing = 0.sp
+                    letterSpacing = 0.8.sp
                 )
             }
             Text(
-                text = "Open",
-                color = MaterialTheme.colorScheme.primary,
-                fontSize = 14.sp,
+                text = ">",
+                color = palette.amber,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 0.sp
             )
@@ -5957,57 +6653,48 @@ private fun RuleCenterScreen(
         reloadRules()
     }
 
-    Scaffold(
-        modifier = modifier,
-        containerColor = MaterialTheme.colorScheme.background
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            item {
-                Header(
-                    title = "Rule Center",
-                    onSettings = onSettings,
-                    onBack = onBack,
-                    showActions = onBack == null
-                )
-            }
+    Box(modifier = modifier.fillMaxSize()) {
+        TapeRoute(
+            title = "STAMPS",
+            meta = "LOCAL RULE LEDGER",
+            onBack = onBack,
+            onSettings = if (onBack == null) onSettings else null
+        ) { palette ->
             item {
                 RuleCenterSummaryCard(
                     rules = rules,
                     isLoading = isLoading,
-                    message = message
+                    message = message,
+                    palette = palette
                 )
             }
             if (!isLoading && rules.isEmpty()) {
                 item {
-                    EmptyStateCard(
-                        title = "No learned rules yet",
-                        detail = "Corrections saved with Remember will appear here."
-                    )
+                    TapeLedgerBlock(
+                        heading = "No saved stamps",
+                        meta = "empty",
+                        palette = palette
+                    ) {
+                        IndexEmptyLine("CORRECTIONS SAVED WITH REMEMBER WILL APPEAR HERE", palette)
+                    }
                 }
             } else {
                 items(rules, key = { it.id }) { rule ->
                     RuleRow(
                         rule = rule,
+                        palette = palette,
                         onDisable = {
                             scope.launch {
                                 val disabled = withContext(Dispatchers.IO) {
                                     TransactionRepository(appContext)
                                         .setCategoryRuleEnabled(rule.id, enabled = false)
                                 }
-                                message = if (disabled) "Rule disabled" else "Rule was not updated"
+                                message = if (disabled) "RULE DISABLED" else "RULE WAS NOT UPDATED"
                                 reloadRules()
                             }
                         }
                     )
                 }
-            }
-            item {
-                Spacer(modifier = Modifier.height(80.dp))
             }
         }
     }
@@ -6017,122 +6704,97 @@ private fun RuleCenterScreen(
 private fun RuleCenterSummaryCard(
     rules: List<CategoryRuleEntity>,
     isLoading: Boolean,
-    message: String?
+    message: String?,
+    palette: TapePalette
 ) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
+    TapeLedgerBlock(
+        heading = "Rule close-out",
+        meta = if (isLoading) "reading" else "${rules.size} active",
+        palette = palette
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = if (isLoading) "Loading rules" else "${rules.size} active rules",
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.sp
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = message ?: "Local rules override parser defaults during SMS and Gmail imports.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                letterSpacing = 0.sp
-            )
-        }
+        TapeSummationRow("ACTIVE SAVED STAMPS", if (isLoading) "..." else rules.size.toString(), palette)
+        TapeSummationRow("AUTHORITY", "LOCAL OVERRIDE", palette, palette.amber)
+        Text(
+            text = (message ?: "LOCAL RULES OVERRIDE PARSER DEFAULTS DURING SMS AND GMAIL IMPORTS.")
+                .uppercase(Locale.US),
+            modifier = Modifier.padding(top = 7.dp),
+            color = if (message == null) palette.inkFaint else palette.amber,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 8.sp,
+            letterSpacing = 0.8.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
 @Composable
 private fun RuleRow(
     rule: CategoryRuleEntity,
+    palette: TapePalette,
     onDisable: () -> Unit
 ) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
+    TapeLedgerBlock(
+        heading = rule.merchantNormalized ?: rule.pattern,
+        meta = rule.source,
+        palette = palette
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CategoryMiniDot(rule.departmentCategory ?: "Other")
-                Spacer(modifier = Modifier.width(9.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = rule.merchantNormalized ?: rule.pattern,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        letterSpacing = 0.sp
-                    )
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Text(
-                        text = "${rule.pattern} • ${rule.matchType} • ${rule.source}",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        letterSpacing = 0.sp
-                    )
-                }
-                TextButton(onClick = onDisable) {
-                    Text("Disable")
-                }
+        IndexEntryRow(
+            name = "MATCH",
+            meta = rule.matchType.uppercase(Locale.US),
+            value = rule.pattern.uppercase(Locale.US).take(18),
+            palette = palette
+        )
+        LazyRow(
+            modifier = Modifier.padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            items(
+                listOfNotNull(
+                    rule.departmentCategory,
+                    rule.miscCategory,
+                    rule.transactionType.displayName(),
+                    rule.source
+                )
+            ) { label ->
+                AddStamp(
+                    text = label.uppercase(Locale.US),
+                    selected = true,
+                    palette = palette,
+                    color = palette.amber
+                )
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(
-                    listOfNotNull(
-                        rule.departmentCategory,
-                        rule.miscCategory,
-                        rule.transactionType.displayName()
-                    )
-                ) { label ->
-                    DetailChip(label)
-                }
-            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp),
+            horizontalArrangement = Arrangement.End
+        ) {
+            TapeActionText(
+                label = "Disable stamp",
+                palette = palette,
+                color = palette.query,
+                onClick = onDisable
+            )
         }
     }
 }
 
 @Composable
-private fun SourceHealthMiniCard(sourceRows: List<SourceHealthRow>) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
+private fun SourceHealthMiniCard(sourceRows: List<SourceHealthRow>, palette: TapePalette) {
+    TapeLedgerBlock(
+        heading = "Source coverage",
+        meta = "on device",
+        palette = palette
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = "Coverage",
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.sp
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            if (sourceRows.isEmpty()) {
-                Text(
-                    text = "No source rows yet",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp,
-                    letterSpacing = 0.sp
-                )
-            } else {
-                sourceRows.forEach { row ->
-                    SourceHealthInlineRow(row = row)
-                }
+        if (sourceRows.isEmpty()) {
+            IndexEmptyLine("NO SOURCE LINES PRINTED", palette)
+        } else {
+            sourceRows.forEach { row ->
+                SourceHealthInlineRow(row = row, palette = palette)
             }
+            IndexBlockFoot("${sourceRows.sumOf { it.totalCount }} MESSAGES READ", "0 UPLOADED", palette)
         }
     }
 }
@@ -6140,34 +6802,46 @@ private fun SourceHealthMiniCard(sourceRows: List<SourceHealthRow>) {
 @Composable
 private fun SettingsInfoRow(
     label: String,
-    value: String
+    value: String,
+    palette: TapePalette
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .drawBehind {
+                val y = size.height - 1.dp.toPx()
+                drawLine(
+                    color = palette.ruleFaint,
+                    start = Offset(0f, y),
+                    end = Offset(size.width, y),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.Top
     ) {
         Text(
-            text = label,
+            text = label.uppercase(Locale.US),
             modifier = Modifier.width(96.dp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 13.sp,
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 8.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            letterSpacing = 0.sp
+            letterSpacing = 1.sp
         )
         Text(
             text = value,
             modifier = Modifier.weight(1f),
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 13.sp,
+            color = palette.ink,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Start,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            letterSpacing = 0.sp
+            letterSpacing = 0.8.sp
         )
     }
 }
@@ -6175,7 +6849,8 @@ private fun SettingsInfoRow(
 @Composable
 private fun SourceHealthCard(
     feedState: FeedState,
-    gmailState: GmailUiState
+    gmailState: GmailUiState,
+    palette: TapePalette
 ) {
     val sourceRows = feedState.transactions.sourceHealthRows()
     val reviewCount = feedState.transactions.reviewCandidates().size
@@ -6183,89 +6858,77 @@ private fun SourceHealthCard(
     val fxRows = feedState.transactions.latestMonthTransactions().count { !it.countsInInrTotals() }
     val gmailLabel = if (gmailState.error != null) "Needs attention" else gmailState.label
 
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
+    TapeLedgerBlock(
+        heading = "Source health",
+        meta = "receipt",
+        palette = palette
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = "Source health",
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.sp
-            )
-            Spacer(modifier = Modifier.height(11.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                MiniMetric(
-                    label = "Review",
-                    value = reviewCount.toString(),
-                    modifier = Modifier.weight(1f)
-                )
-                MiniMetric(
-                    label = "Gmail",
-                    value = gmailRows.toString(),
-                    modifier = Modifier.weight(1f)
-                )
-                MiniMetric(
-                    label = "FX",
-                    value = fxRows.toString(),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-            SettingsInfoRow("SMS", if (feedState.needsSmsPermission) "Permission needed" else "Enabled")
-            SettingsInfoRow("Gmail", gmailLabel)
-            SettingsInfoRow("Storage", "Local only")
-            if (sourceRows.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(10.dp))
-                sourceRows.forEach { row ->
-                    SourceHealthInlineRow(row = row)
-                }
+        TapeSummationRow("REVIEW LINES", reviewCount.toString(), palette, if (reviewCount > 0) palette.query else palette.ink)
+        TapeSummationRow("GMAIL LINES", gmailRows.toString(), palette)
+        TapeSummationRow("FX HELD OUT", fxRows.toString(), palette)
+        SettingsInfoRow("SMS", if (feedState.needsSmsPermission) "PERMISSION NEEDED" else "ENABLED", palette)
+        SettingsInfoRow("GMAIL", gmailLabel.uppercase(Locale.US), palette)
+        SettingsInfoRow("STORAGE", "LOCAL ONLY", palette)
+        if (sourceRows.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(10.dp))
+            sourceRows.forEach { row ->
+                SourceHealthInlineRow(row = row, palette = palette)
             }
         }
     }
 }
 
 @Composable
-private fun SourceHealthInlineRow(row: SourceHealthRow) {
+private fun SourceHealthInlineRow(row: SourceHealthRow, palette: TapePalette) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .drawBehind {
+                val y = size.height - 1.dp.toPx()
+                drawLine(
+                    color = palette.ruleFaint,
+                    start = Offset(0f, y),
+                    end = Offset(size.width, y),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
             .padding(vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        CategoryMiniDot(row.source)
-        Spacer(modifier = Modifier.width(9.dp))
+        Text(
+            text = "#",
+            modifier = Modifier.width(15.dp),
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            textAlign = TextAlign.Center
+        )
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = row.source,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 14.sp,
+                text = row.source.uppercase(Locale.US),
+                color = palette.ink,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                letterSpacing = 0.sp
+                letterSpacing = 1.sp
             )
             Text(
-                text = "${row.spendCount} spends • ${row.reviewCount} review • ${row.fxCount} FX",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
+                text = "${row.spendCount} SPEND - ${row.reviewCount} REVIEW - ${row.fxCount} FX",
+                color = palette.inkFaint,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 8.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                letterSpacing = 0.sp
+                letterSpacing = 0.8.sp
             )
         }
         Text(
             text = "${row.totalCount}",
-            color = MaterialTheme.colorScheme.primary,
-            fontSize = 13.sp,
+            color = if (row.reviewCount > 0) palette.query else palette.amber,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             letterSpacing = 0.sp
@@ -6369,68 +7032,38 @@ private fun SourceStatusCard(feedState: FeedState) {
 private fun GmailImportCard(
     state: GmailUiState,
     setupInfo: GmailSetupInfo,
+    palette: TapePalette,
     onImport: () -> Unit
 ) {
-    Surface(
+    TapeLedgerBlock(
+        heading = "Gmail import",
+        meta = if (state.isImporting) "reading" else "manual",
+        palette = palette,
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(enabled = !state.isImporting, onClick = onImport),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
+            .clickable(enabled = !state.isImporting, onClick = onImport)
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Gmail import",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.sp
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = state.error ?: state.label,
-                    color = if (state.error == null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFFFF8E8E),
-                    fontSize = 13.sp,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                    letterSpacing = 0.sp
-                )
-                state.autoSyncLabel?.let { label ->
-                    Spacer(modifier = Modifier.height(5.dp))
-                    Text(
-                        text = label,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        letterSpacing = 0.sp
-                    )
-                }
-                if (state.error != null) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "OAuth setup: package ${setupInfo.packageName}, SHA-1 ${setupInfo.signingSha1 ?: "unavailable"}",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
-                        lineHeight = 14.sp,
-                        letterSpacing = 0.sp
-                    )
-                }
-            }
+        SettingsInfoRow("STATUS", (state.error ?: state.label).uppercase(Locale.US), palette)
+        state.autoSyncLabel?.let { label ->
+            SettingsInfoRow("AUTO SYNC", label.uppercase(Locale.US), palette)
+        }
+        if (state.error != null) {
             Text(
-                text = if (state.isImporting) "Reading" else "Import",
-                color = MaterialTheme.colorScheme.primary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.sp
+                text = "OAUTH SETUP: PACKAGE ${setupInfo.packageName}, SHA-1 ${setupInfo.signingSha1 ?: "UNAVAILABLE"}",
+                modifier = Modifier.padding(top = 7.dp),
+                color = palette.query,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 8.sp,
+                lineHeight = 12.sp,
+                letterSpacing = 0.8.sp
             )
         }
+        Spacer(modifier = Modifier.height(10.dp))
+        TapeActionText(
+            label = if (state.isImporting) "Reading source" else "Import Gmail",
+            palette = palette,
+            enabled = !state.isImporting,
+            onClick = onImport
+        )
     }
 }
 
@@ -6618,23 +7251,17 @@ private fun SyncChooserBar(
         exit = fadeOut(animationSpec = tween(durationMillis = 130)) +
             shrinkVertically(animationSpec = tween(durationMillis = 190, easing = FastOutSlowInEasing))
     ) {
-        Surface(
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-            shape = RoundedCornerShape(22.dp),
-            border = androidx.compose.foundation.BorderStroke(
-                1.dp,
-                MaterialTheme.colorScheme.outline.copy(alpha = 0.20f)
-            ),
-            tonalElevation = 2.dp
+        val palette = tapePalette()
+        Row(
+            modifier = Modifier
+                .background(palette.tape.copy(alpha = 0.96f))
+                .border(1.dp, palette.rule)
+                .padding(horizontal = 8.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                SyncChoiceChip("SMS", SyncSource.Sms, onSync)
-                SyncChoiceChip("Gmail", SyncSource.Gmail, onSync)
-            }
+            SyncChoiceChip("SMS", SyncSource.Sms, onSync)
+            SyncChoiceChip("Gmail", SyncSource.Gmail, onSync)
         }
     }
 }
@@ -6652,22 +7279,21 @@ private fun SyncStatusPill(
         exit = fadeOut(animationSpec = tween(durationMillis = 140)) +
             shrinkVertically(animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing))
     ) {
-        Surface(
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-            shape = RoundedCornerShape(16.dp),
-            border = androidx.compose.foundation.BorderStroke(
-                1.dp,
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
-            )
+        val palette = tapePalette()
+        Box(
+            modifier = Modifier
+                .background(palette.tape.copy(alpha = 0.96f))
+                .border(1.dp, palette.amber)
+                .padding(horizontal = 12.dp, vertical = 7.dp)
         ) {
             Text(
-                text = message.orEmpty(),
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                color = MaterialTheme.colorScheme.primary,
+                text = message.orEmpty().uppercase(Locale.US),
+                color = palette.amber,
+                fontFamily = SortedTapeFontFamily,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
-                letterSpacing = 0.sp
+                letterSpacing = 0.8.sp
             )
         }
     }
@@ -6679,23 +7305,14 @@ private fun SyncChoiceChip(
     source: SyncSource,
     onSync: (SyncSource) -> Unit
 ) {
-    Surface(
-        modifier = Modifier
-            .clip(RoundedCornerShape(17.dp))
-            .clickable { onSync(source) },
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(17.dp)
-    ) {
-        Text(
-            text = label,
-            modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            letterSpacing = 0.sp
-        )
-    }
+    val palette = tapePalette()
+    AddStamp(
+        text = label.uppercase(Locale.US),
+        selected = true,
+        palette = palette,
+        color = palette.amber,
+        onClick = { onSync(source) }
+    )
 }
 
 @Composable
@@ -9164,45 +9781,31 @@ private fun CategoryMiniDot(category: String) {
 }
 
 @Composable
-private fun PermissionPrompt(onRequestPermission: () -> Unit) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
+private fun PermissionPrompt(
+    palette: TapePalette,
+    onRequestPermission: () -> Unit
+) {
+    TapeLedgerBlock(
+        heading = "Missing source",
+        meta = "sms permission",
+        palette = palette,
+        modifier = Modifier.clickable(onClick = onRequestPermission)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onRequestPermission)
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Read transaction SMS",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.sp
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Sorted scans messages locally and keeps transactions on this phone.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp,
-                    letterSpacing = 0.sp
-                )
-            }
-            Text(
-                text = "Allow",
-                color = MaterialTheme.colorScheme.primary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.sp
-            )
-        }
+        SettingsInfoRow("READ SMS", "LOCAL SCAN ONLY", palette)
+        Text(
+            text = "SORTED SCANS MESSAGES LOCALLY AND KEEPS TRANSACTIONS ON THIS PHONE.",
+            modifier = Modifier.padding(top = 8.dp, bottom = 10.dp),
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 8.sp,
+            lineHeight = 12.sp,
+            letterSpacing = 0.8.sp
+        )
+        TapeActionText(
+            label = "Allow SMS source",
+            palette = palette,
+            onClick = onRequestPermission
+        )
     }
 }
 
@@ -9447,28 +10050,45 @@ private fun TransactionDetail(
         TransactionType.REWARD
     )
     val statusText = validationError ?: saveState.error ?: saveState.message
+    val palette = tapePalette()
+    val accent = transaction.tapeLineStyle(palette).accent
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(start = 22.dp, end = 22.dp, bottom = 34.dp)
+            .background(palette.tape)
+            .padding(start = 18.dp, end = 18.dp, bottom = 34.dp)
     ) {
+        TapeDoubleRule(palette = palette)
         Text(
-            text = transaction.merchant,
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 24.sp,
+            text = "AMEND LINE",
+            color = palette.inkFaint,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 9.sp,
+            letterSpacing = 1.8.sp,
+            maxLines = 1
+        )
+        Text(
+            text = transaction.merchant.uppercase(Locale.US),
+            modifier = Modifier.padding(top = 8.dp),
+            color = palette.ink,
+            fontFamily = SortedTapeFontFamily,
+            fontSize = 22.sp,
             fontWeight = FontWeight.SemiBold,
-            letterSpacing = 0.sp
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = transaction.amount,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = accent,
+            fontFamily = SortedTapeFontFamily,
             fontSize = 16.sp,
-            letterSpacing = 0.sp
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 0.8.sp
         )
-        Spacer(modifier = Modifier.height(18.dp))
+        Spacer(modifier = Modifier.height(14.dp))
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -9481,16 +10101,28 @@ private fun TransactionDetail(
                     if (transaction.direction == DirectionUi.Credit) "Credit" else "Debit"
                 )
             ) { label ->
-                DetailChip(label)
+                AddStamp(
+                    text = label.uppercase(Locale.US),
+                    selected = true,
+                    palette = palette,
+                    color = accent
+                )
             }
         }
-        AnimatedVisibility(visible = true) {
+        Spacer(modifier = Modifier.height(16.dp))
+        TapeLedgerBlock(
+            heading = "Source line",
+            meta = transaction.source,
+            palette = palette,
+            modifier = Modifier.padding(horizontal = 0.dp)
+        ) {
             Text(
-                text = transaction.detail,
-                modifier = Modifier.padding(top = 18.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 14.sp,
-                letterSpacing = 0.sp
+                text = transaction.detail.uppercase(Locale.US),
+                color = palette.inkFaint,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 9.sp,
+                lineHeight = 14.sp,
+                letterSpacing = 0.8.sp
             )
         }
         Spacer(modifier = Modifier.height(16.dp))
@@ -9499,7 +10131,9 @@ private fun TransactionDetail(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TextButton(
+            TapeActionText(
+                label = if (editing) "Close restamp" else "Restamp line",
+                palette = palette,
                 modifier = Modifier.weight(1f),
                 enabled = !saveState.isSaving,
                 onClick = {
@@ -9507,81 +10141,103 @@ private fun TransactionDetail(
                     confirmIgnore = false
                     validationError = null
                 }
-            ) {
-                Text(if (editing) "Close edit" else "Correct")
-            }
-            TextButton(
+            )
+            TapeActionText(
+                label = if (confirmIgnore) "Cancel hold" else "Ignore line",
+                palette = palette,
+                color = palette.query,
                 modifier = Modifier.weight(1f),
                 enabled = !saveState.isSaving,
                 onClick = {
                     confirmIgnore = !confirmIgnore
                     editing = false
                 }
-            ) {
-                Text(if (confirmIgnore) "Cancel" else "Ignore")
-            }
+            )
         }
         AnimatedVisibility(visible = confirmIgnore) {
-            Column(modifier = Modifier.padding(top = 10.dp)) {
+            Column(
+                modifier = Modifier
+                    .padding(top = 12.dp)
+                    .border(1.dp, palette.query)
+                    .padding(12.dp)
+            ) {
                 Text(
-                    text = "Hide this transaction from Sorted",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
+                    text = "HOLD THIS LINE OUT",
+                    color = palette.query,
+                    fontFamily = SortedTapeFontFamily,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.sp
+                    letterSpacing = 1.sp
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "It will stay ignored on future scans.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp,
-                    letterSpacing = 0.sp
+                    text = "IT WILL STAY IGNORED ON FUTURE SCANS.",
+                    color = palette.inkFaint,
+                    fontFamily = SortedTapeFontFamily,
+                    fontSize = 8.sp,
+                    letterSpacing = 0.8.sp
                 )
                 Spacer(modifier = Modifier.height(10.dp))
-                Button(
+                TapeActionText(
+                    label = if (saveState.isSaving) "Saving" else "Ignore transaction",
+                    palette = palette,
+                    color = palette.query,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !saveState.isSaving,
                     onClick = onIgnore
-                ) {
-                    Text(if (saveState.isSaving) "Saving" else "Ignore transaction")
-                }
+                )
             }
         }
         AnimatedVisibility(visible = editing) {
-            Column(modifier = Modifier.padding(top = 12.dp)) {
-                OutlinedTextField(
+            Column(
+                modifier = Modifier
+                    .padding(top = 12.dp)
+                    .border(1.dp, palette.rule)
+                    .padding(12.dp)
+            ) {
+                Text(
+                    text = "RESTAMP",
+                    color = palette.inkFaint,
+                    fontFamily = SortedTapeFontFamily,
+                    fontSize = 9.sp,
+                    letterSpacing = 1.8.sp
+                )
+                AddInputLine(
+                    label = "MERCHANT",
                     value = merchant,
                     onValueChange = { merchant = it.take(48) },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Merchant") },
-                    singleLine = true
+                    placeholder = "NAME",
+                    palette = palette
                 )
-                Spacer(modifier = Modifier.height(10.dp))
-                OutlinedTextField(
+                AddInputLine(
+                    label = "TAG",
                     value = miscCategory,
                     onValueChange = { miscCategory = it.take(36) },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Merchant tag") },
-                    singleLine = true
+                    placeholder = "MERCHANT TAG",
+                    palette = palette
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                ChoiceRail(
-                    title = "Category",
-                    choices = categories,
+                AddSectionLabel("CATEGORY", palette)
+                AddStampRail(
+                    stamps = categories.map { it.uppercase(Locale.US) },
                     selected = category,
+                    palette = palette,
+                    selectedColor = palette.amber,
                     onSelected = { selected ->
-                        category = selected
-                        if (selected == "Investment") transactionType = TransactionType.INVESTMENT
-                        if (selected == "Transfer") transactionType = TransactionType.TRANSFER
+                        category = selected.lowercase(Locale.US).replaceFirstChar { it.titlecase(Locale.US) }
+                        if (category == "Investment") transactionType = TransactionType.INVESTMENT
+                        if (category == "Transfer") transactionType = TransactionType.TRANSFER
                     }
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                ChoiceRail(
-                    title = "Type",
-                    choices = transactionTypes.map { it.displayName() },
+                AddSectionLabel("TYPE", palette)
+                AddStampRail(
+                    stamps = transactionTypes.map { it.displayName().uppercase(Locale.US) },
                     selected = transactionType.displayName(),
+                    palette = palette,
+                    selectedColor = palette.credit,
                     onSelected = { selected ->
-                        transactionType = transactionTypes.first { it.displayName() == selected }
+                        transactionType = transactionTypes.first { it.displayName().equals(selected, ignoreCase = true) }
                         category = when (transactionType) {
                             TransactionType.INVESTMENT -> "Investment"
                             TransactionType.TRANSFER -> "Transfer"
@@ -9597,15 +10253,19 @@ private fun TransactionDetail(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    SelectableChip(
-                        label = "Remember",
+                    AddStamp(
+                        text = "REMEMBER",
                         selected = rememberRule,
+                        palette = palette,
+                        color = palette.amber,
                         modifier = Modifier.weight(1f),
                         onClick = { rememberRule = true }
                     )
-                    SelectableChip(
-                        label = "This only",
+                    AddStamp(
+                        text = "THIS ONLY",
                         selected = !rememberRule,
+                        palette = palette,
+                        color = palette.amber,
                         modifier = Modifier.weight(1f),
                         onClick = { rememberRule = false }
                     )
@@ -9613,18 +10273,21 @@ private fun TransactionDetail(
                 if (statusText != null) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = statusText,
+                        text = statusText.uppercase(Locale.US),
                         color = if (validationError == null && saveState.error == null) {
-                            MaterialTheme.colorScheme.primary
+                            palette.amber
                         } else {
-                            Color(0xFFFF8E8E)
+                            palette.query
                         },
-                        fontSize = 13.sp,
-                        letterSpacing = 0.sp
+                        fontFamily = SortedTapeFontFamily,
+                        fontSize = 9.sp,
+                        letterSpacing = 0.8.sp
                     )
                 }
                 Spacer(modifier = Modifier.height(14.dp))
-                Button(
+                TapeActionText(
+                    label = if (saveState.isSaving) "Saving" else "Save correction",
+                    palette = palette,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !saveState.isSaving,
                     onClick = {
@@ -9647,18 +10310,17 @@ private fun TransactionDetail(
                             )
                         }
                     }
-                ) {
-                    Text(if (saveState.isSaving) "Saving" else "Save correction")
-                }
+                )
             }
         }
         if (!editing && !confirmIgnore && statusText != null) {
             Spacer(modifier = Modifier.height(10.dp))
             Text(
-                text = statusText,
-                color = if (saveState.error == null) MaterialTheme.colorScheme.primary else Color(0xFFFF8E8E),
-                fontSize = 13.sp,
-                letterSpacing = 0.sp
+                text = statusText.uppercase(Locale.US),
+                color = if (saveState.error == null) palette.amber else palette.query,
+                fontFamily = SortedTapeFontFamily,
+                fontSize = 9.sp,
+                letterSpacing = 0.8.sp
             )
         }
     }

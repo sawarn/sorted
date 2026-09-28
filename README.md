@@ -1,148 +1,178 @@
 # Sorted
 
-Sorted is a private Android app for organizing personal transactions from SMS alerts.
+Sorted is a private Android app that turns transaction alerts into a local, inspectable money tape.
 
-The app reads transaction messages on the user's phone, extracts useful transaction details, and categorizes spending by merchant, category, and department. Everything stays on the device.
+It reads transaction SMS messages on the phone, can import Gmail transaction alerts with readonly access, parses useful money movement, and keeps the resulting ledger on the device. There is no Sorted account, no bank linking, and no financial data upload.
 
-## Basic Idea
+## What Sorted Is
 
-Many people receive transaction alerts through SMS, but those messages are messy and hard to review. Existing finance apps often feel too heavy, require account linking, collect data, or do not categorize transactions well.
+Most transaction alerts are useful but messy. They arrive as SMS or email fragments, mix spend with transfers and refunds, and make it hard to understand what actually happened in a month.
 
-Sorted should solve one focused problem:
+Sorted's job is focused:
 
-> Turn transaction messages into a clean, categorized, private spending feed.
+> Print a clean, categorized, private record of money movement from local sources.
 
-## Core Promise
+The app currently supports:
 
-- No cloud account required
-- No financial data uploaded
-- No bank linking
-- Data stored only on the user's device
-- Smooth, fast, minimal experience
+- SMS transaction import with local parsing
+- Gmail readonly import hooks for transaction alerts
+- Manual transaction capture
+- Merchant, category, and transaction type correction
+- Local saved rules for remembered corrections
+- Sort Inbox for uncertain or low-confidence lines
+- Monthly spend close-outs with held-out movement shown separately
+- Refund, reward, transfer, investment, and income separation from spend
+- Source health and local permission/source controls
+- Rule Center for saved merchant/category stamps
 
-## First Feature
+## Privacy Model
 
-The first version should focus only on transaction categorization.
+Sorted is designed as local-first personal finance software.
 
-Sorted should:
+- No cloud account is required.
+- No bank account linking is used.
+- Transaction data is stored locally on the Android device.
+- Corrections and learned rules are stored locally.
+- SMS parsing happens on device.
+- Debug feeds, SQLite exports, signing keys, OAuth secrets, and local SDK paths must not be committed.
 
-- Read transaction SMS messages
-- Detect real transactions
-- Extract amount, merchant, date, and transaction type
-- Categorize at merchant level
-- Categorize miscellaneous merchants
-- Assign department categories like Food, Utilities, Shopping, Transport, etc.
-- Allow users to manually add transactions
-- Allow users to correct categories
-- Remember corrections locally
+The repository intentionally ignores generated artifacts such as `*.db`, `debug-feed*.json`, `redacted*.json`, APKs, local Gradle state, `android/local.properties`, and secrets.
+
+## Design Language
+
+Sorted's governing design idea is:
+
+> Sorted is a private money tape.
+
+The UI should feel like a continuous local receipt: printed lines, stamps, amendments, source metadata, query marks, close-out totals, and tape indexes. It should not feel like a generic card dashboard.
+
+Important design rules:
+
+- Every important number should reveal the lines behind it.
+- Uncertainty should be visible and calm.
+- Transfers, investments, refunds, rewards, and income should be separated from spend.
+- Refunds are signals until matching is mature; do not silently net them out.
+- Rules are saved stamps.
+- Capture is adding a missing line.
+- Settings is local device, privacy, source, export, and permission control.
+
+Before changing user-facing UI, read:
+
+- `docs/design-philosophy.md`
+- `docs/design-section-scaffold.md`
+- `docs/ai-design-guidance.md`
+- `.codex/skills/sorted-design-philosophy/SKILL.md`
+
+Tracked standalone HTML files in the repo are design references for the tape language.
 
 ## Repository Structure
 
 ```text
-android/     Native Android prototype
-docs/        Product, parser, categorization, storage, and privacy notes
+android/     Android app written in Kotlin and Jetpack Compose
+docs/        Product, parser, categorization, privacy, and design notes
 prototype/   Early Kotlin parser prototype and fixtures
+review/      Design exploration references
 ```
 
-## Current Prototype
+## Android Project
 
-The Android prototype currently includes:
+- Package/application ID: `com.sorted.app`
+- Min SDK: 26
+- Target SDK: 36
+- Compile SDK: 36
+- UI: Jetpack Compose + Material 3 primitives, styled into the Sorted tape system
+- Persistence: local Android storage/SQLite through the app repository layer
 
-- Kotlin + Jetpack Compose UI
-- SMS permission flow
-- Local SMS import
-- Rule-based SMS parser
-- Merchant and department categorization
-- Local SQLite persistence
-- Monthly totals and merchant grouping
-- Gmail readonly import prototype hooks
-- Sort Inbox for uncertain transactions
-- Local correction rules and ignored transactions
-- Spend explanation screen for included and excluded money movement
-- Refund signals, recurring radar, source health, and rule center basics
-- Recent merchant suggestions for manual capture
+## Setup
 
-## Local Development
+Install the required tools:
 
-Open the Android project:
+- JDK 17 or newer
+- Android SDK with platform `android-36`
+- Android build tools for SDK 36
+- Gradle, because this repo currently does not include a Gradle wrapper
+- Android platform tools for `adb`
 
-```text
-Sorted/android
+On macOS with Homebrew, one working setup is:
+
+```bash
+brew install openjdk gradle android-commandlinetools android-platform-tools
 ```
 
-Build:
+Create `android/local.properties` with your SDK path:
+
+```properties
+sdk.dir=/Users/you/Library/Android/sdk
+```
+
+If you installed command line tools through Homebrew, the SDK path may be:
+
+```properties
+sdk.dir=/opt/homebrew/share/android-commandlinetools
+```
+
+Install SDK packages if needed:
+
+```bash
+sdkmanager "platforms;android-36" "build-tools;36.0.0"
+```
+
+## Build
+
+From the Android project directory:
 
 ```bash
 cd android
 gradle :app:assembleDebug
 ```
 
-Install on a connected Android device:
+If your JDK or SDK is not on the default path, export them first:
 
 ```bash
-adb install --user 0 -r app/build/outputs/apk/debug/app-debug.apk
+export JAVA_HOME=/opt/homebrew/opt/openjdk
+export PATH="$JAVA_HOME/bin:$PATH"
+export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
+gradle :app:assembleDebug
 ```
 
-Create your own ignored `android/local.properties` file with your Android SDK path:
+The debug APK is written to:
 
-```properties
-sdk.dir=/Users/you/Library/Android/sdk
+```text
+android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Design Direction
+## Install On A Device
 
-Sorted's design philosophy is:
+Connect a phone with USB debugging enabled:
 
-> Sorted is a private money tape.
+```bash
+adb devices
+```
 
-The app should feel like a continuous, local receipt of the user's money life. Transactions print as lines, categories and sources appear as stamps, corrections behave like amendments, and every important total can reveal the lines that created it.
+Install only for the default personal Android profile:
 
-Sorted should feel:
+```bash
+adb install --user 0 -r android/app/build/outputs/apk/debug/app-debug.apk
+```
 
-- Simple
-- Fast
-- Premium
-- Calm
-- Tactile
-- Inspectable
-- Privacy-first
+If you need to inspect Android profiles:
 
-The main screen should be the live monthly tape, not a complex dashboard. See `docs/design-philosophy.md`, `docs/design-section-scaffold.md`, and `docs/ai-design-guidance.md`.
+```bash
+adb shell pm list users
+adb shell pm list packages --user 0 com.sorted.app
+adb shell pm list packages --user 11 com.sorted.app
+```
 
-## Early MVP Boundary
+Avoid installing into a work profile unless you explicitly need to test that profile.
 
-Include:
+## Development Notes
 
-- Android app
-- Local storage
-- SMS-based transaction import
-- Manual transaction entry
-- Merchant/category correction
-- Basic monthly category view
-
-Avoid for now:
-
-- Login
-- Cloud sync
-- Bank account linking
-- Budgets
-- Investment tracking
-- Receipt scanning
-- AI chat
-- Multi-device sync
-
-## Privacy Boundary
-
-The repository intentionally excludes:
-
-- Pulled SQLite databases
-- Exported SMS/Gmail debug feeds
-- Android SDK local paths
-- Build outputs
-- Heap dumps
-- Signing keys and OAuth/secrets files
-
-Only sanitized examples and docs should be committed.
+- Keep UI changes aligned with the private money tape language.
+- Keep generated debug exports out of git.
+- Use sanitized fixtures only.
+- Do not commit `android/local.properties`, databases, APKs, secrets, keystores, or OAuth client files.
+- Run `gradle :app:assembleDebug` before pushing app changes.
 
 ## Working Tagline
 
