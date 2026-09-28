@@ -6,6 +6,8 @@ This repo contains a product-specific design philosophy. Before changing any use
 2. `docs/design-section-scaffold.md`
 3. `docs/ai-design-guidance.md`
 
+When the screen already exists as a bundled design HTML file, implement that file as drawn. Read `.codex/skills/sorted-design-html/SKILL.md` and extract the inner phone frame before editing. The thumbnail SVG in the wrapper is not the design.
+
 The governing concept is:
 
 > Sorted is Modern Finance Tape.

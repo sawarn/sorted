@@ -26,6 +26,8 @@ For product scope and roadmap context, also read:
 - `docs/feature-roadmap.md`
 - `docs/features.md`
 
+When a bundled design HTML file exists for the screen, follow `.codex/skills/sorted-design-html/SKILL.md` and implement the extracted phone frame as drawn. Do not implement from the wrapper thumbnail.
+
 ## Non-Negotiables
 
 - Home must be understood in three seconds.
