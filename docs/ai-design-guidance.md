@@ -15,13 +15,11 @@ Before changing any user-facing design, read:
 
 ## One Sentence To Preserve
 
-Sorted is a private money tape.
-
-Everything else follows from that.
+Sorted is **Modern Finance Tape**: a modern finance app on the surface, with private tape-like proof underneath.
 
 ## Current Product Shape
 
-Sorted is a privacy-first Android app for India. It reads transaction alerts locally, extracts transaction lines, categorizes them, and helps the user understand the month without uploading financial data or linking bank accounts.
+Sorted is a privacy-first Android app for India. It reads transaction alerts locally from SMS/Gmail, categorizes them, and helps the user understand the month without bank linking, login, cloud sync, or uploading financial data.
 
 The core promise is:
 
@@ -29,83 +27,155 @@ The core promise is:
 
 The north star is:
 
-> Every monthly total should be explainable from the tape.
+> A user understands the month in three seconds, and every number can be opened.
 
 ## Design Decisions Already Made
 
-- The governing concept is Tape.
-- Dispatch-style AI summaries are allowed, but they belong as a brief generated from the tape.
-- Merchant/category block layouts are allowed, but they must look like tape indexes, printed sections, or stamp ledgers.
-- The app should not become a generic dashboard.
-- Charts are secondary and should be transformed into tape-native forms when possible.
-- Rules are saved stamps.
-- Capture is adding a missing line.
-- Settings is device/privacy/source control for a local record.
+- Home must be glanceable before it is inspectable.
+- The tape metaphor is now material and proof, not visible jargon.
+- Light mode uses **Cardamom Press**.
+- Dark mode uses **Deep Ink**.
+- Amber/clay is reserved for review/action states.
+- Category bars are horizontal and restrained.
+- Donut charts, neon gradients, glass panels, and stacked dashboard cards are out.
+- Review uses plain language and a short finishable flow.
+- Transactions remain the source of truth.
+- Auto-sorting rules are learned from corrections.
 
 ## Invariants
 
 Do not violate these without explicit user direction:
 
-- Every important number should open evidence.
-- Uncertainty must remain visible.
-- Transfers and investments are held out, not hidden.
+- Every important number opens the transactions behind it.
+- Uncertainty must remain visible and calm.
+- Spending includes only spending.
+- Transfers, investments, refunds, rewards, and income are counted apart from spending.
 - Refunds are signals until matching is mature; do not silently net them out.
 - User corrections override parser/category defaults.
-- Learned rules should be inspectable.
+- Learned rules must be inspectable.
 - No bank-linking, login, or cloud-sync assumptions for MVP.
 
 ## UI Language
 
 Prefer:
 
-- Receipt tape.
-- Printed lines.
-- Day dividers.
-- Close-out total blocks.
-- Stamps.
-- Margins.
-- Amendments.
-- Source metadata.
-- Tape indexes.
+- Spent this month.
+- Payments.
+- Need review.
+- Top spending.
+- Recent spending.
+- Not counted.
+- Imports.
+- Edit transaction.
+- Auto-sorting rules.
+- Stays on this phone.
+
+Avoid in user-facing copy:
+
+- Lines.
+- Unstamped.
+- Query.
+- Ledger.
+- Close-out.
+- Restamp.
+- Held out.
+- Source health.
+- Reclassify.
+
+Use sentence case for normal labels. Use uppercase only for tiny stamps such as `REVIEW`, and use those sparingly.
+
+## Visual Language
+
+Prefer:
+
+- Modern finance layout.
+- Large readable numbers.
+- Warm paper/sage surfaces.
+- Deep pine/ink text.
+- Thin rules.
+- Subtle tape bands.
+- Small amber review stamps.
+- Horizontal share bars.
+- Tabular amounts.
+- One-handed spacing.
 
 Avoid:
 
-- Generic cards as the primary pattern.
-- Donut charts and decorative dashboard widgets.
-- Finance-bro visuals.
-- Crypto-style glowing dashboards.
-- Overly literal receipt gimmicks.
+- Dense receipt cosplay.
+- Heavy paper texture.
+- Torn edges as decoration.
+- Typewriter/terminal styling.
+- Generic card dashboards.
+- Decorative charts.
 - Color-only meaning.
+- Red warning states for ordinary uncertainty.
+
+## Palette
+
+Use semantic roles, not raw colors scattered through UI code.
+
+Light mode: **Cardamom Press**
+
+- App background: `#F6F8F2`
+- Main surface: `#F6F8F2`
+- Section band: `#E9EFE2`
+- Primary text: `#17241E`
+- Muted text: `#566A5E`
+- Rule: `rgba(23,36,30,0.13)`
+- Faint rule: `rgba(23,36,30,0.09)`
+- Review: `#A9522A`
+- Review dot: `#C0642F`
+- Credit/refund: `#4E8471`
+
+Dark mode: **Deep Ink**
+
+- App background: `#05110F`
+- Main surface: `#0D2522`
+- Section band: `#123330`
+- Primary text: `#E7F0EC`
+- Muted text: `#93AAA4`
+- Rule: `rgba(231,240,236,0.13)`
+- Faint rule: `rgba(231,240,236,0.08)`
+- Review: `#D79A3F`
+- Credit/refund: `#7FB3A4`
 
 ## Section Mapping
 
-- Home: live monthly tape.
-- Insights: indexed and explained tape.
-- Capture: print a missing line.
-- Rules: saved stamps and learned printing rules.
-- Settings: local device, privacy, source, export, and permission controls.
+- Home: three-second month understanding.
+- Review: short pile of transactions needing user action.
+- Insights: categories, merchants, changes, recurring, money back, imports.
+- Add: amount-first manual transaction entry.
+- Transaction Detail: original alert, editable categorization, trust surface.
+- Settings: privacy, imports, rules, export/delete, appearance.
+- Auto-sorting Rules: learned corrections in the user's words.
 
 ## Implementation Notes For Android
 
 When implementing in Jetpack Compose:
 
 - Keep transaction rows virtualized with lazy lists.
-- Use tabular numerals for amounts where the font supports them.
-- Style stamps as accessible text components, not decorative images.
-- Give stamps and source marks semantic labels.
-- Keep texture subtle or avoid it until performance and readability are proven.
+- Use tabular numerals where possible.
+- Keep Home copy minimal.
+- Put audit/source/parser details behind taps.
+- Style review stamps as accessible text components.
+- Give review marks semantic labels.
+- Keep texture subtle until readability and performance are proven.
 - Prefer deterministic local UI states over magical AI claims.
-- Ensure dark mode is first-class.
+- Ensure dark mode is first-class, not an inverted afterthought.
+- Avoid adding new color literals when a semantic palette token should exist.
 
 ## Design Review Checklist
 
-Before considering a design complete, check:
+Before considering design complete, check:
 
-- Does the screen still feel like part of the private money tape?
-- Does each total expose its source lines?
-- Are query/review states visible and calm?
-- Are held-out rows explained?
-- Can the user understand what Sorted learned?
-- Does the UI work with only a few transactions?
-- Does it still work with thousands?
-- Is the metaphor helping comprehension rather than decorating it?
+- Can the user understand the screen in three seconds?
+- Is the biggest number obvious?
+- Does every total/count/percent open its transactions?
+- Does spending contain only spending?
+- Is uncertainty visible without alarm?
+- Is amber used only for review/action?
+- Is the copy plain enough for a normal user?
+- Are raw alert/parser/source details out of the first glance?
+- Does it work with a few transactions and thousands?
+- Does it feel modern first and tape-like underneath?
+- Does it still feel local and private?

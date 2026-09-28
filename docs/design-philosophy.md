@@ -2,189 +2,302 @@
 
 ## Core Thesis
 
-Sorted is a private money tape.
+Sorted is **Modern Finance Tape**.
 
-The app should feel like a continuous, local receipt of the user's money life. Transaction alerts arrive on the phone, are parsed into lines, stamped with category and source, and printed back as an inspectable monthly tape. A total is never just a dashboard number. It is a close-out block derived from visible lines. A correction is not a silent database edit. It is an amendment or re-stamp. A source is not backend plumbing. It is receipt metadata.
+Sorted should feel like a clean modern finance app on the surface and a private money tape underneath. The surface answers fast. The tape lets the user check any number down to the transaction that made it.
 
-The design should make one promise repeatedly:
+The user should understand Home in three seconds:
 
-> Every important number can show the lines that created it.
+- How much did I spend?
+- Where did it go?
+- What needs review?
+- What happened recently?
 
-## Principles
+Three commitments never bend:
 
-### 1. Nothing Is Asserted
+- **Transactions are the truth.** Every total is a sum of transactions the user can open and read.
+- **Only spending is spending.** Transfers, investments, refunds, rewards, and income are counted apart from spending, never inside it.
+- **Doubt is shown calmly.** When Sorted is unsure, it says so in one amber mark and offers one tap to fix it. It never guesses quietly and never panics.
 
-Every printed total must be able to open the included lines, excluded lines, uncertain lines, and source coverage behind it. If the app cannot show the evidence for a number, it should not print the number.
+## Product Personality
 
-### 2. Append, Amend, Re-stamp
+Sorted is the quiet, careful friend who keeps good records.
 
-Corrections should feel like amendments to a record. The current value can be clean, but the UI should preserve trust by making clear when a line was corrected, learned from, ignored, or held out.
-
-### 3. Doubt Is Printed
-
-Unparsed messages, low-confidence categories, possible duplicates, raw UPI handles, Gmail-only high-value rows, and unclear money movement must remain visible. Sorted should ask calmly rather than pretend.
-
-### 4. Held Out, Not Hidden
-
-Transfers, investments, refunds, rewards, income, and other non-spend movement should not disappear. They should print in separate sections with clear reasons so users understand why they are excluded from spend.
-
-### 5. The Tape Is The Source Of Truth
-
-Home, Insights, Capture, Rules, and Settings can have different structures, but they should all feel like different ways of reading, indexing, printing, or controlling the same tape.
-
-### 6. Private By Material
-
-The product should feel local, inspectable, and owned by the user. Receipt paper, ink, stamps, margins, ruled lines, source marks, and printed metadata support the privacy story better than abstract dashboards.
-
-### 7. Premium Through Restraint
-
-The tape metaphor should be tactile but not childish. Avoid cartoon skeuomorphism. Use exact spacing, high-quality type, tabular numbers, quiet motion, and disciplined marks.
-
-## Emotional Target
-
-Sorted should feel:
+It is:
 
 - Calm
+- Precise
+- Plain-spoken
 - Private
-- Exact
-- Tactile
-- Trustworthy
-- Slightly retro
-- Quietly intelligent
+- Checkable
+- One-handed
+- Fast to read
+- Patient with mistakes
 
-It should not feel:
+It is not:
 
-- Like a bank app
-- Like a crypto dashboard
-- Like a budget tracker
-- Like a generic analytics dashboard
-- Like a gamified expense toy
-- Like a receipt gimmick
+- Playful
+- Gamified
+- Scolding
+- Chatty
+- Clever for its own sake
+- Dense
+- Accountant-flavoured
+- Begging for attention
 
-## Visual Language
+## Visual Principles
 
-### Overall Aesthetic
+### 1. One Number Owns The Screen
 
-Sorted should look like a premium printed record rendered on a phone. The base language is receipt tape plus editorial ledger: lines, day dividers, stamps, close-out blocks, small metadata, and clear totals.
+The month's spend is the largest thing on Home by a wide margin. Nothing competes with it.
 
-The app can use blocks and grouped sections, especially in Insights and Rules, but those blocks should feel like printed sections, index slips, folded tape, or stamped panels rather than floating dashboard cards.
+### 2. Rules Instead Of Boxes
 
-### Dark Mode
+Sections are separated by hairlines, paper tone changes, and spacing rather than stacks of rounded cards.
 
-Dark mode is the primary personality:
+### 3. Printed Rhythm
 
-- Ground: near black or deep ink-blue-black.
-- Tape: low-contrast charcoal, warm off-black, or subtle paper strip when needed.
-- Ink: warm off-white.
-- Accent: amber/yellow spectrum for active totals, review marks, and important stamps.
-- Secondary marks: muted green, rust, violet, and blue only when they carry meaning.
+Rows repeat at a steady height with aligned numbers, so the eye scans down a column like a printed strip.
 
-Dark mode should feel like a receipt on a dark desk, not like neon fintech.
+### 4. Paper, Lightly
 
-### Light Mode
+Use warm paper surfaces, faint ruled lines, and small tape cues. Texture stays subtle and functional, never decorative.
 
-Light mode can feel warmer and more physical:
+### 5. Amber Is The Only Interruption
 
-- Ground: warm paper, not sterile white.
-- Tape: off-white or soft ivory.
-- Ink: deep brown-black or charcoal.
-- Accent: amber/rust.
-- Category colors can be more expressive, but never become the only source of meaning.
+Amber means "needs review" or a direct action related to review. It appears sparingly and should not become a general highlight color.
 
-Light mode should feel like paper in daylight, not like a colorful budgeting app.
+### 6. Bars, Not Pies
 
-### Typography
+Share of spending is a plain horizontal bar with the percentage in type. Avoid donuts, radial charts, neon gradients, and decorative analytics.
 
-Use a clean, highly readable sans for most UI. Pair it with tabular numeric styling everywhere amounts appear. A monospaced or mono-adjacent style may be used for receipt metadata, source rows, rule patterns, and printed summaries, but avoid turning the entire app into a terminal.
+### 7. Thumb-First Layout
+
+The most-used actions and first correction path must be reachable one-handed. Primary actions should sit in the lower half when possible.
+
+## UX Principles
+
+### 1. Every Total Is A Door
+
+Tapping any amount, percentage, or count opens the transactions behind it, already filtered.
+
+### 2. One Tap To Correct
+
+Wrong category, wrong amount, not spending, or unclear merchant should be fixable from the row itself. Totals update in place after correction.
+
+### 3. Review Is A Short Pile
+
+Sorted shows how many transactions need review and makes the pile feel finishable. Finishing review should leave the screen calm and empty.
+
+### 4. Nothing Disappears Silently
+
+Anything not counted as spending remains visible under "Not counted" with a short reason.
+
+### 5. Teach By Doing
+
+Fixing a transaction may offer to make an auto-sorting rule. Rules come from real corrections, not blank rule-builder work.
+
+### 6. Privacy Is Stated Once, Gently
+
+Use a quiet line such as "Stays on this phone" and a clear Settings page. Do not plaster privacy badges everywhere.
+
+### 7. Empty States Still Answer The Question
+
+No payments yet, imports paused, permission missing, or Gmail not connected should explain what is known, what is missing, and the one action that fixes it.
+
+## Information Hierarchy
+
+Home is ordered by four questions, always:
+
+| Rank | Question | What Shows | Weight |
+| --- | --- | --- | --- |
+| 1 | How much did I spend? | Spent this month, payment count | Largest type |
+| 2 | What needs review? | Amber stamp with count | Small but visible |
+| 3 | Where did it go? | Top spending, three bars | Mid-weight rows |
+| 4 | What happened recently? | Recent spending rows | Scan list |
+| 5 | Is anything left out? | Not counted, one muted line | Secondary |
+
+Below the fold, Home should repeat the same pattern rather than introduce new concepts.
+
+## Language Rules
+
+Use sentence case, short phrases, and familiar money words. If a word needs explaining, it is the wrong word.
+
+| Say | Never Say | Why |
+| --- | --- | --- |
+| Spent this month | Total outflow, debits | Money words, not statement words |
+| Payments | Lines, entries, records | A payment is a thing that happened |
+| Need review | Unstamped, query, pending action | Says who acts and why |
+| Not counted | Held out, excluded, out of scope | Plain and neutral |
+| Top spending | Category breakdown, spend mix | Everyday phrasing |
+| Recent spending | Latest activity feed | Matches the section |
+| Imports | Sources, source health, sync | Describes what the user set up |
+| Edit transaction | Amend, restamp, reclassify | Ordinary app language |
+| Auto-sorting rules | Ledger rules, mapping logic | Says what it does |
+| Stays on this phone | On-device, zero-knowledge, E2E | Privacy in believable words |
+
+Shape rules:
+
+- Section labels are one or two plain words.
+- Buttons are verbs: Review, Edit, Add, Keep, Not spending.
+- Amounts on Home always carry `₹` and thousands separators, without decimals.
+- Uncertainty fits one calm line: "Amount unclear", "New place - which category?", "Looks like a transfer".
+- Never use an error tone for ordinary uncertainty.
+
+## Color And Material Direction
+
+Sorted uses **Cardamom Press** in light mode and **Deep Ink** in dark mode.
+
+### Light: Cardamom Press
+
+- App background: pale sage paper.
+- Main surface: soft green-white.
+- Section band: muted sage.
+- Primary ink: deep pine.
+- Muted text: grey-sage.
+- Review/accent: clay amber.
+- Category bars: pine, muted teal, clay, and restrained secondaries.
+- Credit/refund: calm green, separate from review.
+
+Implementation tokens:
+
+```text
+appBackground   #F6F8F2
+mainSurface     #F6F8F2
+sectionBand     #E9EFE2
+primaryText     #17241E
+mutedText       #566A5E
+softFill        rgba(23,36,30,0.07)
+rule            rgba(23,36,30,0.13)
+faintRule       rgba(23,36,30,0.09)
+review          #A9522A
+reviewDot       #C0642F
+categoryOne     #17241E
+categoryTwo     #4E8471
+categoryThree   #A9522A
+credit          #4E8471
+```
+
+### Dark: Deep Ink
+
+- App background: near-black green ink.
+- Main surface: deep ink green.
+- Section band: darker teal-green.
+- Primary ink: cool paper.
+- Muted text: desaturated sage-blue.
+- Review/accent: warm amber.
+- Category bars: cool paper, muted teal, amber, and restrained secondaries.
+- Credit/refund: soft teal-green.
+
+Implementation tokens:
+
+```text
+appBackground   #05110F
+mainSurface     #0D2522
+sectionBand     #123330
+primaryText     #E7F0EC
+mutedText       #93AAA4
+softFill        rgba(231,240,236,0.08)
+rule            rgba(231,240,236,0.13)
+faintRule       rgba(231,240,236,0.08)
+review          #D79A3F
+reviewDot       #D79A3F
+categoryOne     #E7F0EC
+categoryTwo     #7FB3A4
+categoryThree   #D79A3F
+credit          #7FB3A4
+```
+
+Material rules:
+
+- Ink carries every number.
+- Muted carries labels and metadata.
+- Amber carries review only.
+- Green appears only on money coming back: refunds, rewards, income.
+- No shadows except a single soft shadow on a sheet that slides over content.
+- No gradients, glass, glow, or crypto-dashboard light.
+- Body text must meet readable contrast in light and dark modes.
+
+## Typography Direction
+
+Use one clean modern sans family throughout. Amounts use tabular numerals.
 
 Recommended hierarchy:
 
-- Month total: large, tabular, calm.
-- Section totals: medium, tabular.
-- Transaction merchant: readable body size.
-- Metadata and stamps: small, uppercase or compact.
-- Raw SMS excerpts: mono or mono-adjacent, subdued.
+- Hero amount: very large, 600 weight, tight line height.
+- Screen title: medium, calm, readable.
+- Row title: merchant/category name, 500 weight.
+- Row amount: right-aligned, 600 weight, tabular.
+- Meta: small muted text.
+- Section label: small, tracked, restrained.
+- Review stamp: small uppercase, amber, used sparingly.
 
-### Number Styling
+Avoid turning the whole app into a terminal. Monospace belongs only in raw alert text or debug-like source views.
 
-Numbers are the product's promises. They should align, scan, and open.
+## Component System
 
-Rules:
+The core components:
 
-- Use tabular numerals.
-- Right-align amounts in transaction lines.
-- Keep currency formatting consistent.
-- Never show a total without a tap target or drilldown path.
-- Use signs and labels for credits, refunds, and held-out rows.
+- **Month header:** wordmark plus month selector.
+- **Hero total:** label, big amount, payment count. One per screen, tappable.
+- **Review stamp:** dashed amber outline, dot, count. Hidden at zero.
+- **Share bar row:** category, 8px bar, percent.
+- **Transaction row:** initial or icon, merchant, category/date subtitle, amount.
+- **Tape band:** full-width section band with hairlines. Use sparingly.
+- **Section label:** small plain label above a list.
+- **Count line:** Counted, Not counted, Need review.
+- **Choice sheet:** bottom sheet with plain options.
+- **Rule card:** "Swiggy -> Food", count of payments.
+- **Bottom bar:** plain words, no badges unless review truly requires it.
 
-### Texture
-
-Texture should be subtle and functional:
-
-- Very light paper grain is acceptable.
-- Faint ruled lines are useful.
-- Perforation, torn edges, and thermal-printer effects should be used sparingly.
-- Avoid decorative distress that harms readability.
-
-The metaphor should support trust, not perform nostalgia.
-
-## Marks And Stamps
-
-Sorted should use stamps instead of generic chips wherever possible.
-
-Stamp types:
-
-- Category stamp: FOOD, SHOPPING, BILLS, TRANSPORT.
-- Type stamp: SPEND, MOVED, INVESTED, REFUND, REWARD, INCOME.
-- Source stamp: SMS, GMAIL, MANUAL.
-- Confidence stamp: CHECKED, QUERY, FALLBACK, DUPLICATE?.
-- Rule stamp: LEARNED, DEFAULT, USER.
-- State stamp: HELD OUT, IGNORED, AMENDED.
-
-Stamp rules:
-
-- Stamps must remain legible at small sizes.
-- Stamps should not rely on color alone.
-- Query and review states should be calm, not alarming.
-- Learned/user-created stamps should feel owned and inspectable.
+If a screen needs many more component types, simplify the screen.
 
 ## Motion
 
-Motion should feel like printing, sliding, stamping, folding, or revealing.
+Motion should be quiet and functional:
 
-Use:
+- Sheets rise.
+- Lists cross-fade.
+- A cleared review fades its stamp out.
+- Added transactions insert into the list.
+- Month changes should feel like replacing a statement, not spinning a carousel.
 
-- Short expansion for tape sections.
-- Small stamp press for corrections.
-- Gentle line insertion when a transaction is added.
-- Vertical tape movement for month switching.
-- Subtle haptics for print, stamp, undo, and section close-out.
-
-Avoid:
-
-- Bouncy finance-app animations.
-- Floating particle backgrounds as default UI.
-- Motion that makes the tape feel unstable.
+Use 200-300ms ease-out motion. Nothing bounces.
 
 ## Anti-Patterns
 
-Avoid these unless there is a very strong product reason:
+Avoid:
 
-- Dashboard cards as the default layout.
-- Donut charts, large pie charts, or decorative graphs above the fold.
-- Totals without evidence.
-- Hidden exclusions.
-- Red warning styling for ordinary uncertainty.
-- Generic "Insights" widgets that could exist in any finance app.
-- Overly literal receipt skeuomorphism that reduces readability.
+- Donut charts.
+- Stacked generic dashboard cards.
+- Neon gradients.
+- Glass panels.
+- Mascots, streaks, or scores.
+- A total the user cannot open.
+- A number without transactions behind it.
+- Mixing transfers, investments, refunds, rewards, or income into spending.
+- Red for ordinary uncertainty.
+- More than two amber review marks on one screen.
+- Any word from the "Never Say" column.
+- Explaining the app on the app.
+- Heavy paper texture, torn edges, coffee stains, typewriter type.
+- Silent auto-fixes.
 
-## Core Test
+## Design Review Checklist
 
-For any new Sorted screen or component, ask:
+A screen ships when every line is true:
 
-1. Could this plausibly be printed, stamped, indexed, or folded from a private money tape?
-2. Does every important number open the lines behind it?
-3. Are uncertainty and exclusions visible?
-4. Does the screen feel local and inspectable rather than cloud-generated and magical?
-
-If the answer is no, the design has drifted.
+- It answers its question in three seconds.
+- One number is clearly the biggest thing on screen when the screen is summary-led.
+- Every total, count, and percent opens its transactions.
+- Spending holds only spending.
+- Amber appears at most twice and only for review.
+- Uncertainty is stated in one calm line with one tap to fix.
+- No word from the "Never Say" column appears.
+- Labels use plain words.
+- Primary actions are reachable and at least 44px.
+- Tape cues are present but subtle.
+- Body text passes contrast in light and dark.
+- Nothing implies a server, account, or cloud sync.
+- Empty, loading, and paused states still answer the screen's core question.
+- The screen can be used one-handed on a train.

@@ -1,397 +1,363 @@
 # Sorted Section Scaffold
 
-This document applies the private money tape philosophy to the main app sections.
+This document applies [Modern Finance Tape](design-philosophy.md) to each main app area.
 
-Read this with [design-philosophy.md](design-philosophy.md).
+The product should read like a modern finance app first. Tape cues remain underneath as proof, rhythm, and material.
 
 ## Navigation
 
-Sorted has five primary sections:
+Sorted navigation should be plain, one-handed, and Android-friendly.
+
+Candidate primary destinations:
 
 - Home
 - Insights
-- Capture
-- Rules
+- Add
+- Review
 - Settings
 
-Use Android-friendly one-handed navigation. A bottom bar is acceptable, but the visual language should feel like a tape index rather than a generic app tab strip. Settings can remain a top-right control if product simplicity benefits from keeping the bottom bar to four items, but Rules should have a clear home once the feature becomes important.
+Rules may live inside Settings as **Auto-sorting rules** until they become important enough for a primary destination. Avoid novelty labels in navigation.
 
-Navigation labels should be plain. Avoid novelty names in the actual UI unless they improve comprehension.
+## Home
 
-## Home: The Live Monthly Tape
-
-Home is the current month printed as a tape.
+Home is the user's month at a glance.
 
 ### Purpose
 
-Home answers:
+Home answers four questions in order:
 
-- What happened this month?
-- What is counted as spend?
-- What was held out?
-- What does Sorted need me to review?
-- Which lines created this number?
+- How much did I spend?
+- Where did it go?
+- What needs review?
+- What happened recently?
 
 ### Structure
 
-Suggested order:
+Recommended order:
 
-1. Month selector and source status.
-2. Printed monthly spend close-out block.
-3. Review/query strip if anything needs attention.
-4. Day-grouped transaction tape.
-5. Held-out sections for transfers, investments, refunds, rewards, and income.
-6. Source footer for SMS, Gmail, Manual, last scan, skipped/unparsed count.
+1. Header with Sorted and month selector.
+2. Hero: `Spent this month`, amount, payment count.
+3. Amber review stamp if anything needs review.
+4. Top spending band with three category bars.
+5. Recent spending rows.
+6. Muted `Not counted` line if transfers, investments, refunds, rewards, or income exist.
+7. Quiet privacy/import note only when useful.
 
-### Month Total
+### Hero
 
-The monthly spend total should feel like a printed close-out block:
+The spend amount owns the screen. It should be the largest visual element and should open the spending breakdown.
 
-- Large tabular amount.
-- Included count.
-- Held-out total.
-- Review risk amount.
-- Source coverage.
-- Tap opens the "why this number" breakdown.
+Show:
 
-Do not use a dashboard hero card. The close-out block is part of the tape.
+- `Spent this month`
+- `₹42,380`
+- `123 payments`
 
-### Transaction Line
+Do not show audit rows above the fold. Details such as counted, not counted, imports, and review risk belong behind taps or lower on the screen.
 
-Each line should include:
+### Top Spending
 
-- Merchant or payee.
-- Amount.
-- Direction or type.
-- Category stamp.
-- Source stamp.
-- Date/time or day grouping.
-- Review/confidence mark if needed.
+Use three share bar rows:
 
-Optional details expand inline:
+- Category name
+- Horizontal bar
+- Percent
 
-- Raw SMS/email excerpt.
-- Parser notes.
-- Correction history.
-- Similar rule applied.
-- Included/excluded reason.
+Bars are for scanning, not decoration. They open category transactions.
 
-### Day Grouping
+### Recent Spending
 
-Day dividers should feel like printed rules:
+Rows should be modern and readable:
 
-- Date label.
-- Day spend total.
-- Count.
-- Optional held-out count.
+- Initial or simple merchant mark.
+- Merchant.
+- Category and date subtitle.
+- Amount on the right.
+- Small `REVIEW` stamp only if needed.
 
-### Included vs Excluded
+Avoid showing source, parser notes, confidence, or raw alert text on Home unless the row needs review.
 
-Spend lines print normally. Held-out lines remain visible and carry a reason:
+### Review
 
-- HELD OUT - TRANSFER
-- HELD OUT - INVESTMENT
-- REFUND SIGNAL
-- REWARD
-- INCOME
+Review appears as one amber action, for example:
 
-Do not silently remove non-spend movement from Home.
+- `4 need review`
 
-### Uncertain Transactions
+It opens Review. If there are no review items, it disappears.
 
-Uncertain rows should print as query lines:
+### Not Counted
 
-- QUERY stamp.
-- Plain reason.
-- Suggested action.
-- Tap opens correction.
+Transfers, investments, refunds, rewards, and income are not spending. They should remain visible, but not compete with the hero.
 
-Examples:
+Use:
 
-- Merchant unread.
-- Category fallback.
-- Spend or transfer?
-- Possible duplicate.
-- Gmail-only high value.
+- `Not counted`
+- A count or amount.
+- A tap into the supporting transactions.
+
+Avoid old terms such as `held out`, `excluded`, or `lines`.
 
 ### Empty State
 
-The empty state should look like an unprinted tape:
+Empty Home should still answer the four questions:
 
-- Explain that no local transaction lines have been found yet.
-- Offer SMS permission or manual capture.
-- Reassure the user that data stays on device.
+- Spend is zero or unknown.
+- No payments found yet.
+- One action: connect SMS/Gmail or add manually.
+- Privacy line: `Stays on this phone`.
 
-### Heavy-Data State
+## Review
 
-For large histories:
+Review is a short, calm correction flow.
 
-- Keep the current month fast.
-- Collapse older days by default when needed.
-- Provide search and month jump.
-- Avoid rendering every expanded detail at once.
+### Purpose
 
-## Insights: The Tape Indexed And Explained
+Review answers:
 
-Insights should not become a chart dashboard. It is the tape indexed by question.
+- Which transactions need the user?
+- Why?
+- What is the quickest fix?
+
+### Structure
+
+Prefer one transaction at a time or a short finishable list.
+
+Each review item shows:
+
+- Merchant.
+- Amount.
+- Category/date subtitle.
+- One reason: `Amount unclear`, `New place - which category?`, `Looks like a transfer`.
+- Two or three choices: category, `Not spending`, `Keep as is`.
+
+Progress can read `3 of 4`.
+
+### Completion
+
+When review is complete:
+
+- Show `Nothing needs review`.
+- Show the current month's spend below it.
+- Offer no extra ceremony.
+
+## Insights
+
+Insights is where the user explores the month.
 
 ### Purpose
 
 Insights answers:
 
-- Where did spend concentrate?
-- Which merchants mattered?
 - Which categories mattered?
-- What repeated?
-- What was refunded or credited?
-- How healthy are the sources?
-- What story does the month tell?
+- Which merchants mattered?
+- What changed from last month?
+- What repeats?
+- What money came back?
+- What was not counted?
+- Are imports healthy?
 
 ### Structure
 
-Use printed index blocks, not floating cards:
+Use modern finance sections with tape-native proof:
 
-- Merchant index.
-- Category index.
-- Recurring index.
-- Refund signals.
-- Source health.
-- Month story or AI brief.
+- All categories as share bars.
+- Top merchants as ranked rows.
+- Spending by month as a simple bar strip.
+- Biggest changes as short facts.
+- Recurring payments.
+- Refunds/rewards/income as money-back sections.
+- Imports as a coverage section.
 
-Each block must open its supporting transaction lines.
+Every amount, percent, and count opens filtered transactions.
 
-### Merchant Views
+### Charts
 
-Merchant intelligence can borrow the structural idea of merchant blocks or tiles, but the look should remain tape-native:
+Use horizontal bars and strips. Avoid donuts and decorative chart widgets.
 
-- Merchant name as a printed heading.
-- Spend total.
-- Count.
-- Largest line.
-- Average line.
-- Source split.
-- Category/type stamps.
-- Recent lines.
-- Review-needed lines.
+### Language
 
-### Category Views
+Use:
 
-Category pages should show:
+- `Categories`
+- `Merchants`
+- `Recurring`
+- `Changed`
+- `Money back`
+- `Not counted`
+- `Imports`
 
-- Category total.
-- Merchant split.
-- Payment mode split.
-- Source split.
-- Included lines.
-- Query lines.
+Avoid:
 
-Use printed strips, ranked ledgers, or proportional rules instead of generic charts.
+- `Where it went`
+- `Who took it`
+- `Held`
+- `Source health`
+- `Indexed`
 
-### Recurring Payments
+## Transaction Detail
 
-Recurring should feel like a repeated print pattern:
+Transaction Detail is where trust is earned.
 
+### Purpose
+
+Transaction Detail answers:
+
+- What happened?
+- Why did Sorted categorize it this way?
+- What can I fix?
+- Where did it come from?
+
+### Structure
+
+Show:
+
+- Amount.
 - Merchant.
-- Expected amount.
-- Frequency.
-- Last seen.
-- Confidence.
-- Lines behind the pattern.
-
-### Refund Signals
-
-Refunds should be shown as signals until matching is mature.
-
-Important rule:
-
-- Do not automatically reduce spend unless refund matching is proven.
-- Print gross spend and refund signals separately.
-- If a refund is matched later, show the match and the lines.
-
-### Source Health
-
-Source health is receipt metadata:
-
-- SMS parsed.
-- Gmail parsed.
-- Manual lines.
-- Unparsed/skipped lines.
-- Last import.
-- Review-needed by source.
-
-Coverage gaps should be visible, not hidden in settings.
-
-### Month Story / AI Brief
-
-Dispatch-style prose belongs here or as a Home-adjacent summary, not as the whole app philosophy.
-
-The brief should:
-
-- Be clearly generated from the tape.
-- Keep every number tappable.
-- Mark itself as a NOTE or BRIEF, not as the source record.
-- Avoid claims when the underlying lines are uncertain.
-- Stay short enough to remain useful.
-
-## Capture: Adding A Line
-
-Capture is not a generic form. It is a blank line on the tape.
-
-### Purpose
-
-Capture answers:
-
-- What line is missing?
-- Where should it print?
-- Which stamps should it carry?
-
-### Structure
-
-The editor should resemble the final line:
-
-- Amount first.
-- Merchant/payee.
 - Date.
-- Type stamp.
-- Category stamp.
-- Source fixed to MANUAL.
-- Optional note.
+- Category.
+- Account/payment mode if known.
+- Import source.
+- Original alert text on a subtle tape strip.
 
-The preview is the form.
+Actions:
 
-### Fast Add
+- `Edit transaction`
+- `Not spending`
+- `Make a rule`
 
-Manual capture should support:
+If edited, show `Edited by you`.
 
-- One-field amount entry.
-- Recent merchants.
-- Recent categories.
-- Repeat last transaction.
-- Suggested type from category.
-- One-tap learned stamp selection.
+Avoid:
 
-### Commit
+- `Amend`
+- `Restamp`
+- `Line`
 
-Adding a transaction should insert a line into the tape:
+## Add
 
-- The new line slides into chronological position.
-- The day subtotal and month total reprint.
-- A MANUAL stamp appears.
-- Undo is available briefly.
-
-## Rules: Saved Stamps
-
-Rules are the stamps Sorted has learned.
+Add is for cash and transactions no alert covers.
 
 ### Purpose
 
-Rules answers:
+Add answers:
 
-- What has Sorted learned from me?
-- Which merchant/category/type stamps are automatic?
-- What impact does a rule have?
-- Can I edit or disable it?
+- What did I spend?
+- Where?
+- Which category?
 
 ### Structure
 
-Use a stamp drawer or printed rule ledger:
+Optimized path:
 
-- Rule trigger on the left.
-- Applied stamp on the right.
-- Hit count.
-- Last applied.
-- Source: USER, DEFAULT, IMPORTED, SYSTEM.
-- Confidence.
-- Example matched lines.
+1. Amount.
+2. Merchant/place.
+3. Category.
+4. Done.
 
-### Rule Types
+Everything else is optional. Added transactions get `Added by you` so the record remains honest.
 
-Support:
+## Settings
 
-- Merchant normalization rules.
-- Category rules.
-- Transaction type rules.
-- Ignore rules.
-- Source-specific rules if needed.
+Settings is local control.
 
-### Behavior
+### Purpose
 
-Rules should support:
+Settings answers:
 
-- Enable/disable.
-- Edit.
-- Delete.
-- View matched lines.
-- View before/after impact.
-
-No hidden categorization magic. If Sorted learns, the learned stamp should be visible somewhere.
-
-## Settings: Device And Privacy Receipt
-
-Settings should feel like controls and metadata for a local record, not a generic settings list.
+- What does Sorted read?
+- What stays on this phone?
+- What can I export or delete?
+- What imports are enabled?
+- What rules has Sorted learned?
 
 ### Sections
 
-Recommended sections:
+Recommended order:
 
-- Privacy promise.
-- SMS permissions.
-- Gmail source controls.
-- Local storage.
-- Export.
-- Debug data boundaries.
-- Theme.
-- About/legal.
+- Privacy.
+- Imports.
+- Auto-sorting rules.
+- Categories.
+- Appearance.
+- Export or delete data.
+- About.
 
 ### Privacy
 
-The privacy area should clearly say:
+Say plainly:
 
 - No bank login.
-- No cloud account required.
-- Financial data stays on device.
-- Raw messages are not exported unless the user explicitly chooses an export/debug action.
+- No cloud account.
+- Transaction data stays on this phone.
+- Exports happen only when the user asks.
 
-### Sources
+## Auto-Sorting Rules
 
-SMS and Gmail controls should show:
+Auto-sorting rules are learned from user corrections.
 
+### Purpose
+
+Rules answer:
+
+- What has Sorted learned from me?
+- Which transactions does this affect?
+- Can I change or turn it off?
+
+### Structure
+
+Use plain user language:
+
+- `Swiggy -> Food`
+- `34 payments`
+- `Applied to past payments`
+
+Each rule opens to:
+
+- Change category.
+- Apply to past payments.
+- Turn off.
+- View affected transactions.
+
+Rules should be created from real corrections, not an empty rule-builder.
+
+## Imports
+
+Imports cover SMS, Gmail, and manual additions.
+
+Show:
+
+- On/off status.
+- Last read time.
+- Payment count.
+- Review count.
 - Permission status.
-- Last scan.
-- Parsed count.
-- Skipped/unparsed count.
-- Review-needed count.
 
-### Export And Debug
+Use `Imports`, not `Source health`.
 
-Exports should be explicit and user-triggered. Debug exports must be clearly labeled and should avoid raw sensitive data by default.
+## Search And Months
 
-## Search And Filters
+Search and month navigation are utility surfaces.
 
-Search is a way to find lines on the tape.
-
-Support:
+Search supports:
 
 - Merchant.
 - Category.
 - Amount.
 - Date.
-- Source.
+- Import.
 - Type.
-- Review state.
 
-Filters should feel like printed index tabs or stamp filters, not dashboard chips unless styled as stamps.
+Month navigation should make it easy to compare this month with previous months without replacing Insights.
 
-## Accessibility And Performance
+## Heavy Data State
 
-The tape metaphor must not reduce usability.
+For large histories:
 
-Requirements:
+- Keep Home fast.
+- Show recent rows first.
+- Use pagination or collapsed days below the fold.
+- Avoid rendering raw alert details in lists.
 
-- Minimum practical tap targets for all stamps and lines.
-- Text contrast suitable for dark and light modes.
-- Screen reader labels for amount, merchant, type, category, source, and review state.
-- Reduced motion mode for print/stamp animations.
-- Efficient list virtualization for transaction history.
-- No texture or decorative mark should obscure text.
-- Color is never the only signal.
+## Copy Guardrail
+
+If a label sounds like a parser, database, accountant, or receipt metaphor, simplify it before shipping.

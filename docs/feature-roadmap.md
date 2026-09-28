@@ -31,16 +31,18 @@ The north star:
 
 ### Design
 
-- Governing philosophy: Sorted is a private money tape.
-- Dark mode: pitch black or deep ink-black, premium, quiet, yellow spectrum highlights.
-- Light mode: warm paper, expressive but still tape-native.
-- UI language: printed lines, day dividers, stamps, amendments, close-out totals, source metadata, and tape indexes.
-- Home is the live monthly tape, not a generic dashboard.
-- Insights is the tape indexed and explained.
-- Capture is adding a missing line.
-- Rules are saved stamps.
-- Settings is local device, privacy, source, export, and permission control.
-- Bottom navigation can remain for one-handed Android use, but it should feel like a tape index rather than generic app chrome.
+- Governing philosophy: Sorted is Modern Finance Tape.
+- Sorted should feel like a clean modern finance app on the surface and a private money tape underneath.
+- Light mode: Cardamom Press, with pale sage paper, deep pine ink, muted sage labels, and clay review marks.
+- Dark mode: Deep Ink, with near-black green surfaces, cool paper ink, muted sage-blue labels, and warm amber review marks.
+- UI language: spent, payments, need review, top spending, recent spending, not counted, imports, edit transaction, auto-sorting rules.
+- Avoid user-facing internal terms such as lines, unstamped, query, ledger, close-out, restamp, held out, and source health.
+- Home must answer the month in three seconds.
+- Insights explores categories, merchants, changes, recurring, money back, not counted, and imports.
+- Add is amount-first manual transaction entry.
+- Auto-sorting rules are learned corrections in the user's words.
+- Settings is local device, privacy, imports, rules, export/delete, and appearance control.
+- Bottom navigation can remain for one-handed Android use, but it should use plain labels and avoid badges unless review truly requires it.
 
 ## Feature 1: Sort Inbox
 
@@ -389,4 +391,4 @@ The current app pass should implement Batch A and the first version of Batch B:
 - Add refund signal detection.
 - Add recurring signal detection.
 - Upgrade merchant/category drilldown with intelligence panels.
-- Upgrade source health summaries.
+- Upgrade imports and coverage summaries.

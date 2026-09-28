@@ -22,6 +22,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
@@ -49,6 +50,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -74,6 +76,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -82,8 +85,10 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -106,12 +111,16 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -369,10 +378,10 @@ private enum class SortedTab(
     val label: String,
     val icon: SortedNavIcon
 ) {
-    Home("Tape", SortedNavIcon.Home),
-    Insights("Index", SortedNavIcon.Insights),
+    Home("Home", SortedNavIcon.Home),
+    Insights("Insights", SortedNavIcon.Insights),
     Capture("Add", SortedNavIcon.Capture),
-    RuleCenter("Stamps", SortedNavIcon.RuleCenter)
+    RuleCenter("Rules", SortedNavIcon.RuleCenter)
 }
 
 private enum class SortedNavIcon {
@@ -400,6 +409,23 @@ private val SortedTapeFontFamily = FontFamily(
     Font(R.font.roboto_mono_medium, FontWeight.Medium),
     Font(R.font.roboto_mono_medium, FontWeight.SemiBold),
     Font(R.font.roboto_mono_medium, FontWeight.Bold)
+)
+
+private val SortedHomeWeight = FontWeight(608)
+
+@OptIn(ExperimentalTextApi::class)
+private fun sortedHomeFont(weight: FontWeight) = Font(
+    R.font.inter_tight,
+    weight,
+    variationSettings = FontVariation.Settings(weight, FontStyle.Normal)
+)
+
+private val SortedHomeDesignFontFamily = FontFamily(
+    sortedHomeFont(FontWeight.Normal),
+    sortedHomeFont(FontWeight.Medium),
+    sortedHomeFont(FontWeight.SemiBold),
+    sortedHomeFont(FontWeight.Bold),
+    sortedHomeFont(SortedHomeWeight)
 )
 
 private enum class SyncSource {
@@ -1124,29 +1150,29 @@ private fun SortedTheme(
     val appFontFamily = SortedTapeFontFamily
     val colors = if (darkMode) {
         darkColorScheme(
-            background = Color(0xFF000000),
-            surface = Color(0xFF050500),
-            surfaceVariant = Color(0xFF121000),
-            primary = Color(0xFFFBC02D),
-            secondary = Color(0xFFFBC02D),
-            tertiary = Color(0xFFC49018),
-            onBackground = Color(0xFFFFFFFF),
-            onSurface = Color(0xFFFFFFFF),
-            onSurfaceVariant = Color(0xFFB8B8B8),
-            onPrimary = Color(0xFF171000)
+            background = Color(0xFF05110F),
+            surface = Color(0xFF0D2522),
+            surfaceVariant = Color(0xFF123330),
+            primary = Color(0xFFD79A3F),
+            secondary = Color(0xFF7FB3A4),
+            tertiary = Color(0xFFD79A3F),
+            onBackground = Color(0xFFE7F0EC),
+            onSurface = Color(0xFFE7F0EC),
+            onSurfaceVariant = Color(0xFF93AAA4),
+            onPrimary = Color(0xFF05110F)
         )
     } else {
         lightColorScheme(
-            background = Color(0xFFE8DFCB),
-            surface = Color(0xFFFFFDF6),
-            surfaceVariant = Color(0xFFE6DDC7),
-            primary = Color(0xFFA86A06),
-            secondary = Color(0xFF4F5C4F),
-            tertiary = Color(0xFFB4501A),
-            onBackground = Color(0xFF2A2419),
-            onSurface = Color(0xFF2A2419),
-            onSurfaceVariant = Color(0xFF6D614F),
-            onPrimary = Color(0xFFFFFDF6)
+            background = Color(0xFFF6F8F2),
+            surface = Color(0xFFF6F8F2),
+            surfaceVariant = Color(0xFFE9EFE2),
+            primary = Color(0xFFA9522A),
+            secondary = Color(0xFF4E8471),
+            tertiary = Color(0xFFC0642F),
+            onBackground = Color(0xFF17241E),
+            onSurface = Color(0xFF17241E),
+            onSurfaceVariant = Color(0xFF566A5E),
+            onPrimary = Color(0xFFF6F8F2)
         )
     }
     val activity = LocalContext.current.findComponentActivity()
@@ -1174,12 +1200,16 @@ private fun SortedTheme(
         }
     }
 
-    MaterialTheme(
-        colorScheme = colors,
-        typography = Typography().withFontFamily(appFontFamily),
-        content = content
-    )
+    CompositionLocalProvider(LocalSortedDarkMode provides darkMode) {
+        MaterialTheme(
+            colorScheme = colors,
+            typography = Typography().withFontFamily(appFontFamily),
+            content = content
+        )
+    }
 }
+
+private val LocalSortedDarkMode = staticCompositionLocalOf { false }
 
 private fun Typography.withFontFamily(fontFamily: FontFamily): Typography {
     return copy(
@@ -1245,7 +1275,7 @@ private fun SortedOpeningScreen() {
                 text = "Sorted",
                 color = MaterialTheme.colorScheme.onBackground,
                 fontSize = 42.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 letterSpacing = 0.sp
             )
@@ -1292,60 +1322,156 @@ private fun SortedOpeningScreen() {
 }
 
 @Composable
+private fun SortedTallyMark(
+    ink: Color,
+    clay: Color,
+    modifier: Modifier = Modifier,
+    tickAlphas: List<Float> = List(5) { 1f }
+) {
+    Canvas(modifier = modifier) {
+        val sx = size.width / 48f
+        val sy = size.height / 48f
+        listOf(7f, 16f, 25f, 34f).forEachIndexed { index, x ->
+            drawRoundRect(
+                color = ink.copy(alpha = tickAlphas.getOrElse(index) { 1f }),
+                topLeft = Offset(x * sx, 10f * sy),
+                size = Size(4.6f * sx, 28f * sy),
+                cornerRadius = CornerRadius(2.3f * sx, 2.3f * sy)
+            )
+        }
+        rotate(degrees = -13f, pivot = Offset(24f * sx, 24f * sy)) {
+            drawRoundRect(
+                color = clay.copy(alpha = tickAlphas.getOrElse(4) { 1f }),
+                topLeft = Offset(2.5f * sx, 21.7f * sy),
+                size = Size(43f * sx, 4.6f * sy),
+                cornerRadius = CornerRadius(2.3f * sx, 2.3f * sy)
+            )
+        }
+    }
+}
+
+@Composable
 private fun SortedLoadingScreen() {
     val isDark = isDarkModeActive()
-    val transition = rememberInfiniteTransition(label = "loading_home_constellation")
-    val phase by transition.animateFloat(
+    val background = if (isDark) Color(0xFF0F2C28) else Color(0xFFDFEACF)
+    val ink = if (isDark) Color(0xFFE7F0EC) else Color(0xFF17241E)
+    val muted = if (isDark) Color(0xFF93AAA4) else Color(0xFF566A5E)
+    val clay = if (isDark) Color(0xFFD79A3F) else Color(0xFFA9522A)
+    val activity = LocalContext.current.findComponentActivity()
+    SideEffect {
+        activity?.window?.let { window ->
+            window.statusBarColor = background.toArgb()
+            window.navigationBarColor = background.toArgb()
+        }
+    }
+    val easeInOut = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
+    val transition = rememberInfiniteTransition(label = "sorted_loading_tally")
+    val breathe by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 9000, easing = LinearEasing),
+            animation = tween(durationMillis = 1600, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "loading_home_constellation_phase"
+        label = "loading_tick_breathe"
     )
-    val contentAlpha by animateFloatAsState(
+    val slide by transition.animateFloat(
+        initialValue = 0f,
         targetValue = 1f,
-        animationSpec = tween(durationMillis = 420),
-        label = "loading_content_alpha"
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1400, easing = easeInOut),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "loading_rule_slide"
     )
+    val tickAlphas = List(5) { index ->
+        val shift = index * 0.14f / 1.6f
+        val wave = sin(((breathe - shift) * 2.0 * PI)).toFloat()
+        0.22f + 0.78f * ((wave + 1f) / 2f)
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        contentAlignment = Alignment.Center
+            .background(background)
     ) {
-        ConstellationField(
-            nodes = emptyList(),
-            phase = phase,
-            isDark = isDark,
+        Canvas(
             modifier = Modifier
-                .fillMaxSize()
-                .alpha(0.88f)
-        )
+                .fillMaxWidth()
+                .height(9.dp)
+        ) {
+            val radius = 1.6.dp.toPx()
+            val step = 10.dp.toPx()
+            var x = 5.dp.toPx()
+            while (x < size.width) {
+                drawCircle(
+                    color = ink.copy(alpha = 0.13f),
+                    radius = radius,
+                    center = Offset(x, 5.dp.toPx())
+                )
+                x += step
+            }
+        }
         Column(
-            modifier = Modifier.alpha(contentAlpha),
+            modifier = Modifier.align(Alignment.Center),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            SortedLogoMark(modifier = Modifier.size(72.dp))
-            Spacer(modifier = Modifier.height(18.dp))
+            SortedTallyMark(
+                ink = ink,
+                clay = clay,
+                tickAlphas = tickAlphas,
+                modifier = Modifier.size(76.dp)
+            )
+            Spacer(modifier = Modifier.height(22.dp))
             Text(
                 text = "Sorted",
-                color = MaterialTheme.colorScheme.onBackground,
+                color = ink,
+                fontFamily = SortedHomeDesignFontFamily,
                 fontSize = 34.sp,
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                letterSpacing = 0.sp
+                letterSpacing = (-1).sp,
+                lineHeight = 34.sp,
+                maxLines = 1
             )
             Spacer(modifier = Modifier.height(9.dp))
             Text(
-                text = "Sorting your month",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 14.sp,
+                text = "YOUR MONEY, COUNTED",
+                color = muted,
+                fontFamily = SortedHomeDesignFontFamily,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                letterSpacing = 0.sp
+                letterSpacing = 1.9.sp,
+                maxLines = 1
+            )
+        }
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(46.dp)
+                    .height(2.dp)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(ink.copy(alpha = 0.18f))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .offset(x = 28.dp * slide)
+                        .width(18.dp)
+                        .height(2.dp)
+                        .background(ink)
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = "Stays on this phone",
+                color = muted,
+                fontFamily = SortedHomeDesignFontFamily,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Medium
             )
         }
     }
@@ -1922,10 +2048,15 @@ private fun SortedHome(
                     bottomBar = {
                         SortedBottomBar(
                             selectedTab = selectedTab,
+                            hasReview = feedState.transactions.reviewCandidates(
+                                selectedHomeMonthKey ?: feedState.transactions.selectedMonthKey()
+                            ).isNotEmpty(),
                             onTabSelected = {
                                 syncChooserOpen = false
                                 selectedTab = it
-                            }
+                            },
+                            onOpenSync = { syncChooserOpen = !syncChooserOpen },
+                            onOpenReview = { sortInboxOpen = true }
                         )
                     }
                 ) { padding ->
@@ -2078,7 +2209,9 @@ private fun HomeTabContent(
         onExplainSpend = onExplainSpend,
         onOpenReview = onOpenReview,
         onRequestSmsPermission = onRequestSmsPermission,
-        onTransactionClick = onTransactionClick
+        onTransactionClick = onTransactionClick,
+        onMerchantClick = onMerchantClick,
+        onCategoryClick = onCategoryClick
     )
 }
 
@@ -2148,133 +2281,1032 @@ private fun TapeHome(
     onExplainSpend: () -> Unit,
     onOpenReview: () -> Unit,
     onRequestSmsPermission: () -> Unit,
-    onTransactionClick: (TransactionUi) -> Unit
+    onTransactionClick: (TransactionUi) -> Unit,
+    onMerchantClick: (SummaryGroup) -> Unit,
+    onCategoryClick: (SummaryGroup) -> Unit
 ) {
-    val palette = tapePalette()
-    val monthTransactions = remember(feedState.transactions, selectedMonthKey) {
-        feedState.transactions.latestMonthTransactions(selectedMonthKey)
-            .filter { it.inrAmountValue != null }
+    val palette = homePalette()
+    val activity = LocalContext.current.findComponentActivity()
+    SideEffect {
+        activity?.window?.let { window ->
+            window.statusBarColor = palette.header.toArgb()
+            window.navigationBarColor = palette.nav.toArgb()
+        }
     }
-    val breakdown = remember(feedState.transactions, selectedMonthKey) {
-        feedState.transactions.monthBreakdown(selectedMonthKey)
+    val activeMonthKey = selectedMonthKey ?: months.firstOrNull()
+    val monthTransactions = remember(feedState.transactions, activeMonthKey) {
+        feedState.transactions.latestMonthTransactions(activeMonthKey).filter { it.inrAmountValue != null }
     }
-    val reviewRows = remember(feedState.transactions, selectedMonthKey) {
-        feedState.transactions.reviewCandidates(selectedMonthKey)
+    val spendTransactions = remember(feedState.transactions, activeMonthKey) {
+        feedState.transactions.latestMonthSpendTransactions(activeMonthKey).filter { it.inrAmountValue != null }
     }
-    val dayGroups = remember(monthTransactions) {
-        monthTransactions
-            .sortedWith(
-                compareByDescending<TransactionUi> { it.transactionDate.orEmpty() }
-                    .thenByDescending { it.inrAmountValue ?: 0.0 }
-            )
-            .groupBy { it.transactionDate ?: "unknown" }
-            .map { (dateKey, rows) ->
-                TapeDayGroup(
-                    dateKey = dateKey,
-                    label = dateKey.recentDateLabel(),
-                    transactions = rows,
-                    spendSubtotal = rows
-                        .filter { it.direction == DirectionUi.Debit && it.transactionType.countsAsSpend() }
-                        .sumOf { it.inrAmountValue ?: 0.0 }
-                )
-            }
+    val breakdown = remember(feedState.transactions, activeMonthKey) {
+        feedState.transactions.monthBreakdown(activeMonthKey)
+    }
+    val reviewRows = remember(feedState.transactions, activeMonthKey) {
+        feedState.transactions.reviewCandidates(activeMonthKey)
+    }
+    val merchantGroups = remember(feedState.transactions, activeMonthKey) {
+        feedState.transactions.monthSpendMerchantGroups(activeMonthKey).take(3)
+    }
+    val categoryGroups = remember(feedState.transactions, activeMonthKey) {
+        feedState.transactions.monthSpendCategoryGroups(activeMonthKey).take(3)
+    }
+    val recentRows = remember(spendTransactions, monthTransactions) {
+        val source = spendTransactions.ifEmpty { monthTransactions }
+        source.sortedWith(
+            compareByDescending<TransactionUi> { it.transactionDate.orEmpty() }
+                .thenByDescending { it.inrAmountValue ?: 0.0 }
+        ).take(4)
     }
     val sampleFallback = feedState.needsSmsPermission && feedState.label == "sample SMS"
-    val sourceLabel = remember(monthTransactions, feedState) {
-        monthTransactions.tapeSourceReceipt(feedState)
-    }
+    val importLabel = if (sampleFallback) "Imports need permission" else "Imports up to date"
+    val notCount = (breakdown.debitCount - breakdown.spendCount).coerceAtLeast(0) +
+        monthTransactions.count { it.direction == DirectionUi.Credit }
+    val notAmount = (breakdown.totalDebits - breakdown.spends).coerceAtLeast(0.0) +
+        breakdown.refunds + breakdown.rewards + breakdown.income
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(palette.desk)
+    ProvideTextStyle(
+        MaterialTheme.typography.bodyMedium.copy(
+            fontFamily = SortedHomeDesignFontFamily,
+            fontWeight = SortedHomeWeight
+        )
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            TapeDeskBar(
-                sourceLabel = if (sampleFallback) "NO SOURCE CONNECTED" else sourceLabel,
+        Column(
+            modifier = Modifier
+                .then(modifier)
+                .fillMaxSize()
+                .background(palette.background)
+        ) {
+            HomeHeader(
                 palette = palette,
+                monthKey = activeMonthKey,
+                importLabel = importLabel,
+                months = months,
+                onMonthSelected = onMonthSelected,
                 onOpenSync = onOpenSync,
                 onSettings = onSettings
             )
-            TapePaper(
+            LazyColumn(
                 modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 12.dp),
-                palette = palette
-            ) {
-                if (sampleFallback || monthTransactions.isEmpty()) {
-                    item {
-                        TapeMonthSelector(
-                            months = months,
-                            selectedMonthKey = selectedMonthKey,
-                            palette = palette,
-                            onMonthSelected = onMonthSelected
-                        )
-                    }
-                    item {
-                        EmptyTapeState(
-                            needsPermission = feedState.needsSmsPermission,
-                            palette = palette,
-                            onRequestSmsPermission = onRequestSmsPermission
-                        )
-                    }
-                    item { Spacer(modifier = Modifier.height(100.dp)) }
-                } else {
-                    item {
-                        TapeMonthSelector(
-                            months = months,
-                            selectedMonthKey = selectedMonthKey,
-                            palette = palette,
-                            onMonthSelected = onMonthSelected
-                        )
-                    }
-                    item {
-                        TapeCloseOutBlock(
-                            breakdown = breakdown,
-                            reviewRows = reviewRows,
-                            palette = palette,
-                            onExplainSpend = onExplainSpend
-                        )
-                    }
-                    if (reviewRows.isNotEmpty()) {
+                    .fillMaxWidth()
+                    .weight(1f),
+                content = {
+                    if (sampleFallback || monthTransactions.isEmpty()) {
                         item {
-                            TapeQueryStrip(
-                                count = reviewRows.size,
-                                amount = reviewRows.sumOf { it.inrAmountValue ?: 0.0 },
+                            ModernHomeEmptyState(
+                                needsPermission = feedState.needsSmsPermission,
                                 palette = palette,
-                                onClick = onOpenReview
+                                onRequestSmsPermission = onRequestSmsPermission
                             )
                         }
+                    } else {
+                        item {
+                            HomeHeroSpend(
+                                amount = breakdown.spends,
+                                paymentCount = breakdown.spendCount,
+                                palette = palette,
+                                onClick = onExplainSpend
+                            )
+                        }
+                        if (reviewRows.isNotEmpty()) {
+                            item {
+                                HomeReviewStamp(
+                                    count = reviewRows.size,
+                                    palette = palette,
+                                    onClick = onOpenReview
+                                )
+                            }
+                        }
+                        if (merchantGroups.isNotEmpty()) {
+                            item {
+                                HomeTopMerchants(
+                                    merchants = merchantGroups,
+                                    palette = palette,
+                                    onMerchantClick = onMerchantClick
+                                )
+                            }
+                        }
+                        if (categoryGroups.isNotEmpty()) {
+                            item {
+                                HomeShareStrip(
+                                    categories = categoryGroups,
+                                    total = breakdown.spends,
+                                    palette = palette,
+                                    onCategoryClick = onCategoryClick
+                                )
+                            }
+                        }
+                        item {
+                            HomeRecentSpending(
+                                rows = recentRows,
+                                paymentCount = breakdown.spendCount,
+                                notCount = notCount,
+                                notAmount = notAmount,
+                                palette = palette,
+                                onTransactionClick = onTransactionClick,
+                                onOpenAll = onExplainSpend,
+                                onOpenNotCounted = onExplainSpend
+                            )
+                        }
+                        item { Spacer(modifier = Modifier.height(18.dp)) }
                     }
-                    items(dayGroups, key = { it.dateKey }) { group ->
-                        TapeDaySection(
-                            group = group,
-                            palette = palette,
-                            onTransactionClick = onTransactionClick
-                        )
-                    }
-                    item {
-                        TapeSourceFooter(
-                            sourceLabel = sourceLabel,
-                            palette = palette
-                        )
-                    }
-                    item { Spacer(modifier = Modifier.height(92.dp)) }
                 }
-            }
-        }
-
-        if (!sampleFallback && monthTransactions.isNotEmpty()) {
-            TapePinnedStrip(
-                breakdown = breakdown,
-                reviewRows = reviewRows,
-                palette = palette,
-                modifier = Modifier.align(Alignment.BottomCenter),
-                onExplainSpend = onExplainSpend,
-                onOpenReview = onOpenReview
             )
         }
     }
+}
+
+private data class HomePalette(
+    val background: Color,
+    val header: Color,
+    val band: Color,
+    val nav: Color,
+    val ink: Color,
+    val muted: Color,
+    val softFill: Color,
+    val rule: Color,
+    val faintRule: Color,
+    val review: Color,
+    val reviewDot: Color,
+    val categoryOne: Color,
+    val categoryTwo: Color,
+    val categoryThree: Color,
+    val credit: Color
+)
+
+@Composable
+private fun homePalette(): HomePalette {
+    return if (isDarkModeActive()) {
+        HomePalette(
+            background = Color(0xFF0D2522),
+            header = Color(0xFF123330),
+            band = Color(0xFF123330),
+            nav = Color(0xFF16403A),
+            ink = Color(0xFFE7F0EC),
+            muted = Color(0xFF93AAA4),
+            softFill = Color(0x14E7F0EC),
+            rule = Color(0x21E7F0EC),
+            faintRule = Color(0x14E7F0EC),
+            review = Color(0xFFD79A3F),
+            reviewDot = Color(0xFFD79A3F),
+            categoryOne = Color(0xFFE7F0EC),
+            categoryTwo = Color(0xFF7FB3A4),
+            categoryThree = Color(0xFFD79A3F),
+            credit = Color(0xFF7FB3A4)
+        )
+    } else {
+        HomePalette(
+            background = Color(0xFFE8EEDD),
+            header = Color(0xFFDFEACF),
+            band = Color(0xFFDCE6CE),
+            nav = Color(0xFFD3DFC1),
+            ink = Color(0xFF17241E),
+            muted = Color(0xFF566A5E),
+            softFill = Color(0x214E8471),
+            rule = Color(0x2117241E),
+            faintRule = Color(0x1717241E),
+            review = Color(0xFFA9522A),
+            reviewDot = Color(0xFFC0642F),
+            categoryOne = Color(0xFF17241E),
+            categoryTwo = Color(0xFF4E8471),
+            categoryThree = Color(0xFFA9522A),
+            credit = Color(0xFF4E8471)
+        )
+    }
+}
+
+@Composable
+private fun HomeHeader(
+    palette: HomePalette,
+    monthKey: String?,
+    importLabel: String,
+    months: List<String>,
+    onMonthSelected: (String) -> Unit,
+    onOpenSync: () -> Unit,
+    onSettings: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(palette.header)
+            .drawBehind {
+                drawLine(
+                    color = palette.rule,
+                    start = Offset(0f, size.height - 1.dp.toPx()),
+                    end = Offset(size.width, size.height - 1.dp.toPx()),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+            .padding(top = 18.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SortedTallyMark(
+                ink = palette.ink,
+                clay = palette.review,
+                modifier = Modifier.size(30.dp)
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = importLabel,
+                modifier = Modifier.clickable(onClick = onOpenSync),
+                color = palette.muted,
+                fontSize = 12.sp,
+                fontWeight = SortedHomeWeight,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            IconButton(onClick = onSettings, modifier = Modifier.size(38.dp)) {
+                HomeSettingsSlidersGlyph(color = palette.muted, modifier = Modifier.size(20.dp))
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, top = 8.dp),
+            verticalAlignment = Alignment.Bottom
+        ) {
+            Text(
+                text = monthKey?.monthNameLabel() ?: "Month",
+                modifier = Modifier.weight(1f),
+                color = palette.ink,
+                fontSize = 15.sp,
+                fontWeight = SortedHomeWeight,
+                maxLines = 1
+            )
+            Text(
+                text = monthKey?.substringBefore("-") ?: LocalDate.now().year.toString(),
+                color = palette.muted,
+                fontSize = 11.5.sp,
+                fontWeight = SortedHomeWeight
+            )
+        }
+        HomeMonthRuler(
+            selectedMonthKey = monthKey,
+            availableMonths = months,
+            palette = palette,
+            onMonthSelected = onMonthSelected
+        )
+    }
+}
+
+@Composable
+private fun HomeMonthRuler(
+    selectedMonthKey: String?,
+    availableMonths: List<String>,
+    palette: HomePalette,
+    onMonthSelected: (String) -> Unit
+) {
+    val year = selectedMonthKey?.substringBefore("-") ?: availableMonths.firstOrNull()?.substringBefore("-")
+        ?: LocalDate.now().year.toString()
+    val available = availableMonths.toSet()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 20.dp, end = 20.dp, top = 9.dp, bottom = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        (1..12).forEach { month ->
+            val key = "$year-${month.toString().padStart(2, '0')}"
+            val selected = key == selectedMonthKey
+            val enabled = key in available
+            Box(
+                modifier = Modifier
+                    .weight(if (selected) 1.9f else 1f)
+                    .height(30.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(
+                        when {
+                            selected -> palette.ink
+                            else -> palette.softFill
+                        }
+                    )
+                    .alpha(if (enabled || selected) 1f else 0.4f)
+                    .clickable(enabled = enabled) { onMonthSelected(key) },
+                contentAlignment = Alignment.Center
+            ) {
+                if (selected) {
+                    Text(
+                        text = month.shortMonthLabel(),
+                        color = palette.background,
+                        fontSize = 11.5.sp,
+                        fontWeight = SortedHomeWeight,
+                        maxLines = 1
+                    )
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = month.monthLetter(),
+                            color = palette.muted,
+                            fontSize = 10.5.sp,
+                            fontWeight = SortedHomeWeight,
+                            maxLines = 1
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Box(
+                            modifier = Modifier
+                                .width(2.dp)
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(1.dp))
+                                .background(palette.ink.copy(alpha = 0.22f))
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeSettingsSlidersGlyph(
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val stroke = 1.6.dp.toPx()
+        fun line(x1: Float, y1: Float, x2: Float, y2: Float) {
+            drawLine(
+                color = color,
+                start = Offset(size.width * x1, size.height * y1),
+                end = Offset(size.width * x2, size.height * y2),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round
+            )
+        }
+        line(0.12f, 0.28f, 0.62f, 0.28f)
+        line(0.84f, 0.28f, 0.95f, 0.28f)
+        line(0.12f, 0.72f, 0.34f, 0.72f)
+        line(0.56f, 0.72f, 0.95f, 0.72f)
+        drawCircle(
+            color = color,
+            radius = size.minDimension * 0.11f,
+            center = Offset(size.width * 0.73f, size.height * 0.28f),
+            style = Stroke(width = stroke)
+        )
+        drawCircle(
+            color = color,
+            radius = size.minDimension * 0.11f,
+            center = Offset(size.width * 0.45f, size.height * 0.72f),
+            style = Stroke(width = stroke)
+        )
+    }
+}
+
+@Composable
+private fun HomeHeroSpend(
+    amount: Double,
+    paymentCount: Int,
+    palette: HomePalette,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(start = 20.dp, end = 20.dp, top = 20.dp)
+    ) {
+        Text(
+            text = "Spent this month",
+            color = palette.muted,
+            fontSize = 13.sp,
+            fontWeight = SortedHomeWeight
+        )
+        Row(
+            modifier = Modifier.padding(top = 5.dp),
+            verticalAlignment = Alignment.Bottom
+        ) {
+            HomeUltraHeavyAmount(
+                text = amount.formatHomeRupee(),
+                modifier = Modifier.weight(1f, fill = false),
+                color = palette.ink
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = "$paymentCount payments >",
+                modifier = Modifier.padding(bottom = 9.dp),
+                color = palette.muted,
+                fontSize = 13.sp,
+                fontWeight = SortedHomeWeight,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeUltraHeavyAmount(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color
+) {
+    Box(modifier = modifier) {
+        val baseOffsets = listOf(
+            0.dp to 0.dp,
+            0.42.dp to 0.dp,
+            (-0.42).dp to 0.dp,
+            0.dp to 0.36.dp,
+            0.dp to (-0.36).dp,
+            0.30.dp to 0.28.dp,
+            (-0.30).dp to 0.28.dp,
+            0.30.dp to (-0.28).dp,
+            (-0.30).dp to (-0.28).dp,
+            0.58.dp to 0.dp,
+            (-0.58).dp to 0.dp,
+            0.dp to 0.52.dp,
+            0.dp to (-0.52).dp
+        )
+        val offsets = baseOffsets.flatMap { (x, y) ->
+            listOf(0.58f, 0.81f, 1.04f).map { scale ->
+                (x * scale) to (y * scale)
+            }
+        }
+        offsets.forEach { (x, y) ->
+            Text(
+                text = text,
+                modifier = Modifier.offset(x = x, y = y),
+                color = color,
+                fontSize = 58.sp,
+                fontWeight = SortedHomeWeight,
+                lineHeight = 58.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                letterSpacing = (-1.2).sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeReviewStamp(
+    count: Int,
+    palette: HomePalette,
+    onClick: () -> Unit
+) {
+    Row(modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp)) {
+        Row(
+            modifier = Modifier
+                .graphicsLayer(rotationZ = -1.5f)
+                .drawBehind {
+                    drawRoundRect(
+                        color = palette.review,
+                        topLeft = Offset.Zero,
+                        size = size,
+                        cornerRadius = CornerRadius(1.dp.toPx(), 1.dp.toPx()),
+                        style = Stroke(
+                            width = 1.5.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(
+                                floatArrayOf(5.dp.toPx(), 4.dp.toPx()),
+                                0f
+                            )
+                        )
+                    )
+                }
+                .clickable(onClick = onClick)
+                .padding(horizontal = 13.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(palette.reviewDot)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "$count need review".uppercase(Locale.US),
+                color = palette.review,
+                fontSize = 12.sp,
+                fontWeight = SortedHomeWeight,
+                letterSpacing = 1.1.sp
+            )
+        }
+    }
+}
+
+private fun Modifier.dottedOutline(color: Color): Modifier = drawBehind {
+    drawRoundRect(
+        color = color,
+        topLeft = Offset.Zero,
+        size = size,
+        cornerRadius = CornerRadius(1.dp.toPx(), 1.dp.toPx()),
+        style = Stroke(
+            width = 1.5.dp.toPx(),
+            pathEffect = PathEffect.dashPathEffect(
+                floatArrayOf(2.dp.toPx(), 2.dp.toPx()),
+                0f
+            )
+        )
+    )
+}
+
+@Composable
+private fun HomeTopMerchants(
+    merchants: List<SummaryGroup>,
+    palette: HomePalette,
+    onMerchantClick: (SummaryGroup) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 22.dp)
+            .background(palette.band)
+            .drawBehind {
+                drawLine(palette.rule, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx())
+                drawLine(palette.rule, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
+            }
+            .padding(horizontal = 20.dp, vertical = 18.dp)
+    ) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                text = "TOP MERCHANTS",
+                modifier = Modifier.weight(1f),
+                color = palette.muted,
+                fontSize = 11.sp,
+                fontWeight = SortedHomeWeight,
+                letterSpacing = 1.7.sp
+            )
+            Text(
+                text = merchantTickLegend(merchantTickUnit(merchants.maxOf { it.count })),
+                color = palette.muted,
+                fontSize = 11.5.sp,
+                fontWeight = SortedHomeWeight
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        val tickUnit = merchantTickUnit(merchants.maxOf { it.count })
+        merchants.forEach { merchant ->
+            HomeMerchantTickRow(
+                merchant = merchant,
+                tickUnit = tickUnit,
+                palette = palette,
+                onClick = { onMerchantClick(merchant) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeMerchantTickRow(
+    merchant: SummaryGroup,
+    tickUnit: Int,
+    palette: HomePalette,
+    onClick: () -> Unit
+) {
+    val tickCount = merchantTickCount(merchant.count, tickUnit)
+    val paymentLabel = if (merchant.count == 1) "1 payment" else "${merchant.count} payments"
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .drawBehind {
+                drawLine(
+                    color = palette.faintRule,
+                    start = Offset(0f, size.height),
+                    end = Offset(size.width, size.height),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+            .padding(vertical = 10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                text = merchant.label,
+                modifier = Modifier.weight(1f),
+                color = palette.ink,
+                fontSize = 15.sp,
+                fontWeight = SortedHomeWeight,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = merchant.total.formatHomeRupee(),
+                color = palette.ink,
+                fontSize = 15.sp,
+                fontWeight = SortedHomeWeight,
+                maxLines = 1
+            )
+        }
+        Row(
+            modifier = Modifier.padding(top = 7.dp),
+            verticalAlignment = Alignment.Bottom
+        ) {
+            repeat(tickCount) { index ->
+                if (index > 0 && index % 5 == 0) Spacer(modifier = Modifier.width(5.dp))
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .height(18.dp)
+                        .clip(RoundedCornerShape(1.dp))
+                        .background(if (index % 5 == 4) palette.categoryTwo else palette.ink)
+                )
+                Spacer(modifier = Modifier.width(3.dp))
+            }
+            Spacer(modifier = Modifier.width(7.dp))
+            Text(
+                text = paymentLabel,
+                color = palette.muted,
+                fontSize = 11.5.sp,
+                fontWeight = SortedHomeWeight,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeShareStrip(
+    categories: List<SummaryGroup>,
+    total: Double,
+    palette: HomePalette,
+    onCategoryClick: (SummaryGroup) -> Unit
+) {
+    val colors = listOf(palette.categoryOne, palette.categoryTwo, palette.categoryThree)
+    val rest = (total - categories.sumOf { it.total }).coerceAtLeast(0.0)
+    val restPct = ((rest / total.coerceAtLeast(1.0)) * 100).roundToInt()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 20.dp, end = 20.dp, top = 18.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Bottom
+        ) {
+            Text(
+                text = "TOP SPENDING",
+                modifier = Modifier.weight(1f),
+                color = palette.muted,
+                fontSize = 11.sp,
+                fontWeight = SortedHomeWeight,
+                letterSpacing = 1.7.sp
+            )
+            Text(
+                text = "Share of the month",
+                color = palette.muted,
+                fontSize = 11.5.sp,
+                fontWeight = SortedHomeWeight
+            )
+        }
+        Row(
+            modifier = Modifier
+                .padding(top = 12.dp)
+                .fillMaxWidth()
+                .height(34.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            categories.forEachIndexed { index, category ->
+                Box(
+                    modifier = Modifier
+                        .weight(category.total.coerceAtLeast(1.0).toFloat())
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(colors.getOrElse(index) { palette.muted })
+                )
+            }
+            if (rest > 0.0) {
+                Box(
+                    modifier = Modifier
+                        .weight(rest.toFloat())
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(palette.ink.copy(alpha = 0.14f))
+                )
+            }
+        }
+        Row(
+            modifier = Modifier
+                .padding(top = 6.dp)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "${total.formatHomeRupee()} spent",
+                color = palette.muted,
+                fontSize = 11.sp,
+                fontWeight = SortedHomeWeight
+            )
+            Text(
+                text = "Everything else $restPct%",
+                color = palette.muted,
+                fontSize = 11.sp,
+                fontWeight = SortedHomeWeight
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        categories.forEachIndexed { index, category ->
+            HomeCategoryShareRow(
+                category = category,
+                total = total,
+                color = colors.getOrElse(index) { palette.muted },
+                palette = palette,
+                onClick = { onCategoryClick(category) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeCategoryShareRow(
+    category: SummaryGroup,
+    total: Double,
+    color: Color,
+    palette: HomePalette,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .drawBehind {
+                drawLine(
+                    color = palette.faintRule,
+                    start = Offset(0f, size.height),
+                    end = Offset(size.width, size.height),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+            .padding(vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(9.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(color)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            text = category.label,
+            modifier = Modifier.weight(1f),
+            color = palette.ink,
+            fontSize = 14.5.sp,
+            fontWeight = SortedHomeWeight,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = category.total.formatHomeRupee(),
+            color = palette.ink,
+            fontSize = 14.5.sp,
+            fontWeight = SortedHomeWeight,
+            maxLines = 1
+        )
+        Text(
+            text = "${((category.total / total.coerceAtLeast(1.0)) * 100).roundToInt()}%",
+            modifier = Modifier.width(38.dp),
+            color = palette.muted,
+            fontSize = 12.5.sp,
+            fontWeight = SortedHomeWeight,
+            textAlign = TextAlign.End,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun HomeRecentSpending(
+    rows: List<TransactionUi>,
+    paymentCount: Int,
+    notCount: Int,
+    notAmount: Double,
+    palette: HomePalette,
+    onTransactionClick: (TransactionUi) -> Unit,
+    onOpenAll: () -> Unit,
+    onOpenNotCounted: () -> Unit
+) {
+    Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp)) {
+        Text(
+            text = "RECENT SPENDING",
+            color = palette.muted,
+            fontSize = 11.sp,
+            fontWeight = SortedHomeWeight,
+            letterSpacing = 1.7.sp
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        rows.forEach { transaction ->
+            HomeRecentRow(
+                transaction = transaction,
+                palette = palette,
+                onClick = { onTransactionClick(transaction) }
+            )
+        }
+        Row(
+            modifier = Modifier
+                .clickable(onClick = onOpenAll)
+                .padding(top = 13.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "See all $paymentCount payments",
+                color = palette.muted,
+                fontSize = 12.5.sp,
+                fontWeight = SortedHomeWeight
+            )
+            Text(text = " >", color = palette.muted, fontSize = 12.5.sp, fontWeight = SortedHomeWeight)
+        }
+        if (notCount > 0 || notAmount > 0.0) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 14.dp)
+                    .drawBehind {
+                        drawLine(palette.rule, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx())
+                    }
+                    .clickable(onClick = onOpenNotCounted)
+                    .padding(vertical = 13.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Not counted · $notCount payments",
+                        color = palette.muted,
+                        fontSize = 13.sp,
+                        fontWeight = SortedHomeWeight
+                    )
+                    Text(
+                        text = "Transfers, investments, refunds, rewards, income",
+                        color = palette.muted,
+                        fontSize = 11.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Text(
+                    text = notAmount.formatHomeRupee(),
+                    color = palette.muted,
+                    fontSize = 13.sp,
+                    fontWeight = SortedHomeWeight,
+                    maxLines = 1
+                )
+                Text(text = " >", color = palette.muted, fontSize = 13.sp, fontWeight = SortedHomeWeight)
+            }
+        }
+        Text(
+            text = "Stays on this phone",
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp, bottom = 18.dp),
+            color = palette.muted,
+            fontSize = 11.5.sp,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun HomeRecentRow(
+    transaction: TransactionUi,
+    palette: HomePalette,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .drawBehind {
+                drawLine(
+                    color = palette.faintRule,
+                    start = Offset(0f, size.height),
+                    end = Offset(size.width, size.height),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(palette.softFill),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = transaction.merchant.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                color = palette.muted,
+                fontSize = 13.5.sp,
+                fontWeight = SortedHomeWeight
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = transaction.merchant,
+                color = palette.ink,
+                fontSize = 15.5.sp,
+                fontWeight = SortedHomeWeight,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = listOf(transaction.category, transaction.transactionDate.recentDateLabel())
+                    .filter { it.isNotBlank() }
+                    .joinToString(" · "),
+                color = palette.muted,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (transaction.needsReview()) {
+            Text(
+                text = "REVIEW",
+                modifier = Modifier
+                    .graphicsLayer(rotationZ = -2f)
+                    .dottedOutline(palette.review)
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                color = palette.review,
+                fontSize = 10.sp,
+                fontWeight = SortedHomeWeight,
+                letterSpacing = 0.9.sp
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+        Text(
+            text = (transaction.inrAmountValue ?: transaction.amountValue).formatHomeRupee(),
+            color = palette.ink,
+            fontSize = 15.5.sp,
+            fontWeight = SortedHomeWeight,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun ModernHomeEmptyState(
+    needsPermission: Boolean,
+    palette: HomePalette,
+    onRequestSmsPermission: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "Spent this month",
+            color = palette.muted,
+            fontSize = 13.sp,
+            fontWeight = SortedHomeWeight
+        )
+        HomeUltraHeavyAmount(
+            text = "₹0",
+            modifier = Modifier.padding(top = 6.dp),
+            color = palette.ink
+        )
+        Text(
+            text = "No payments found yet",
+            color = palette.muted,
+            fontSize = 13.sp,
+            fontWeight = SortedHomeWeight
+        )
+        if (needsPermission) {
+            Text(
+                text = "Allow SMS access",
+                modifier = Modifier
+                    .padding(top = 22.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(palette.ink)
+                    .clickable(onClick = onRequestSmsPermission)
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+                color = palette.background,
+                fontSize = 13.sp,
+                fontWeight = SortedHomeWeight
+            )
+        }
+        Text(
+            text = "Stays on this phone",
+            modifier = Modifier.padding(top = 18.dp),
+            color = palette.muted,
+            fontSize = 11.5.sp
+        )
+    }
+}
+
+private fun merchantTickUnit(maxCount: Int): Int {
+    return when {
+        maxCount <= 16 -> 1
+        maxCount <= 40 -> 2
+        maxCount <= 80 -> 5
+        maxCount <= 160 -> 10
+        else -> 25
+    }
+}
+
+private fun merchantTickCount(count: Int, unit: Int): Int {
+    if (count <= 0) return 0
+    return (count.toDouble() / unit).roundToInt().coerceIn(1, count)
+}
+
+private fun merchantTickLegend(unit: Int): String {
+    return if (unit == 1) "One tick per payment" else "1 tick = $unit payments"
 }
 
 @Composable
@@ -2617,7 +3649,7 @@ private fun TapeQueryStrip(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 10.dp)
-            .border(1.dp, palette.query)
+            .dottedOutline(palette.query)
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -2915,7 +3947,7 @@ private fun TapePinnedStrip(
             Text(
                 text = "? ${reviewRows.size}",
                 modifier = Modifier
-                    .border(1.dp, palette.query, RoundedCornerShape(2.dp))
+                    .dottedOutline(palette.query)
                     .clickable(onClick = onOpenReview)
                     .padding(horizontal = 8.dp, vertical = 5.dp),
                 color = palette.query,
@@ -4347,7 +5379,7 @@ private fun IndexPinnedStrip(
         )
         Box(
             modifier = Modifier
-                .border(1.dp, palette.query)
+                .dottedOutline(palette.query)
                 .clickable(onClick = onOpenReview)
                 .padding(horizontal = 12.dp, vertical = 9.dp)
         ) {
@@ -4551,7 +5583,7 @@ private fun SortInboxScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .border(1.dp, palette.query)
+                    .dottedOutline(palette.query)
                     .padding(horizontal = 12.dp, vertical = 12.dp)
             ) {
                 Text(
@@ -7153,87 +8185,187 @@ private fun SortedLogoMark(modifier: Modifier = Modifier) {
 @Composable
 private fun SortedBottomBar(
     selectedTab: SortedTab,
-    onTabSelected: (SortedTab) -> Unit
+    hasReview: Boolean,
+    onTabSelected: (SortedTab) -> Unit,
+    onOpenSync: () -> Unit,
+    onOpenReview: () -> Unit
 ) {
-    val palette = tapePalette()
-    val tabs = listOf(SortedTab.Home, SortedTab.Insights, SortedTab.Capture, SortedTab.RuleCenter)
+    val palette = homePalette()
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding(),
-        color = palette.desk,
+        color = palette.nav,
         tonalElevation = 0.dp
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(palette.ruleFaint)
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(58.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                tabs.forEach { tab ->
-                    val selected = tab == selectedTab
-                    val contentColor by animateColorAsState(
-                        targetValue = if (selected) palette.ink else palette.inkFaint,
-                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
-                        label = "bottom_bar_content_${tab.label}"
+        ProvideTextStyle(MaterialTheme.typography.bodyMedium.copy(fontFamily = SortedHomeDesignFontFamily)) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                HomeNavPerforation(palette = palette)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(62.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    HomeNavTextCell(
+                        label = "Home",
+                        selected = selectedTab == SortedTab.Home,
+                        palette = palette,
+                        onClick = { onTabSelected(SortedTab.Home) }
                     )
-                    val markerColor by animateColorAsState(
-                        targetValue = if (selected) palette.amber else Color.Transparent,
-                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
-                        label = "bottom_bar_marker_${tab.label}"
+                    HomeNavTextCell(
+                        label = "Insights",
+                        selected = selectedTab == SortedTab.Insights,
+                        palette = palette,
+                        onClick = { onTabSelected(SortedTab.Insights) }
                     )
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(58.dp)
-                            .clickable {
-                                if (!selected) onTabSelected(tab)
-                            }
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .width(26.dp)
-                                .height(2.dp)
-                                .background(markerColor)
-                        )
-                        Column(
-                            modifier = Modifier.align(Alignment.Center),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            SortedNavGlyph(
-                                icon = tab.icon,
-                                color = contentColor,
-                                active = selected,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = tab.label.uppercase(Locale.US),
-                                color = contentColor,
-                                fontFamily = SortedTapeFontFamily,
-                                fontSize = 8.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                textAlign = TextAlign.Center,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                letterSpacing = 1.sp
-                            )
-                        }
-                    }
+                    HomeNavSyncCell(palette = palette, onClick = onOpenSync)
+                    HomeNavTextCell(
+                        label = "Review",
+                        selected = false,
+                        palette = palette,
+                        showDot = hasReview,
+                        onClick = onOpenReview
+                    )
+                    HomeNavTextCell(
+                        label = "Add",
+                        selected = selectedTab == SortedTab.Capture,
+                        palette = palette,
+                        onClick = { onTabSelected(SortedTab.Capture) }
+                    )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun HomeNavPerforation(palette: HomePalette) {
+    val dotAlpha = if (isDarkModeActive()) 0.18f else 0.16f
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(7.dp)
+            .background(palette.nav)
+    ) {
+        val radius = 1.5.dp.toPx()
+        val step = 10.dp.toPx()
+        var x = 5.dp.toPx()
+        while (x < size.width) {
+            drawCircle(
+                color = palette.ink.copy(alpha = dotAlpha),
+                radius = radius,
+                center = Offset(x, 4.dp.toPx())
+            )
+            x += step
+        }
+    }
+}
+
+@Composable
+private fun RowScope.HomeNavTextCell(
+    label: String,
+    selected: Boolean,
+    palette: HomePalette,
+    showDot: Boolean = false,
+    onClick: () -> Unit
+) {
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) palette.ink else palette.muted,
+        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+        label = "home_nav_$label"
+    )
+    Column(
+        modifier = Modifier
+            .weight(1f)
+            .height(62.dp)
+            .drawBehind {
+                drawLine(
+                    color = palette.faintRule,
+                    start = Offset(0f, 0f),
+                    end = Offset(0f, size.height),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+            .clickable(onClick = onClick)
+            .padding(top = 10.dp, bottom = 13.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(modifier = Modifier.height(9.dp), contentAlignment = Alignment.TopCenter) {
+            Box(
+                modifier = Modifier
+                    .width(20.dp)
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(if (selected) palette.ink else Color.Transparent)
+            )
+            if (showDot) {
+                Box(
+                    modifier = Modifier
+                        .offset(x = 20.dp)
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(palette.review)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = label,
+            color = contentColor,
+            fontSize = 11.5.sp,
+            fontWeight = SortedHomeWeight,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun RowScope.HomeNavSyncCell(
+    palette: HomePalette,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .weight(1f)
+            .height(62.dp)
+            .drawBehind {
+                drawLine(
+                    color = palette.faintRule,
+                    start = Offset(0f, 0f),
+                    end = Offset(0f, size.height),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+            .clickable(onClick = onClick)
+            .padding(top = 7.dp, bottom = 11.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(CircleShape)
+                .background(palette.softFill)
+                .border(1.dp, palette.rule, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            SortedNavGlyph(
+                icon = SortedNavIcon.Sync,
+                color = palette.ink,
+                active = false,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+        Text(
+            text = "Sync",
+            color = palette.muted,
+            fontSize = 11.5.sp,
+            fontWeight = SortedHomeWeight,
+            maxLines = 1
+        )
     }
 }
 
@@ -9988,7 +11120,7 @@ private fun homeMixContainerColor(category: String): Color {
 
 @Composable
 private fun isDarkModeActive(): Boolean {
-    return MaterialTheme.colorScheme.background == Color(0xFF000000)
+    return LocalSortedDarkMode.current
 }
 
 @Composable
@@ -10158,7 +11290,7 @@ private fun TransactionDetail(
             Column(
                 modifier = Modifier
                     .padding(top = 12.dp)
-                    .border(1.dp, palette.query)
+                    .dottedOutline(palette.query)
                     .padding(12.dp)
             ) {
                 Text(
@@ -10352,6 +11484,18 @@ private fun Double.formatRupee(): String {
     return "₹" + String.format(Locale.US, "%,.2f", this)
 }
 
+private fun Double.formatHomeRupee(): String {
+    val rounded = roundToInt().coerceAtLeast(0).toString()
+    if (rounded.length <= 3) return "₹$rounded"
+    val last3 = rounded.takeLast(3)
+    val rest = rounded.dropLast(3)
+        .reversed()
+        .chunked(2)
+        .joinToString(",")
+        .reversed()
+    return "₹$rest,$last3"
+}
+
 private fun Double.formatCompactInr(): String {
     val magnitude = if (this < 0.0) -this else this
     val value = when {
@@ -10536,5 +11680,23 @@ private fun Int.shortMonthLabel(): String {
         11 -> "Nov"
         12 -> "Dec"
         else -> "Date"
+    }
+}
+
+private fun Int.monthLetter(): String {
+    return when (this) {
+        1 -> "J"
+        2 -> "F"
+        3 -> "M"
+        4 -> "A"
+        5 -> "M"
+        6 -> "J"
+        7 -> "J"
+        8 -> "A"
+        9 -> "S"
+        10 -> "O"
+        11 -> "N"
+        12 -> "D"
+        else -> ""
     }
 }

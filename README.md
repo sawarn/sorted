@@ -1,8 +1,8 @@
 # Sorted
 
-Sorted is a private Android app that turns transaction alerts into a local, inspectable money tape.
+Sorted is a private Android app that turns transaction alerts into a simple, local view of monthly spending.
 
-It reads transaction SMS messages on the phone, can import Gmail transaction alerts with readonly access, parses useful money movement, and keeps the resulting ledger on the device. There is no Sorted account, no bank linking, and no financial data upload.
+It reads transaction SMS messages on the phone, can import Gmail transaction alerts with readonly access, parses useful money movement, and keeps the resulting record on the device. There is no Sorted account, no bank linking, and no financial data upload.
 
 ## What Sorted Is
 
@@ -19,11 +19,11 @@ The app currently supports:
 - Manual transaction capture
 - Merchant, category, and transaction type correction
 - Local saved rules for remembered corrections
-- Sort Inbox for uncertain or low-confidence lines
-- Monthly spend close-outs with held-out movement shown separately
+- Review for uncertain or low-confidence transactions
+- Monthly spending with not-counted movement shown separately
 - Refund, reward, transfer, investment, and income separation from spend
-- Source health and local permission/source controls
-- Rule Center for saved merchant/category stamps
+- Import status and local permission controls
+- Auto-sorting rules for learned merchant/category corrections
 
 ## Privacy Model
 
@@ -42,19 +42,21 @@ The repository intentionally ignores generated artifacts such as `*.db`, `debug-
 
 Sorted's governing design idea is:
 
-> Sorted is a private money tape.
+> Sorted is Modern Finance Tape.
 
-The UI should feel like a continuous local receipt: printed lines, stamps, amendments, source metadata, query marks, close-out totals, and tape indexes. It should not feel like a generic card dashboard.
+The UI should feel like a modern consumer finance app first, with private tape-like proof underneath. The user should understand Home in three seconds: how much they spent, where it went, what needs review, and what happened recently.
 
 Important design rules:
 
-- Every important number should reveal the lines behind it.
+- Every important number should open the transactions behind it.
 - Uncertainty should be visible and calm.
 - Transfers, investments, refunds, rewards, and income should be separated from spend.
 - Refunds are signals until matching is mature; do not silently net them out.
-- Rules are saved stamps.
-- Capture is adding a missing line.
-- Settings is local device, privacy, source, export, and permission control.
+- Use plain language: spent, payments, need review, top spending, recent spending, not counted, imports, edit transaction, auto-sorting rules.
+- Avoid internal UI terms such as lines, unstamped, query, ledger, close-out, restamp, held out, and source health.
+- Light mode uses Cardamom Press; dark mode uses Deep Ink.
+- Amber/clay is reserved for review/action states.
+- Settings is local device, privacy, imports, rules, export/delete, and appearance control.
 
 Before changing user-facing UI, read:
 
@@ -63,7 +65,7 @@ Before changing user-facing UI, read:
 - `docs/ai-design-guidance.md`
 - `.codex/skills/sorted-design-philosophy/SKILL.md`
 
-Tracked standalone HTML files in the repo are design references for the tape language.
+Tracked and local design references are used to explore the Modern Finance Tape language.
 
 ## Repository Structure
 
@@ -80,7 +82,7 @@ review/      Design exploration references
 - Min SDK: 26
 - Target SDK: 36
 - Compile SDK: 36
-- UI: Jetpack Compose + Material 3 primitives, styled into the Sorted tape system
+- UI: Jetpack Compose + Material 3 primitives, styled into the Modern Finance Tape system
 - Persistence: local Android storage/SQLite through the app repository layer
 
 ## Setup
@@ -168,7 +170,7 @@ Avoid installing into a work profile unless you explicitly need to test that pro
 
 ## Development Notes
 
-- Keep UI changes aligned with the private money tape language.
+- Keep UI changes aligned with the Modern Finance Tape language.
 - Keep generated debug exports out of git.
 - Use sanitized fixtures only.
 - Do not commit `android/local.properties`, databases, APKs, secrets, keystores, or OAuth client files.

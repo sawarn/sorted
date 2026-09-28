@@ -8,18 +8,21 @@ This repo contains a product-specific design philosophy. Before changing any use
 
 The governing concept is:
 
-> Sorted is a private money tape.
+> Sorted is Modern Finance Tape.
 
-Preserve this as the single design philosophy. Different screens may use different structures, but they should all feel like printed lines, stamps, amendments, close-out totals, source metadata, tape indexes, or controls for the same local record.
+Preserve this as the single design philosophy. Sorted should feel like a clean modern finance app on the surface and a private money tape underneath: fast to understand, plain-spoken, local, and checkable.
 
 Important invariants:
 
-- Every important number should expose the lines behind it.
+- Every important number should open the transactions behind it.
 - Uncertainty should be visible and calm.
 - Transfers, investments, refunds, rewards, and income should be separated from spend.
 - Refunds are signals until matching is mature; do not silently net them out.
-- Rules are saved stamps.
-- Capture is adding a missing line.
-- Settings is local device, privacy, source, export, and permission control.
+- Home should be understood in three seconds.
+- Use normal user language: spent, payments, need review, top spending, recent spending, not counted, imports, edit transaction, auto-sorting rules.
+- Avoid old internal UI words: lines, unstamped, query, ledger, close-out, restamp, held out, source health.
+- Light mode is Cardamom Press; dark mode is Deep Ink.
+- Amber/clay is reserved for review/action states.
+- Settings is local device, privacy, imports, rules, export/delete, and appearance control.
 
 There is also a repo-local Codex skill at `.codex/skills/sorted-design-philosophy/SKILL.md` for design and UI work.
