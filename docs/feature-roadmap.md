@@ -18,8 +18,11 @@ The north star:
 ### Trust
 
 - Sorted should never hide uncertainty.
-- Spend, transfers, investments, refunds, rewards, and income must be separated.
+- `Spent this month` is the gross total of every eligible outgoing debit, regardless of category or transaction type, including transfers and investments. It is not pure consumption.
+- Categories/types remain visible classifications for outgoing debits; they do not determine headline inclusion.
+- Incoming refunds, rewards, and income stay separate and are never netted against gross outgoing payments.
 - Every computed number should have a transaction list behind it.
+- Every total, count, and share must reconcile with the exact transactions behind it.
 - User corrections should override parser/category defaults.
 - A corrected transaction should not be overwritten by the next SMS/Gmail rescan.
 
@@ -35,10 +38,10 @@ The north star:
 - Sorted should feel like a clean modern finance app on the surface and a private money tape underneath.
 - Light mode: Cardamom Press, with pale sage paper, deep pine ink, muted sage labels, and clay review marks.
 - Dark mode: Deep Ink, with near-black green surfaces, cool paper ink, muted sage-blue labels, and warm amber review marks.
-- UI language: spent, payments, need review, top spending, recent spending, not counted, imports, edit transaction, auto-sorting rules.
+- UI language: spent this month, payments, need review, top spending, recent spending, money back, imports, edit transaction, auto-sorting rules.
 - Avoid user-facing internal terms such as lines, unstamped, query, ledger, close-out, restamp, held out, and source health.
 - Home must answer the month in three seconds.
-- Insights explores categories, merchants, changes, recurring, money back, not counted, and imports.
+- Insights explores categories and merchants across eligible outgoing debits, changes, recurring, money back, and imports.
 - Add is amount-first manual transaction entry.
 - Auto-sorting rules are learned corrections in the user's words.
 - Settings is local device, privacy, imports, rules, export/delete, and appearance control.
@@ -70,7 +73,7 @@ Rows enter Sort Inbox when:
 Sort Inbox should show:
 
 - Review count.
-- Review amount for current month spend rows.
+- Review amount for current-month outgoing debit rows that contribute to `Spent this month`.
 - Filter chips: All, Merchant, Category, Type, Source.
 - Reason label for each row.
 - Transaction rows that open the correction sheet.
@@ -82,7 +85,9 @@ Sort Inbox should show:
 - Correct transaction type.
 - Remember correction as a local rule.
 - Apply correction only to this transaction.
-- Ignore transaction permanently.
+- Mark a record as not a transaction or as a duplicate, where applicable.
+
+Review dismissal is not a way to exclude a valid outgoing debit. A valid eligible debit remains in `Spent this month` while it is being reviewed. Category or type corrections do not change inclusion; amount corrections update the total and its transaction list together.
 
 ### Data
 
@@ -93,9 +98,9 @@ Sort Inbox should show:
 
 ### Done
 
-- The user can find every uncertain current-month spend row in one screen.
+- The user can find every uncertain current-month outgoing debit row in one screen; review status does not silently remove an eligible debit from the headline.
 - Correcting a row removes it from review if the correction makes it trusted.
-- Ignored rows do not return after rescan.
+- Dismissed non-transaction or duplicate records do not return after rescan; dismissing review never silently removes a valid outgoing debit from totals.
 
 ## Feature 2: Why This Number?
 
@@ -105,36 +110,33 @@ When a monthly spend amount changes, the user needs to know exactly why. This wa
 
 ### Product Behavior
 
-The monthly spend card should open a breakdown screen that explains:
+The `Spent this month` card should open a breakdown screen that explains the gross outgoing total and reconciles it to:
 
-- Included spend total.
-- Included spend count.
-- Money moved total.
-- Investments total.
-- Transfers total.
-- Refunds and credits total.
+- Outgoing payment total and count.
+- Category totals and counts, including investments and transfers.
+- Type totals where useful, without implying that a type is excluded.
+- Incoming refunds, rewards, and income as separate credit totals and counts.
 - Gmail-only transaction impact.
 - Foreign-currency converted impact.
-- Review risk amount.
+- Review-needed outgoing debit amount.
 
 ### Screen
 
 The explanation screen should contain:
 
-- Main monthly spend value.
-- Included section: spend/subscription debits.
-- Excluded section: transfers and investments.
-- Adjustment section: refunds, rewards, income.
+- Main `Spent this month` value and outgoing payment count.
+- A breakdown of outgoing debits by category/type, with transfers and investments included and labeled.
+- A separate `Money in` section for incoming refunds, rewards, and income.
 - Coverage section: SMS, Gmail, Manual counts.
-- Review section: uncertain rows that can be opened.
+- Review section: uncertain outgoing debit rows that can be opened.
 
 ### Rules
 
-- Spend = debit transactions where type is Expense or Subscription.
-- Money moved = all debit transactions.
-- Investments are shown separately and excluded from spend.
-- Transfers are shown separately and excluded from spend.
-- Refunds and rewards are credits and should not reduce spend until refund matching is mature.
+- `Spent this month` = the gross sum of eligible outgoing debit transactions in the selected month, regardless of category or transaction type.
+- Transfers and investments contribute to the headline and remain identifiable in category/type breakdowns.
+- Incoming refunds, rewards, and income are credits; show them separately and do not subtract them from the gross outgoing total.
+- Only completed debits with a positive amount and usable INR value enter the total. Unresolved foreign-currency amounts and non-completed payments remain visible for review.
+- Any amount, count, or share shown here opens the exact transaction set used to calculate it.
 
 ### Done
 
@@ -163,8 +165,8 @@ Merchant pages should show:
 
 ### Rules
 
-- Merchant pages opened from Home are spend-only.
-- Merchant pages opened from Insights may include all debit movement.
+- Merchant pages opened from Home or Insights use the same eligible outgoing-debit rule as `Spent this month`, including transfers and investments.
+- Credit transactions remain separate from outgoing debit totals and are shown in their applicable credit views.
 - User can still open any row and correct it.
 
 ### Done
@@ -189,7 +191,7 @@ Category pages should show:
 
 ### Done
 
-- Tapping Food/Groceries/Shopping shows every included transaction and merchant contribution.
+- Tapping a category shows every outgoing debit in that category and merchant contribution, including investment/transfer categories when applicable; its total reconciles to the category's filtered transaction list.
 
 ## Feature 5: Rule Center
 
@@ -247,9 +249,9 @@ Insights should show a Refund Signals card:
 
 ### Rules
 
-- Do not automatically reduce spend yet.
-- Show gross spend and refund signals separately.
-- Net spend can be added after matching accuracy is proven.
+- Never automatically reduce `Spent this month` by a refund or other incoming credit.
+- Show gross outgoing payments and incoming refund signals separately.
+- A future matched-refund view may explain a relationship, but must not silently change the gross outgoing headline.
 
 ### Done
 
@@ -322,7 +324,7 @@ The month story should show:
 - Biggest spend day.
 - New high-value Gmail-only rows.
 - Review debt.
-- Investments separated from spend.
+- Investments visible as a category/type within gross outgoing payments.
 - Refund signals.
 
 ### Done

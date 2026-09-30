@@ -8,6 +8,8 @@ data class TransactionCorrection(
     val miscCategory: String,
     val departmentCategory: String,
     val transactionType: TransactionType,
-    val rememberRule: Boolean
+    val rememberRule: Boolean,
+    val amount: Double?,
+    val transactionDate: String?,
+    val note: String?
 )
-

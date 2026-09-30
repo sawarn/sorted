@@ -48,9 +48,10 @@ Do not violate these without explicit user direction:
 
 - Every important number opens the transactions behind it.
 - Uncertainty must remain visible and calm.
-- Spending includes only spending.
-- Transfers, investments, refunds, rewards, and income are counted apart from spending.
-- Refunds are signals until matching is mature; do not silently net them out.
+- `Spent this month` is the gross total of eligible outgoing debits, regardless of category or transaction type, including transfers and investments. This is not pure consumption.
+- Categories and transaction types classify outgoing debits; they do not determine whether those debits contribute to the headline.
+- Incoming refunds, rewards, and income remain separate and are never netted against gross outgoing payments.
+- Every important total, count, and share must reconcile with the exact transactions opened from it.
 - User corrections override parser/category defaults.
 - Learned rules must be inspectable.
 - No bank-linking, login, or cloud-sync assumptions for MVP.
@@ -64,7 +65,7 @@ Prefer:
 - Need review.
 - Top spending.
 - Recent spending.
-- Not counted.
+- Money in.
 - Imports.
 - Edit transaction.
 - Auto-sorting rules.
@@ -143,7 +144,7 @@ Dark mode: **Deep Ink**
 
 - Home: three-second month understanding.
 - Review: short pile of transactions needing user action.
-- Insights: categories, merchants, changes, recurring, money back, imports.
+- Insights: categories, merchants, changes, recurring, money in, imports. Category/merchant debit totals include every eligible outgoing debit; incoming credits stay separately summarized.
 - Add: amount-first manual transaction entry.
 - Transaction Detail: original alert, editable categorization, trust surface.
 - Settings: privacy, imports, rules, export/delete, appearance.
@@ -171,7 +172,10 @@ Before considering design complete, check:
 - Can the user understand the screen in three seconds?
 - Is the biggest number obvious?
 - Does every total/count/percent open its transactions?
-- Does spending contain only spending?
+- Is `Spent this month` presented as gross outgoing debits, not pure consumption?
+- Do transfers and investments remain in the headline while staying identifiable by category/type?
+- Are incoming credits separate and left un-netted?
+- Do totals reconcile exactly with their transaction lists?
 - Is uncertainty visible without alarm?
 - Is amber used only for review/action?
 - Is the copy plain enough for a normal user?

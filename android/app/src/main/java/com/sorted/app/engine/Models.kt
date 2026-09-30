@@ -75,7 +75,8 @@ data class ParsedTransaction(
     val transactionType: TransactionType,
     val categorySource: CategorySource,
     val confidence: Double,
-    val ignoreReason: String?
+    val ignoreReason: String?,
+    val note: String? = null
 )
 
 data class ParserFacts(

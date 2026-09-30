@@ -26,7 +26,7 @@ Home is the user's month at a glance.
 
 Home answers four questions in order:
 
-- How much did I spend?
+- How much went out this month?
 - Where did it go?
 - What needs review?
 - What happened recently?
@@ -40,12 +40,12 @@ Recommended order:
 3. Amber review stamp if anything needs review.
 4. Top spending band with three category bars.
 5. Recent spending rows.
-6. Muted `Not counted` line if transfers, investments, refunds, rewards, or income exist.
+6. A separate, muted `Money in` line if incoming credits exist.
 7. Quiet privacy/import note only when useful.
 
 ### Hero
 
-The spend amount owns the screen. It should be the largest visual element and should open the spending breakdown.
+The `Spent this month` amount owns the screen. It is the gross total of eligible outgoing debits, not a measure of pure consumption, and should open the exact transactions behind it.
 
 Show:
 
@@ -53,7 +53,7 @@ Show:
 - `₹42,380`
 - `123 payments`
 
-Do not show audit rows above the fold. Details such as counted, not counted, imports, and review risk belong behind taps or lower on the screen.
+Do not show audit rows above the fold. Details such as category/type breakdown, money back, imports, and review risk belong behind taps or lower on the screen.
 
 ### Top Spending
 
@@ -63,7 +63,7 @@ Use three share bar rows:
 - Horizontal bar
 - Percent
 
-Bars are for scanning, not decoration. They open category transactions.
+Bars are for scanning, not decoration. They open category transactions. Category totals include every eligible outgoing debit in that category, including transfers and investments, and reconcile with the Home headline.
 
 ### Recent Spending
 
@@ -85,23 +85,21 @@ Review appears as one amber action, for example:
 
 It opens Review. If there are no review items, it disappears.
 
-### Not Counted
+### Money In
 
-Transfers, investments, refunds, rewards, and income are not spending. They should remain visible, but not compete with the hero.
+Incoming refunds, rewards, and income remain separate from the gross outgoing total. They never reduce `Spent this month` and should not compete with the hero.
 
 Use:
 
-- `Not counted`
-- A count or amount.
-- A tap into the supporting transactions.
-
-Avoid old terms such as `held out`, `excluded`, or `lines`.
+- `Money in` or a specific credit category such as `Refunds`.
+- A count or amount when useful.
+- A tap into the exact supporting transactions.
 
 ### Empty State
 
 Empty Home should still answer the four questions:
 
-- Spend is zero or unknown.
+- Gross outgoing total is zero or unknown.
 - No payments found yet.
 - One action: connect SMS/Gmail or add manually.
 - Privacy line: `Stays on this phone`.
@@ -128,7 +126,9 @@ Each review item shows:
 - Amount.
 - Category/date subtitle.
 - One reason: `Amount unclear`, `New place - which category?`, `Looks like a transfer`.
-- Two or three choices: category, `Not spending`, `Keep as is`.
+- Two or three clear actions to correct category, transaction type, or amount, or `Keep as is`.
+
+Changing a category or type classifies an outgoing debit but does not remove it from `Spent this month`. Correcting its amount updates the headline and transaction list together.
 
 Progress can read `3 of 4`.
 
@@ -153,7 +153,6 @@ Insights answers:
 - What changed from last month?
 - What repeats?
 - What money came back?
-- What was not counted?
 - Are imports healthy?
 
 ### Structure
@@ -165,7 +164,7 @@ Use modern finance sections with tape-native proof:
 - Spending by month as a simple bar strip.
 - Biggest changes as short facts.
 - Recurring payments.
-- Refunds/rewards/income as money-back sections.
+- Refunds/rewards/income as separate `Money in` sections, never netted against gross outgoing payments.
 - Imports as a coverage section.
 
 Every amount, percent, and count opens filtered transactions.
@@ -182,8 +181,7 @@ Use:
 - `Merchants`
 - `Recurring`
 - `Changed`
-- `Money back`
-- `Not counted`
+- `Money in`
 - `Imports`
 
 Avoid:
@@ -222,8 +220,10 @@ Show:
 Actions:
 
 - `Edit transaction`
-- `Not spending`
+- `Change category` or `Change payment type`
 - `Make a rule`
+
+Category and type remain classifications, not switches for inclusion in `Spent this month`. An eligible outgoing debit remains in the gross total after a category/type edit. Keep the headline and its filtered list reconciled after amount edits.
 
 If edited, show `Edited by you`.
 
@@ -241,7 +241,7 @@ Add is for cash and transactions no alert covers.
 
 Add answers:
 
-- What did I spend?
+- What went out?
 - Where?
 - Which category?
 

@@ -101,6 +101,9 @@ class TransactionRepository(context: Context) {
                 put("misc_category", correction.miscCategory)
                 put("department_category", correction.departmentCategory)
                 put("transaction_type", correction.transactionType.name)
+                correction.amount?.let { put("amount", it) }
+                correction.transactionDate?.let { put("transaction_date", it) }
+                put("note", correction.note.orEmpty())
                 put("category_source", CategorySource.USER_RULE.name)
                 put("confidence", maxOf(existing.confidence, 0.98))
                 put("updated_at", now)
@@ -198,6 +201,30 @@ class TransactionRepository(context: Context) {
         return categoryRules(database.readableDatabase, limit)
     }
 
+    fun deleteManualTransaction(sourceHash: String): Boolean {
+        if (sourceHash.isBlank()) return false
+        return database.writableDatabase.delete(
+            "transactions",
+            "source = ? AND source_hash = ?",
+            arrayOf(ImportSource.MANUAL.value, sourceHash)
+        ) > 0
+    }
+
+    fun deleteAllLocalData() {
+        val db = database.writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete("transactions", null, null)
+            db.delete("fx_rates", null, null)
+            db.delete("category_rules", null, null)
+            db.delete("user_corrections", null, null)
+            db.delete("ignored_transactions", null, null)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     fun setCategoryRuleEnabled(id: Long, enabled: Boolean): Boolean {
         if (id <= 0L) return false
         val values = ContentValues().apply {
@@ -251,6 +278,7 @@ class TransactionRepository(context: Context) {
             put("payment_mode", parsed.paymentMode.name)
             put("account_hint", parsed.accountHint)
             put("transaction_date", parsed.transactionDate)
+            put("note", parsed.note)
             put("transaction_time", parsed.transactionTime)
             put("transaction_type", parsed.transactionType.name)
             put("status", parsed.status.name)
@@ -267,7 +295,10 @@ class TransactionRepository(context: Context) {
         correction: TransactionCorrection,
         now: Long
     ): Long? {
-        val pattern = existing.rulePattern() ?: return null
+        val pattern = correction.merchantNormalized.ruleKey()
+            .takeIf(String::isNotBlank)
+            ?: existing.rulePattern()
+            ?: return null
         val existingRule = db.query(
             "category_rules",
             arrayOf("id", "created_at"),
@@ -330,6 +361,9 @@ class TransactionRepository(context: Context) {
             put("new_department_category", correction.departmentCategory)
             put("old_transaction_type", existing.transactionType.name)
             put("new_transaction_type", correction.transactionType.name)
+            put("new_amount", correction.amount)
+            put("new_transaction_date", correction.transactionDate)
+            put("new_note", correction.note.orEmpty())
             put("created_rule_id", ruleId)
             put("created_at", now)
         }
@@ -380,6 +414,9 @@ class TransactionRepository(context: Context) {
             miscCategory = correction.miscCategory,
             departmentCategory = correction.departmentCategory,
             transactionType = correction.transactionType,
+            amount = correction.amount ?: amount,
+            transactionDate = correction.transactionDate ?: transactionDate,
+            note = correction.note ?: note,
             categorySource = CategorySource.USER_RULE,
             confidence = maxOf(confidence, 0.99)
         )
@@ -431,7 +468,10 @@ class TransactionRepository(context: Context) {
                 "new_merchant_normalized",
                 "new_misc_category",
                 "new_department_category",
-                "new_transaction_type"
+                "new_transaction_type",
+                "new_amount",
+                "new_transaction_date",
+                "new_note"
             ),
             null,
             null,
@@ -448,7 +488,10 @@ class TransactionRepository(context: Context) {
                     transactionType = enumValueOrDefault(
                         cursor.string("new_transaction_type"),
                         TransactionType.UNKNOWN
-                    )
+                    ),
+                    amount = cursor.doubleOrNull("new_amount"),
+                    transactionDate = cursor.string("new_transaction_date"),
+                    note = cursor.string("new_note")
                 )
             }
         }
@@ -471,6 +514,7 @@ class TransactionRepository(context: Context) {
             paymentMode = enumValueOrDefault(string("payment_mode"), PaymentMode.UNKNOWN),
             accountHint = string("account_hint"),
             transactionDate = string("transaction_date"),
+            note = string("note"),
             transactionTime = string("transaction_time"),
             transactionType = enumValueOrDefault(string("transaction_type"), TransactionType.UNKNOWN),
             status = enumValueOrDefault(string("status"), TransactionStatus.UNKNOWN),
@@ -545,7 +589,10 @@ private data class StoredCorrection(
     val merchantNormalized: String,
     val miscCategory: String,
     val departmentCategory: String,
-    val transactionType: TransactionType
+    val transactionType: TransactionType,
+    val amount: Double?,
+    val transactionDate: String?,
+    val note: String?
 )
 
 fun String.stableHash(): String {

@@ -16,8 +16,11 @@ The user should understand Home in three seconds:
 Three commitments never bend:
 
 - **Transactions are the truth.** Every total is a sum of transactions the user can open and read.
-- **Only spending is spending.** Transfers, investments, refunds, rewards, and income are counted apart from spending, never inside it.
+- **Spent this month is gross outgoing money.** Every eligible outgoing debit contributes, regardless of category or transaction type, including transfers and investments. Category and type explain the debit; they do not remove it from the headline. Incoming refunds, rewards, and income stay separate and are never netted against this gross total.
 - **Doubt is shown calmly.** When Sorted is unsure, it says so in one amber mark and offers one tap to fix it. It never guesses quietly and never panics.
+
+`Spent this month` is a gross outgoing-debit measure, not pure consumption. Every total must reconcile with the exact transaction list behind it.
+Only completed debits with a positive amount and a usable INR value enter the total. Payments waiting on status or currency conversion remain visible for review and are not silently dropped.
 
 ## Product Personality
 
@@ -83,15 +86,15 @@ Tapping any amount, percentage, or count opens the transactions behind it, alrea
 
 ### 2. One Tap To Correct
 
-Wrong category, wrong amount, not spending, or unclear merchant should be fixable from the row itself. Totals update in place after correction.
+Wrong category, transaction type, amount, or unclear merchant should be fixable from the row itself. Category or type corrections do not change inclusion in `Spent this month` while a transaction remains an eligible outgoing debit. Correcting its amount updates the applicable total and transaction list together.
 
 ### 3. Review Is A Short Pile
 
 Sorted shows how many transactions need review and makes the pile feel finishable. Finishing review should leave the screen calm and empty.
 
-### 4. Nothing Disappears Silently
+### 4. Keep Money In And Money Out Distinct
 
-Anything not counted as spending remains visible under "Not counted" with a short reason.
+All eligible outgoing debits contribute to `Spent this month`, including transfers and investments. Incoming credits such as refunds, rewards, and income remain visible in separate `Money in` views and never silently reduce the gross outgoing total.
 
 ### 5. Teach By Doing
 
@@ -111,11 +114,11 @@ Home is ordered by four questions, always:
 
 | Rank | Question | What Shows | Weight |
 | --- | --- | --- | --- |
-| 1 | How much did I spend? | Spent this month, payment count | Largest type |
+| 1 | How much went out? | Spent this month, outgoing payment count | Largest type |
 | 2 | What needs review? | Amber stamp with count | Small but visible |
 | 3 | Where did it go? | Top spending, three bars | Mid-weight rows |
 | 4 | What happened recently? | Recent spending rows | Scan list |
-| 5 | Is anything left out? | Not counted, one muted line | Secondary |
+| 5 | Did money come back? | Credits such as refunds, rewards, and income, when present | Secondary |
 
 Below the fold, Home should repeat the same pattern rather than introduce new concepts.
 
@@ -125,10 +128,10 @@ Use sentence case, short phrases, and familiar money words. If a word needs expl
 
 | Say | Never Say | Why |
 | --- | --- | --- |
-| Spent this month | Total outflow, debits | Money words, not statement words |
+| Spent this month | Total outflow, debits | Familiar headline; clarify it is gross outgoing money, not pure consumption |
 | Payments | Lines, entries, records | A payment is a thing that happened |
 | Need review | Unstamped, query, pending action | Says who acts and why |
-| Not counted | Held out, excluded, out of scope | Plain and neutral |
+| Money in | Net spend, offsets | Keeps incoming credits distinct from outgoing payments |
 | Top spending | Category breakdown, spend mix | Everyday phrasing |
 | Recent spending | Latest activity feed | Matches the section |
 | Imports | Sources, source health, sync | Describes what the user set up |
@@ -139,7 +142,7 @@ Use sentence case, short phrases, and familiar money words. If a word needs expl
 Shape rules:
 
 - Section labels are one or two plain words.
-- Buttons are verbs: Review, Edit, Add, Keep, Not spending.
+- Buttons are verbs: Review, Edit, Add, Keep, Correct transaction.
 - Amounts on Home always carry `₹` and thousands separators, without decimals.
 - Uncertainty fits one calm line: "Amount unclear", "New place - which category?", "Looks like a transfer".
 - Never use an error tone for ordinary uncertainty.
@@ -245,7 +248,7 @@ The core components:
 - **Transaction row:** initial or icon, merchant, category/date subtitle, amount.
 - **Tape band:** full-width section band with hairlines. Use sparingly.
 - **Section label:** small plain label above a list.
-- **Count line:** Counted, Not counted, Need review.
+- **Count line:** Payments, Money in, Need review.
 - **Choice sheet:** bottom sheet with plain options.
 - **Rule card:** "Swiggy -> Food", count of payments.
 - **Bottom bar:** plain words, no badges unless review truly requires it.
@@ -275,7 +278,7 @@ Avoid:
 - Mascots, streaks, or scores.
 - A total the user cannot open.
 - A number without transactions behind it.
-- Mixing transfers, investments, refunds, rewards, or income into spending.
+- Netting incoming refunds, rewards, or income against gross outgoing payments.
 - Red for ordinary uncertainty.
 - More than two amber review marks on one screen.
 - Any word from the "Never Say" column.
@@ -290,7 +293,10 @@ A screen ships when every line is true:
 - It answers its question in three seconds.
 - One number is clearly the biggest thing on screen when the screen is summary-led.
 - Every total, count, and percent opens its transactions.
-- Spending holds only spending.
+- `Spent this month` is the gross sum of eligible outgoing debits, regardless of category or transaction type.
+- Incoming credits are separate and do not reduce the gross outgoing total.
+- Category/type corrections alone do not change whether an outgoing debit contributes to the headline.
+- Every headline, category, merchant, and credit total reconciles with its tappable transaction list.
 - Amber appears at most twice and only for review.
 - Uncertainty is stated in one calm line with one tap to fix.
 - No word from the "Never Say" column appears.

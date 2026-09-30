@@ -21,6 +21,7 @@ data class TransactionEntity(
     val paymentMode: PaymentMode,
     val accountHint: String?,
     val transactionDate: String?,
+    val note: String?,
     val transactionTime: String?,
     val transactionType: TransactionType,
     val status: TransactionStatus,
@@ -29,4 +30,3 @@ data class TransactionEntity(
     val createdAt: Long,
     val updatedAt: Long
 )
-

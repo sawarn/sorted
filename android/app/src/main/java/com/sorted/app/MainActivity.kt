@@ -3,12 +3,14 @@ package com.sorted.app
 import android.Manifest
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.View
+import android.app.DatePickerDialog
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.result.IntentSenderRequest
@@ -54,6 +56,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -79,6 +83,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Typography
@@ -97,11 +103,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -117,6 +126,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.ExperimentalTextApi
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -124,6 +134,8 @@ import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -138,6 +150,7 @@ import com.sorted.app.engine.PaymentMode
 import com.sorted.app.engine.SmsParser
 import com.sorted.app.engine.TransactionStatus
 import com.sorted.app.engine.TransactionType
+import com.sorted.app.engine.OutflowPolicy
 import com.sorted.app.data.CategoryRuleEntity
 import com.sorted.app.data.ImportRecord
 import com.sorted.app.data.ImportSource
@@ -203,8 +216,13 @@ private data class TransactionUi(
     val miscCategory: String,
     val category: String,
     val direction: DirectionUi,
+    val status: TransactionStatus,
     val transactionType: TransactionType,
     val transactionDate: String?,
+    val transactionTime: String?,
+    val sourceReceivedDate: String?,
+    val note: String?,
+    val accountHint: String?,
     val source: String,
     val categorySource: CategorySource,
     val confidence: Double
@@ -249,6 +267,8 @@ private data class MonthBreakdown(
     val spendCount: Int,
     val totalDebits: Double,
     val spends: Double,
+    val creditCount: Int,
+    val totalCredits: Double,
     val transfers: Double,
     val investments: Double,
     val recurringInvestments: Double,
@@ -257,14 +277,6 @@ private data class MonthBreakdown(
     val income: Double,
     val rewards: Double,
     val fxConverted: Double
-)
-
-private data class ExplainBucket(
-    val title: String,
-    val amount: Double,
-    val count: Int,
-    val description: String,
-    val transactions: List<TransactionUi>
 )
 
 private data class SummaryGroup(
@@ -343,7 +355,9 @@ private data class ManualTransactionDraft(
 private data class ManualSaveState(
     val isSaving: Boolean = false,
     val message: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val sourceHash: String? = null,
+    val draft: ManualTransactionDraft? = null
 )
 
 private data class CorrectionSaveState(
@@ -358,6 +372,9 @@ private data class TransactionCorrectionDraft(
     val miscCategory: String,
     val category: String,
     val transactionType: TransactionType,
+    val amount: Double,
+    val transactionDate: String?,
+    val note: String,
     val rememberRule: Boolean
 )
 
@@ -366,7 +383,8 @@ private data class DrilldownState(
     val kind: DrilldownKind,
     val group: SummaryGroup,
     val spendOnly: Boolean = false,
-    val monthKey: String? = null
+    val monthKey: String? = null,
+    val monthKeys: List<String>? = null
 )
 
 private enum class DrilldownKind {
@@ -427,6 +445,7 @@ private val SortedHomeDesignFontFamily = FontFamily(
     sortedHomeFont(FontWeight.Bold),
     sortedHomeFont(SortedHomeWeight)
 )
+private val SortedHomeFontFamily = SortedHomeDesignFontFamily
 
 private enum class SyncSource {
     Sms,
@@ -436,7 +455,8 @@ private enum class SyncSource {
 
 private enum class DirectionUi {
     Debit,
-    Credit
+    Credit,
+    Unknown
 }
 
 private enum class AppThemeMode(
@@ -549,9 +569,10 @@ private fun loadFeedState(context: Context, hasSmsPermission: Boolean): FeedStat
     }
 }
 
-private fun saveManualTransaction(context: Context, draft: ManualTransactionDraft) {
+private fun saveManualTransaction(context: Context, draft: ManualTransactionDraft): String {
     val now = System.currentTimeMillis()
     val merchant = draft.merchant.trim()
+    val sourceHash = "manual:$now:${merchant}:${draft.amount}:${draft.date}".stableHash()
     val parsed = ParsedTransaction(
         isTransaction = true,
         status = TransactionStatus.COMPLETED,
@@ -576,12 +597,13 @@ private fun saveManualTransaction(context: Context, draft: ManualTransactionDraf
         listOf(
             ImportRecord(
                 source = ImportSource.MANUAL,
-                sourceHash = "manual:$now:${merchant}:${draft.amount}:${draft.date}".stableHash(),
+                sourceHash = sourceHash,
                 sourceReceivedDate = draft.date,
                 parsed = parsed
             )
         )
     )
+    return sourceHash
 }
 
 private fun ParsedTransaction.toTransactionUi(
@@ -597,7 +619,11 @@ private fun ParsedTransaction.toTransactionUi(
     val misc = miscCategory ?: "Uncategorized"
     val category = departmentCategory ?: "Other"
     val date = transactionDate ?: "Date unknown"
-    val directionUi = if (direction == Direction.CREDIT) DirectionUi.Credit else DirectionUi.Debit
+    val directionUi = when (direction) {
+        Direction.DEBIT -> DirectionUi.Debit
+        Direction.CREDIT -> DirectionUi.Credit
+        Direction.UNKNOWN -> DirectionUi.Unknown
+    }
     val fxDetail = fxRate?.let { rate ->
         "FX ${rate.rateDate} @ ${rate.rate.formatFxRate()} = ${inrEquivalent?.formatInr()}"
     }
@@ -616,8 +642,13 @@ private fun ParsedTransaction.toTransactionUi(
         miscCategory = misc,
         category = category,
         direction = directionUi,
+        status = status,
         transactionType = transactionType,
         transactionDate = transactionDate,
+        transactionTime = transactionTime,
+        sourceReceivedDate = null,
+        note = note,
+        accountHint = null,
         source = source,
         categorySource = categorySource,
         confidence = confidence
@@ -635,7 +666,11 @@ private fun TransactionEntity.toTransactionUi(
     val misc = miscCategory ?: "Uncategorized"
     val category = departmentCategory ?: "Other"
     val date = transactionDate ?: "Date unknown"
-    val directionUi = if (direction == Direction.CREDIT) DirectionUi.Credit else DirectionUi.Debit
+    val directionUi = when (direction) {
+        Direction.DEBIT -> DirectionUi.Debit
+        Direction.CREDIT -> DirectionUi.Credit
+        Direction.UNKNOWN -> DirectionUi.Unknown
+    }
     val fxDetail = fxRate?.let { rate ->
         "FX ${rate.rateDate} @ ${rate.rate.formatFxRate()} = ${inrEquivalent?.formatInr()}"
     }
@@ -654,8 +689,13 @@ private fun TransactionEntity.toTransactionUi(
         miscCategory = misc,
         category = category,
         direction = directionUi,
+        status = status,
         transactionType = transactionType,
         transactionDate = transactionDate,
+        transactionTime = transactionTime,
+        sourceReceivedDate = sourceReceivedDate,
+        note = note,
+        accountHint = accountHint,
         source = source.displayLabel(),
         categorySource = categorySource,
         confidence = confidence
@@ -1590,6 +1630,40 @@ private fun SortedHome(
     ) { granted ->
         hasPermission = granted
     }
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri ->
+        if (uri != null) {
+            val snapshot = feedState.transactions
+            scope.launch {
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        val output = appContext.contentResolver.openOutputStream(uri)
+                            ?: error("Could not open the selected file.")
+                        output.bufferedWriter(Charsets.UTF_8).use { writer ->
+                            writer.appendLine("date,merchant,amount,currency,direction,category,type,import")
+                            snapshot.forEach { transaction ->
+                                listOf(
+                                    transaction.transactionDate.orEmpty(),
+                                    transaction.merchant,
+                                    transaction.amountValue.toString(),
+                                    transaction.currency,
+                                    transaction.direction.name,
+                                    transaction.category,
+                                    transaction.transactionType.name,
+                                    transaction.source
+                                ).joinToString(",") { it.toCsvCell() }.also(writer::appendLine)
+                            }
+                        }
+                    }
+                }.onSuccess {
+                    syncStatus = "Transactions exported"
+                }.onFailure { error ->
+                    syncStatus = error.message?.take(100) ?: "Export failed"
+                }
+            }
+        }
+    }
     fun gmailStateWithAutoSync(
         label: String,
         isImporting: Boolean = false,
@@ -1625,12 +1699,16 @@ private fun SortedHome(
         manualSaveState = ManualSaveState(isSaving = true)
         scope.launch {
             try {
-                val transactions = withContext(Dispatchers.IO) {
-                    saveManualTransaction(appContext, draft)
-                    loadPersistedTransactions(appContext)
+                val saved = withContext(Dispatchers.IO) {
+                    val sourceHash = saveManualTransaction(appContext, draft)
+                    sourceHash to loadFeedState(appContext, hasPermission)
                 }
-                updateFeed(transactions)
-                manualSaveState = ManualSaveState(message = "Added ${draft.merchant.trim()}")
+                updateFeed(saved.second.transactions)
+                manualSaveState = ManualSaveState(
+                    message = "Payment added",
+                    sourceHash = saved.first,
+                    draft = draft
+                )
             } catch (error: Throwable) {
                 manualSaveState = ManualSaveState(
                     error = error.message?.take(160) ?: error.javaClass.simpleName
@@ -1639,7 +1717,31 @@ private fun SortedHome(
         }
     }
 
-    fun saveCorrectionDraft(draft: TransactionCorrectionDraft) {
+    fun undoManualDraft(sourceHash: String) {
+        manualSaveState = manualSaveState.copy(isSaving = true, error = null)
+        scope.launch {
+            try {
+                val refreshed = withContext(Dispatchers.IO) {
+                    check(TransactionRepository(appContext).deleteManualTransaction(sourceHash)) {
+                        "This payment could not be undone."
+                    }
+                    loadFeedState(appContext, hasPermission)
+                }
+                updateFeed(refreshed.transactions)
+                manualSaveState = ManualSaveState()
+            } catch (error: Throwable) {
+                manualSaveState = manualSaveState.copy(
+                    isSaving = false,
+                    error = error.message?.take(160) ?: "Could not undo this payment."
+                )
+            }
+        }
+    }
+
+    fun saveCorrectionDraft(
+        draft: TransactionCorrectionDraft,
+        showDetailsAfterSave: Boolean = true
+    ) {
         val transactionId = draft.transaction.id
         if (transactionId == null) {
             correctionSaveState = CorrectionSaveState(error = "Sample transactions cannot be edited.")
@@ -1657,7 +1759,10 @@ private fun SortedHome(
                             miscCategory = draft.miscCategory.trim().ifBlank { "Uncategorized" },
                             departmentCategory = draft.category,
                             transactionType = draft.transactionType,
-                            rememberRule = draft.rememberRule
+                            rememberRule = draft.rememberRule,
+                            amount = draft.amount,
+                            transactionDate = draft.transactionDate,
+                            note = draft.note
                         )
                     )
                     if (!saved) {
@@ -1666,7 +1771,11 @@ private fun SortedHome(
                     loadPersistedTransactions(appContext)
                 }
                 updateFeed(transactions)
-                selected = transactions.firstOrNull { it.id == transactionId }
+                selected = if (showDetailsAfterSave) {
+                    transactions.firstOrNull { it.id == transactionId }
+                } else {
+                    null
+                }
                 correctionSaveState = CorrectionSaveState(message = "Updated locally")
             } catch (error: Throwable) {
                 correctionSaveState = CorrectionSaveState(
@@ -1776,6 +1885,7 @@ private fun SortedHome(
         contract = ActivityResultContracts.StartIntentSenderForResult()
     ) { activityResult ->
         if (activityResult.data == null) {
+            Log.e(LogTag, "Gmail authorization returned no result data")
             syncStatus = "Gmail cancelled"
             gmailState = gmailStateWithAutoSync(
                 label = "Gmail not connected",
@@ -1991,7 +2101,7 @@ private fun SortedHome(
                             .background(MaterialTheme.colorScheme.background)
                     )
                 } else {
-                    DrilldownScreen(
+                    MerchantCategoryDetailScreen(
                         state = state,
                         allTransactions = feedState.transactions,
                         onBack = { drilldown = null },
@@ -2003,6 +2113,7 @@ private fun SortedHome(
             SortedRoute.SpendExplanation -> {
                 SpendExplanationScreen(
                     feedState = feedState,
+                    selectedMonthKey = selectedHomeMonthKey ?: feedState.transactions.selectedMonthKey(),
                     onBack = { explainOpen = false },
                     onTransactionClick = { openTransaction(it) },
                     onOpenReview = { sortInboxOpen = true }
@@ -2010,11 +2121,59 @@ private fun SortedHome(
             }
 
             SortedRoute.SortInbox -> {
-                SortInboxScreen(
-                    feedState = feedState,
-                    onBack = { sortInboxOpen = false },
-                    onTransactionClick = { openTransaction(it) }
-                )
+                Scaffold(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    bottomBar = {
+                        SortedBottomBar(
+                            selectedTab = selectedTab,
+                            hasReview = feedState.transactions.reviewCandidates(
+                                selectedHomeMonthKey ?: feedState.transactions.selectedMonthKey()
+                            ).isNotEmpty(),
+                            reviewSelected = true,
+                            onTabSelected = { tab ->
+                                sortInboxOpen = false
+                                selectedTab = tab
+                            },
+                            onOpenSync = {
+                                sortInboxOpen = false
+                                syncChooserOpen = true
+                            },
+                            onOpenReview = {}
+                        )
+                    }
+                ) { padding ->
+                    SortInboxScreen(
+                        feedState = feedState,
+                        selectedMonthKey = selectedHomeMonthKey,
+                        modifier = Modifier.padding(padding),
+                        onBack = { sortInboxOpen = false },
+                        onTransactionClick = { openTransaction(it) },
+                        onCorrect = { transaction, category, transactionType, rememberRule ->
+                            saveCorrectionDraft(
+                                draft = TransactionCorrectionDraft(
+                                    transaction = transaction,
+                                    merchant = transaction.merchant,
+                                    miscCategory = transaction.miscCategory,
+                                    category = category,
+                                    transactionType = transactionType,
+                                    amount = transaction.amountValue,
+                                    transactionDate = transaction.transactionDate,
+                                    note = transaction.note.orEmpty(),
+                                    rememberRule = rememberRule
+                                ),
+                                showDetailsAfterSave = false
+                            )
+                        },
+                        onOpenSync = {
+                            sortInboxOpen = false
+                            syncChooserOpen = true
+                        },
+                        onOpenRules = {
+                            sortInboxOpen = false
+                            ruleCenterOpen = true
+                        }
+                    )
+                }
             }
 
             SortedRoute.RuleCenter -> {
@@ -2025,17 +2184,49 @@ private fun SortedHome(
             }
 
             SortedRoute.Settings -> {
-                SettingsScreen(
-                    themeMode = themeMode,
-                    feedState = feedState,
-                    gmailState = gmailState,
-                    onThemeModeChange = onThemeModeChange,
-                    onBack = { settingsOpen = false },
-                    onOpenRuleCenter = {
-                        settingsOpen = false
-                        ruleCenterOpen = true
+                Scaffold(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    bottomBar = {
+                        SortedBottomBar(
+                            selectedTab = selectedTab,
+                            hasReview = feedState.transactions.reviewCandidates(selectedHomeMonthKey ?: feedState.transactions.selectedMonthKey()).isNotEmpty(),
+                            highlightSelection = false,
+                            onTabSelected = { tab -> settingsOpen = false; selectedTab = tab },
+                            onOpenSync = { settingsOpen = false; syncChooserOpen = true },
+                            onOpenReview = { settingsOpen = false; sortInboxOpen = true }
+                        )
                     }
-                )
+                ) { padding ->
+                    SettingsScreen(
+                        themeMode = themeMode,
+                        feedState = feedState,
+                        gmailState = gmailState,
+                        modifier = Modifier.padding(padding),
+                        onThemeModeChange = onThemeModeChange,
+                        onBack = { settingsOpen = false },
+                        onRequestSmsPermission = { smsPermissionLauncher.launch(Manifest.permission.READ_SMS) },
+                        onOpenSmsSettings = {
+                            appContext.startActivity(
+                                Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = Uri.parse("package:${appContext.packageName}")
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                            )
+                        },
+                        onImportGmail = { requestGmailImport() },
+                        onExport = { exportLauncher.launch("sorted-transactions.csv") },
+                        onDeleteLocalData = {
+                            scope.launch {
+                                withContext(Dispatchers.IO) { TransactionRepository(appContext).deleteAllLocalData() }
+                                updateFeed(emptyList())
+                            }
+                        },
+                        onOpenRuleCenter = {
+                            settingsOpen = false
+                            ruleCenterOpen = true
+                        }
+                    )
+                }
             }
 
             SortedRoute.Loading -> {
@@ -2046,18 +2237,20 @@ private fun SortedHome(
                 Scaffold(
                     containerColor = MaterialTheme.colorScheme.background,
                     bottomBar = {
-                        SortedBottomBar(
-                            selectedTab = selectedTab,
-                            hasReview = feedState.transactions.reviewCandidates(
-                                selectedHomeMonthKey ?: feedState.transactions.selectedMonthKey()
-                            ).isNotEmpty(),
-                            onTabSelected = {
-                                syncChooserOpen = false
-                                selectedTab = it
-                            },
-                            onOpenSync = { syncChooserOpen = !syncChooserOpen },
-                            onOpenReview = { sortInboxOpen = true }
-                        )
+                        if (selectedTab != SortedTab.Capture) {
+                            SortedBottomBar(
+                                selectedTab = selectedTab,
+                                hasReview = feedState.transactions.reviewCandidates(
+                                    selectedHomeMonthKey ?: feedState.transactions.selectedMonthKey()
+                                ).isNotEmpty(),
+                                onTabSelected = {
+                                    syncChooserOpen = false
+                                    selectedTab = it
+                                },
+                                onOpenSync = { syncChooserOpen = !syncChooserOpen },
+                                onOpenReview = { sortInboxOpen = true }
+                            )
+                        }
                     }
                 ) { padding ->
                     Box(modifier = Modifier.fillMaxSize()) {
@@ -2105,22 +2298,24 @@ private fun SortedHome(
                                     selectedMonthKey = selectedHomeMonthKey,
                                     modifier = Modifier.padding(padding),
                                     onSettings = { settingsOpen = true },
-                                    onMerchantClick = { group ->
+                                    onMerchantClick = { group, monthKeys ->
                                         drilldown = DrilldownState(
                                             title = group.label,
                                             kind = DrilldownKind.Merchant,
                                             group = group,
                                             spendOnly = true,
-                                            monthKey = selectedHomeMonthKey ?: feedState.transactions.selectedMonthKey()
+                                            monthKey = selectedHomeMonthKey ?: feedState.transactions.selectedMonthKey(),
+                                            monthKeys = monthKeys
                                         )
                                     },
-                                    onCategoryClick = { group ->
+                                    onCategoryClick = { group, monthKeys ->
                                         drilldown = DrilldownState(
                                             title = group.label,
                                             kind = DrilldownKind.Category,
                                             group = group,
                                             spendOnly = true,
-                                            monthKey = selectedHomeMonthKey ?: feedState.transactions.selectedMonthKey()
+                                            monthKey = selectedHomeMonthKey ?: feedState.transactions.selectedMonthKey(),
+                                            monthKeys = monthKeys
                                         )
                                     },
                                     onTransactionClick = { openTransaction(it) },
@@ -2131,8 +2326,13 @@ private fun SortedHome(
                                     feedState = feedState,
                                     modifier = Modifier.padding(padding),
                                     saveState = manualSaveState,
-                                    onSettings = { settingsOpen = true },
-                                    onSave = { draft -> saveManualDraft(draft) }
+                                    onSave = { draft -> saveManualDraft(draft) },
+                                    onUndo = { sourceHash -> undoManualDraft(sourceHash) },
+                                    onClose = {
+                                        manualSaveState = ManualSaveState()
+                                        selectedTab = SortedTab.Home
+                                    },
+                                    onResetSaved = { manualSaveState = ManualSaveState() }
                                 )
 
                                 SortedTab.RuleCenter -> RuleCenterScreen(
@@ -2142,19 +2342,21 @@ private fun SortedHome(
                                 )
                             }
                         }
-                        SyncChooserBar(
-                            visible = syncChooserOpen,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = 172.dp),
-                            onSync = { syncSource(it) }
-                        )
-                        SyncStatusPill(
-                            message = syncStatus,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = 150.dp)
-                        )
+                        if (selectedTab != SortedTab.Capture) {
+                            SyncChooserBar(
+                                visible = syncChooserOpen,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(bottom = 10.dp),
+                                onSync = { syncSource(it) }
+                            )
+                            SyncStatusPill(
+                                message = syncStatus,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(bottom = if (syncChooserOpen) 170.dp else 10.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -2162,20 +2364,50 @@ private fun SortedHome(
     }
 
     selected?.let { transaction ->
-        val sheetPalette = tapePalette()
+        val sheetPalette = homePalette()
+        val categoryMonthRows = feedState.transactions.filter {
+            it.transactionDate?.take(7) == transaction.transactionDate?.take(7) &&
+                it.countsTowardSpentTotal()
+        }
+        val categoryRows = categoryMonthRows.filter { it.category == transaction.category }
+        val categoryTotal = categoryRows.sumOf { it.inrAmountValue ?: 0.0 }
+        val monthTotal = categoryMonthRows.sumOf { it.inrAmountValue ?: 0.0 }
+        val categoryShare = if (monthTotal > 0.0) (categoryTotal / monthTotal * 100).toInt() else 0
         ModalBottomSheet(
             onDismissRequest = {
                 correctionSaveState = CorrectionSaveState()
                 selected = null
             },
-            containerColor = sheetPalette.tape,
-            shape = RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp)
+            containerColor = sheetPalette.background,
+            shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
         ) {
             TransactionDetail(
                 transaction = transaction,
                 saveState = correctionSaveState,
                 onCorrect = { draft -> saveCorrectionDraft(draft) },
-                onIgnore = { ignoreTransaction(transaction) }
+                onIgnore = { ignoreTransaction(transaction) },
+                categoryShare = categoryShare,
+                onClose = {
+                    correctionSaveState = CorrectionSaveState()
+                    selected = null
+                },
+                onOpenCategory = {
+                    drilldown = DrilldownState(
+                        title = transaction.category,
+                        kind = DrilldownKind.Category,
+                        group = SummaryGroup(
+                            label = transaction.category,
+                            count = categoryRows.size,
+                            total = categoryTotal,
+                            currency = "INR",
+                            category = transaction.category
+                        ),
+                        spendOnly = transaction.countsTowardSpentTotal(),
+                        monthKey = transaction.transactionDate?.take(7),
+                        monthKeys = listOfNotNull(transaction.transactionDate?.take(7))
+                    )
+                    selected = null
+                }
             )
         }
     }
@@ -2295,10 +2527,10 @@ private fun TapeHome(
     }
     val activeMonthKey = selectedMonthKey ?: months.firstOrNull()
     val monthTransactions = remember(feedState.transactions, activeMonthKey) {
-        feedState.transactions.latestMonthTransactions(activeMonthKey).filter { it.inrAmountValue != null }
+        feedState.transactions.latestMonthTransactions(activeMonthKey)
     }
     val spendTransactions = remember(feedState.transactions, activeMonthKey) {
-        feedState.transactions.latestMonthSpendTransactions(activeMonthKey).filter { it.inrAmountValue != null }
+        feedState.transactions.latestMonthSpendTransactions(activeMonthKey)
     }
     val breakdown = remember(feedState.transactions, activeMonthKey) {
         feedState.transactions.monthBreakdown(activeMonthKey)
@@ -2312,19 +2544,16 @@ private fun TapeHome(
     val categoryGroups = remember(feedState.transactions, activeMonthKey) {
         feedState.transactions.monthSpendCategoryGroups(activeMonthKey).take(3)
     }
-    val recentRows = remember(spendTransactions, monthTransactions) {
-        val source = spendTransactions.ifEmpty { monthTransactions }
-        source.sortedWith(
+    val recentRows = remember(spendTransactions) {
+        spendTransactions.sortedWith(
             compareByDescending<TransactionUi> { it.transactionDate.orEmpty() }
                 .thenByDescending { it.inrAmountValue ?: 0.0 }
         ).take(4)
     }
     val sampleFallback = feedState.needsSmsPermission && feedState.label == "sample SMS"
     val importLabel = if (sampleFallback) "Imports need permission" else "Imports up to date"
-    val notCount = (breakdown.debitCount - breakdown.spendCount).coerceAtLeast(0) +
-        monthTransactions.count { it.direction == DirectionUi.Credit }
-    val notAmount = (breakdown.totalDebits - breakdown.spends).coerceAtLeast(0.0) +
-        breakdown.refunds + breakdown.rewards + breakdown.income
+    val moneyInCount = breakdown.creditCount
+    val moneyInAmount = breakdown.totalCredits
 
     ProvideTextStyle(
         MaterialTheme.typography.bodyMedium.copy(
@@ -2401,8 +2630,8 @@ private fun TapeHome(
                             HomeRecentSpending(
                                 rows = recentRows,
                                 paymentCount = breakdown.spendCount,
-                                notCount = notCount,
-                                notAmount = notAmount,
+                                notCount = moneyInCount,
+                                notAmount = moneyInAmount,
                                 palette = palette,
                                 onTransactionClick = onTransactionClick,
                                 onOpenAll = onExplainSpend,
@@ -2695,6 +2924,13 @@ private fun HomeHeroSpend(
                 maxLines = 1
             )
         }
+        Text(
+            text = "Includes transfers and investments",
+            modifier = Modifier.padding(top = 3.dp),
+            color = palette.muted,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.Medium
+        )
     }
 }
 
@@ -3124,13 +3360,13 @@ private fun HomeRecentSpending(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Not counted · $notCount payments",
+                        text = "Money in · $notCount payments",
                         color = palette.muted,
                         fontSize = 13.sp,
                         fontWeight = SortedHomeWeight
                     )
                     Text(
-                        text = "Transfers, investments, refunds, rewards, income",
+                        text = "Refunds, rewards and income",
                         color = palette.muted,
                         fontSize = 11.5.sp,
                         maxLines = 1,
@@ -3229,7 +3465,7 @@ private fun HomeRecentRow(
             Spacer(modifier = Modifier.width(8.dp))
         }
         Text(
-            text = (transaction.inrAmountValue ?: transaction.amountValue).formatHomeRupee(),
+            text = transaction.displayAmount(),
             color = palette.ink,
             fontSize = 15.5.sp,
             fontWeight = SortedHomeWeight,
@@ -3500,7 +3736,6 @@ private fun TapeCloseOutBlock(
     palette: TapePalette,
     onExplainSpend: () -> Unit
 ) {
-    val heldOut = (breakdown.totalDebits - breakdown.spends).coerceAtLeast(0.0)
     val reviewAmount = reviewRows.sumOf { it.inrAmountValue ?: 0.0 }
     Column(
         modifier = Modifier
@@ -3511,7 +3746,7 @@ private fun TapeCloseOutBlock(
             .padding(horizontal = 12.dp, vertical = 12.dp)
     ) {
         Text(
-            text = "SPEND - MONTH TO DATE",
+            text = "SPENT THIS MONTH",
             color = palette.inkFaint,
             fontFamily = SortedTapeFontFamily,
             fontSize = 9.sp,
@@ -3530,17 +3765,17 @@ private fun TapeCloseOutBlock(
         )
         TapeDoubleRule(palette = palette)
         TapeSummationRow(
-            label = "${breakdown.spendCount} LINES INCLUDED",
+            label = "${breakdown.spendCount} PAYMENTS",
             value = breakdown.spends.formatRupee(),
             palette = palette
         )
         TapeSummationRow(
-            label = "${breakdown.debitCount - breakdown.spendCount} LINES HELD OUT",
-            value = "(${heldOut.formatRupee()})",
+            label = "ALL OUTGOING PAYMENTS",
+            value = breakdown.totalDebits.formatRupee(),
             palette = palette
         )
         TapeSummationRow(
-            label = "${reviewRows.size} LINES UNSTAMPED",
+            label = "${reviewRows.size} NEED REVIEW",
             value = reviewAmount.formatRupee(),
             palette = palette,
             color = palette.query
@@ -3548,7 +3783,7 @@ private fun TapeCloseOutBlock(
         if (breakdown.refunds > 0.0) {
             TapeSummationRow(
                 label = "REFUND SIGNALS",
-                value = "NOT SUBTRACTED",
+                value = "SHOWN SEPARATELY",
                 palette = palette
             )
         }
@@ -3657,7 +3892,7 @@ private fun TapeQueryStrip(
         TapeStamp(text = "?", palette = palette, color = palette.query)
         Spacer(modifier = Modifier.width(9.dp))
         Text(
-            text = "$count LINES NEED A STAMP - ${amount.formatRupee()}",
+            text = "$count PAYMENTS NEED REVIEW - ${amount.formatRupee()}",
             modifier = Modifier.weight(1f),
             color = palette.query,
             fontFamily = SortedTapeFontFamily,
@@ -3817,8 +4052,7 @@ private data class TapeLineStyle(
 )
 
 private fun TransactionUi.tapeLineStyle(palette: TapePalette): TapeLineStyle {
-    val value = inrAmountValue ?: amountValue
-    val amountLabel = value.formatRupee()
+    val amountLabel = inrAmountValue?.formatRupee() ?: amount
     val review = needsReview()
     return when {
         review -> TapeLineStyle(
@@ -3834,20 +4068,10 @@ private fun TransactionUi.tapeLineStyle(palette: TapePalette): TapeLineStyle {
             glyph = "+",
             stamp = transactionType.displayName().uppercase(Locale.US).take(8),
             amount = "+$amountLabel",
-            note = "credit signal - not subtracted",
+            note = "money in - shown separately",
             accent = palette.credit,
             ink = palette.inkSoft,
             filledStamp = false
-        )
-        !transactionType.countsAsSpend() -> TapeLineStyle(
-            glyph = "H",
-            stamp = transactionType.displayName().uppercase(Locale.US).take(8),
-            amount = amountLabel,
-            note = "held out of spend",
-            accent = palette.held,
-            ink = palette.inkSoft,
-            filledStamp = true,
-            textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough
         )
         else -> TapeLineStyle(
             glyph = "",
@@ -3934,7 +4158,7 @@ private fun TapePinnedStrip(
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text(
-            text = "${breakdown.spendCount} IN - ${breakdown.debitCount - breakdown.spendCount} OUT",
+            text = "${breakdown.spendCount} PAYMENTS",
             modifier = Modifier.weight(1f),
             color = palette.inkFaint,
             fontFamily = SortedTapeFontFamily,
@@ -3988,7 +4212,7 @@ private fun EmptyTapeState(
     ) {
         TapeDoubleRule(palette = palette)
         Text(
-            text = "NO LINES YET",
+            text = "NO PAYMENTS YET",
             color = palette.inkSoft,
             fontFamily = SortedTapeFontFamily,
             fontSize = 13.sp,
@@ -4331,231 +4555,208 @@ private fun String.monthStampLabel(): String {
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun InsightsTabContent(
     feedState: FeedState,
     selectedMonthKey: String?,
     modifier: Modifier,
     onSettings: () -> Unit,
-    onMerchantClick: (SummaryGroup) -> Unit,
-    onCategoryClick: (SummaryGroup) -> Unit,
+    onMerchantClick: (SummaryGroup, List<String>) -> Unit,
+    onCategoryClick: (SummaryGroup, List<String>) -> Unit,
     onTransactionClick: (TransactionUi) -> Unit,
     onOpenReview: () -> Unit
 ) {
-    val palette = tapePalette()
-    val months = remember(feedState.transactions) { feedState.transactions.availableMonthKeys() }
-    val activeMonthKey = selectedMonthKey?.takeIf { it in months } ?: feedState.transactions.selectedMonthKey()
-    val previousMonthKey = remember(months, activeMonthKey) {
-        val index = months.indexOf(activeMonthKey)
-        months.getOrNull(index + 1)
+    val palette = homePalette()
+    val allRows = feedState.transactions.filter { it.inrAmountValue != null }
+    val today = remember { LocalDate.now() }
+    val thisMonth = today.toString().take(7)
+    val months = remember(today) { (1..12).map { month -> "%04d-%02d".format(today.year, month) } }
+    var range by remember { mutableStateOf("This month") }
+    val selectedKey = when (range) {
+        "Last month" -> today.minusMonths(1).toString().take(7)
+        else -> thisMonth
     }
-    val breakdown = remember(feedState.transactions, activeMonthKey) {
-        feedState.transactions.monthBreakdown(activeMonthKey)
-    }
-    val previousBreakdown = remember(feedState.transactions, previousMonthKey) {
-        previousMonthKey?.let { feedState.transactions.monthBreakdown(it) }
-    }
-    val monthRows = remember(feedState.transactions, activeMonthKey) {
-        feedState.transactions.latestMonthTransactions(activeMonthKey)
-            .filter { it.inrAmountValue != null }
-    }
-    val categories = remember(feedState.transactions, activeMonthKey) {
-        feedState.transactions.monthSpendCategoryGroups(activeMonthKey)
-    }
-    val merchants = remember(feedState.transactions, activeMonthKey) {
-        feedState.transactions.monthSpendMerchantGroups(activeMonthKey)
-    }
-    val reviewRows = remember(feedState.transactions, activeMonthKey) {
-        feedState.transactions.reviewCandidates(activeMonthKey)
-    }
-    val refundRows = remember(monthRows) {
-        monthRows
-            .filter { it.direction == DirectionUi.Credit }
-            .filter { row ->
-                row.transactionType == TransactionType.REFUND ||
-                    row.transactionType == TransactionType.REWARD ||
-                    row.category == "Refund" ||
-                    row.category == "Reward" ||
-                    row.detail.contains("refund", ignoreCase = true) ||
-                    row.detail.contains("reversal", ignoreCase = true) ||
-                    row.detail.contains("cashback", ignoreCase = true)
-            }
-            .sortedByDescending { it.inrAmountValue ?: 0.0 }
-    }
-    val recurringRows = remember(feedState.transactions, activeMonthKey) {
-        feedState.transactions
-            .filter { it.isInSelectedMonth(activeMonthKey) }
-            .recurringCandidates()
-    }
-    val sourceRows = remember(monthRows) {
-        monthRows
-            .groupBy { it.source }
-            .map { (source, rows) ->
-                SourceHealthRow(
-                    source = source,
-                    totalCount = rows.size,
-                    spendCount = rows.count { it.direction == DirectionUi.Debit && it.transactionType.countsAsSpend() },
-                    reviewCount = rows.count(TransactionUi::needsReview),
-                    fxCount = rows.count { !it.countsInInrTotals() },
-                    totalAmount = rows
-                        .filter { it.direction == DirectionUi.Debit }
-                        .sumOf { it.inrAmountValue ?: 0.0 }
-                )
-            }
-            .sortedByDescending { it.totalCount }
-    }
-    var activeSection by remember { mutableStateOf("WHERE") }
-    val tabs = listOf("WHERE", "WHO", "REPEATS", "CHANGED", "HELD", "?", "SOURCES")
+    val keys = if (range == "This year") months.filter { it <= thisMonth } else listOf(selectedKey)
+    val spend = allRows.filter { it.transactionDate?.take(7) in keys && it.countsTowardSpentTotal() }
+    val periodTotal = spend.sumOf { it.inrAmountValue ?: 0.0 }
+    val comparisonKey = if (range == "Last month") today.minusMonths(2).toString().take(7) else today.minusMonths(1).toString().take(7)
+    val comparisonRows = allRows.filter { it.transactionDate?.take(7) == comparisonKey && it.countsTowardSpentTotal() }
+    val comparisonTotal = comparisonRows.sumOf { it.inrAmountValue ?: 0.0 }
+    val average = if (range == "This year") periodTotal / keys.size.coerceAtLeast(1) else allRows.filter { it.countsTowardSpentTotal() }.groupBy { it.transactionDate?.take(7) }.values.map { rows -> rows.sumOf { it.inrAmountValue ?: 0.0 } }.average().takeIf { it.isFinite() } ?: 0.0
+    val groups = spend.groupBy { it.category.ifBlank { "Other" } }.map { (label, rows) -> SummaryGroup(label, rows.size, rows.sumOf { it.inrAmountValue ?: 0.0 }, "INR", label) }.sortedByDescending { it.total }
+    val merchants = spend.groupBy { it.merchant.ifBlank { "Unknown" } }.map { (label, rows) -> SummaryGroup(label, rows.size, rows.sumOf { it.inrAmountValue ?: 0.0 }, "INR", rows.first().category) }.sortedByDescending { it.total }
+    val moneyIn = allRows.filter { it.transactionDate?.take(7) in keys && it.countsTowardMoneyIn() }
+    var sheetTitle by remember { mutableStateOf<String?>(null) }
+    var sheetRows by remember { mutableStateOf(emptyList<TransactionUi>()) }
+    val openRows: (String, List<TransactionUi>) -> Unit = { title, rows -> sheetTitle = title; sheetRows = rows }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(palette.desk)
-    ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            IndexDeskBar(
-                monthKey = activeMonthKey,
-                indexedCount = monthRows.size,
-                palette = palette,
-                onSettings = onSettings
-            )
-            IndexTabRail(
-                tabs = tabs,
-                activeTab = activeSection,
-                palette = palette,
-                onTabSelected = { activeSection = it }
-            )
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .background(palette.tape)
-                    .drawBehind {
-                        val strokeWidth = 1.dp.toPx()
-                        drawLine(
-                            color = palette.ruleFaint,
-                            start = Offset(strokeWidth / 2f, 0f),
-                            end = Offset(strokeWidth / 2f, size.height),
-                            strokeWidth = strokeWidth
-                        )
-                        drawLine(
-                            color = palette.ruleFaint,
-                            start = Offset(size.width - strokeWidth / 2f, 0f),
-                            end = Offset(size.width - strokeWidth / 2f, size.height),
-                            strokeWidth = strokeWidth
-                        )
-                    },
-                content = {
-                    item {
-                        IndexSummaryBlock(
-                            breakdown = breakdown,
-                            indexedCount = monthRows.size,
-                            merchantCount = merchants.size,
-                            categoryCount = categories.size,
-                            reviewRows = reviewRows,
-                            palette = palette,
-                            onOpenReview = onOpenReview
-                        )
-                    }
-                    item {
-                        IndexShareRule(
-                            groups = categories,
-                            total = breakdown.spends,
-                            palette = palette,
-                            onGroupClick = onCategoryClick
-                        )
-                    }
-                    if (activeSection == "WHERE" || activeSection == "?") {
-                        item {
-                            IndexGroupBlock(
-                                heading = "WHERE IT WENT",
-                                meta = "${categories.size} CATEGORIES",
-                                groups = categories.take(if (activeSection == "WHERE") 8 else 4),
-                                palette = palette,
-                                emptyLabel = "NO CATEGORIES PRINTED YET",
-                                onGroupClick = onCategoryClick
-                            )
+    Column(modifier = modifier.fillMaxSize().background(palette.background)) {
+        Row(Modifier.fillMaxWidth().background(if (isDarkModeActive()) Color(0xFF0F2C28) else palette.header).padding(start = 20.dp, end = 8.dp, top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("INSIGHTS", Modifier.weight(1f), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 2.53.sp)
+            Text(if (feedState.needsSmsPermission) "Imports need permission" else "${allRows.size} payments", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            IconButton(onClick = onSettings) { HomeSettingsSlidersGlyph(color = palette.muted, modifier = Modifier.size(20.dp)) }
+        }
+        Row(Modifier.fillMaxWidth().background(if (isDarkModeActive()) Color(0xFF0F2C28) else palette.header).padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 14.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            listOf("This month", "Last month", "This year").forEach { label ->
+                val active = range == label
+                Box(Modifier.weight(1f).background(if (active) palette.ink else palette.softFill, RoundedCornerShape(6.dp)).clickable { range = label }.padding(vertical = 9.dp), contentAlignment = Alignment.Center) {
+                    Text(label, color = if (active) palette.background else palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium)
+                }
+            }
+        }
+        LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+            item {
+                Column(Modifier.fillMaxWidth().clickable { openRows("${range} payments", spend) }.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 18.dp)) {
+                    Text(if (range == "This year") "Spent this year" else "Spent in ${selectedKey.monthNameLabel()}", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Text(periodTotal.formatHomeRupee(), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 54.sp, lineHeight = 54.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp)
+                    Text("${spend.size} payments", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    val delta = periodTotal - comparisonTotal
+                    Text(if (comparisonTotal == 0.0) "No previous month to compare" else "${kotlin.math.abs(delta).formatHomeRupee()} ${if (delta >= 0) "more" else "less"} than ${comparisonKey.monthNameLabel()}", Modifier.padding(top = 10.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+            item {
+                Column(Modifier.fillMaxWidth().background(palette.band).padding(horizontal = 20.dp, vertical = 18.dp)) {
+                    InsightsSectionTitle("Month by month", "${today.year}", palette)
+                    Row(Modifier.fillMaxWidth().height(106.dp).padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.Bottom) {
+                        months.forEachIndexed { index, key ->
+                            val sum = allRows.filter { it.transactionDate?.take(7) == key && it.countsTowardSpentTotal() }.sumOf { it.inrAmountValue ?: 0.0 }
+                            val max = months.map { m -> allRows.filter { it.transactionDate?.take(7) == m && it.countsTowardSpentTotal() }.sumOf { it.inrAmountValue ?: 0.0 } }.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0
+                            val future = key > thisMonth
+                            Column(Modifier.weight(1f).fillMaxHeight().clickable(enabled = !future) { openRows(key.monthNameLabel(), allRows.filter { it.transactionDate?.take(7) == key && it.countsTowardSpentTotal() }) }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Bottom) {
+                                Spacer(Modifier.fillMaxWidth().height((70 * (sum / max).coerceAtLeast(if (sum > 0) .08 else 0.015)).dp).background(if (future) palette.faintRule else if (range == "This year" && !future) palette.categoryTwo else if (key == selectedKey) palette.ink else palette.categoryTwo.copy(alpha = .42f), RoundedCornerShape(2.dp)))
+                                Text(key.substring(5).toInt().let { listOf("J","F","M","A","M","J","J","A","S","O","N","D")[it-1] }, Modifier.padding(top = 5.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 9.5.sp, fontWeight = FontWeight.Medium)
+                            }
                         }
                     }
-                    if (activeSection == "WHO" || activeSection == "?") {
-                        item {
-                            IndexGroupBlock(
-                                heading = "WHO TOOK IT",
-                                meta = "${merchants.size} MERCHANTS",
-                                groups = merchants.take(8),
-                                palette = palette,
-                                emptyLabel = "NO MERCHANTS PRINTED YET",
-                                onGroupClick = onMerchantClick
-                            )
-                        }
-                    }
-                    if (activeSection == "REPEATS") {
-                        item {
-                            IndexRepeatsBlock(
-                                candidates = recurringRows,
-                                palette = palette
-                            )
-                        }
-                    }
-                    if (activeSection == "CHANGED") {
-                        item {
-                            IndexChangedBlock(
-                                activeMonthKey = activeMonthKey,
-                                previousMonthKey = previousMonthKey,
-                                breakdown = breakdown,
-                                previousBreakdown = previousBreakdown,
-                                categories = categories,
-                                previousCategories = feedState.transactions.monthSpendCategoryGroups(previousMonthKey),
-                                palette = palette
-                            )
-                        }
-                    }
-                    if (activeSection == "HELD") {
-                        item {
-                            IndexHeldBlock(
-                                breakdown = breakdown,
-                                palette = palette
-                            )
-                        }
-                        item {
-                            IndexRefundBlock(
-                                refunds = refundRows,
-                                palette = palette,
-                                onTransactionClick = onTransactionClick
-                            )
-                        }
-                    }
-                    if (activeSection == "?") {
-                        item {
-                            IndexUnstampedBlock(
-                                reviewRows = reviewRows,
-                                palette = palette,
-                                onTransactionClick = onTransactionClick,
-                                onOpenReview = onOpenReview
-                            )
-                        }
-                    }
-                    if (activeSection == "SOURCES") {
-                        item {
-                            IndexSourcesBlock(
-                                rows = sourceRows,
-                                palette = palette
-                            )
-                        }
-                    }
-                    item {
-                        Spacer(modifier = Modifier.height(112.dp))
+                    Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Usual month", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.sp)
+                        Text(average.formatHomeRupee(), Modifier.clickable { openRows("Payments in a usual month", allRows.filter { it.countsTowardSpentTotal() }) }, color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
-            )
+            }
+            item {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp)) {
+                    InsightsSectionTitle("Where it went", if (range == "This year") "A usual month" else "vs ${comparisonKey.monthNameLabel()}", palette)
+                    Row(Modifier.fillMaxWidth().height(30.dp).padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        groups.take(5).forEachIndexed { index, group -> Box(Modifier.weight(group.total.toFloat().coerceAtLeast(.01f)).fillMaxHeight().background(insightsCategoryColor(index, palette), RoundedCornerShape(3.dp)).clickable { onCategoryClick(group, keys) }) }
+                        if (groups.isEmpty()) Spacer(Modifier.weight(1f))
+                    }
+                    groups.take(5).forEachIndexed { index, group ->
+                        val previous = comparisonRows.filter { it.category == group.label }.sumOf { it.inrAmountValue ?: 0.0 }
+                        val change = if (previous <= 0) "New" else "${if (group.total >= previous) "+" else "−"}${((kotlin.math.abs(group.total - previous) / previous) * 100).toInt()}%"
+                        Row(Modifier.fillMaxWidth().clickable { onCategoryClick(group, keys) }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(9.dp).background(insightsCategoryColor(index, palette), RoundedCornerShape(2.dp)))
+                            Column(Modifier.weight(1f).padding(start = 10.dp)) { Text(group.label, color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.5.sp, fontWeight = FontWeight.Medium); Text("${group.count} payments", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp) }
+                            Column(horizontalAlignment = Alignment.End) { Text(group.total.formatHomeRupee(), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold); Text(change, color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp, fontWeight = FontWeight.Medium) }
+                        }
+                        if (index < groups.take(5).lastIndex) Spacer(Modifier.fillMaxWidth().height(1.dp).background(palette.faintRule))
+                    }
+                }
+            }
+            item {
+                Column(Modifier.fillMaxWidth().background(palette.band).padding(horizontal = 20.dp, vertical = 18.dp)) {
+                    InsightsSectionTitle("Biggest changes", "vs ${comparisonKey.monthNameLabel()}", palette)
+                    (groups.take(3)).forEach { group ->
+                        val old = comparisonRows.filter { it.category == group.label }.sumOf { it.inrAmountValue ?: 0.0 }
+                        InsightsTextRow("${group.label} ${if (old == 0.0) "is new" else "${(group.total - old).formatHomeRupee()} ${if (group.total >= old) "more" else "less"}"}", "${group.count} payments", palette) { onCategoryClick(group, keys) }
+                    }
+                }
+            }
+            item {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp)) {
+                    InsightsSectionTitle("Top merchants", "${merchants.size} places", palette)
+                    merchants.take(5).forEach { group ->
+                        InsightsTextRow(group.label, "${group.count} payments  ·  ${group.total.formatHomeRupee()}", palette) { onMerchantClick(group, keys) }
+                    }
+                }
+            }
+            item {
+                Column(Modifier.fillMaxWidth().background(palette.band).padding(horizontal = 20.dp, vertical = 18.dp)) {
+                    InsightsSectionTitle("Biggest payments", "${spend.size} payments", palette)
+                    spend.sortedByDescending { it.inrAmountValue ?: 0.0 }.take(5).forEach { row -> InsightsTransactionRow(row, palette, onTransactionClick) }
+                }
+            }
+            item {
+                val dayNames = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+                val dayTotals = dayNames.mapIndexed { i, _ -> spend.filter { it.transactionDate?.toLocalDateOrNull()?.dayOfWeek?.value == i + 1 }.sumOf { it.inrAmountValue ?: 0.0 } }
+                val dayMax = dayTotals.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0
+                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp)) {
+                    InsightsSectionTitle("When you spend", "${range}", palette)
+                    Row(Modifier.fillMaxWidth().height(110.dp).padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+                        dayNames.forEachIndexed { i, day ->
+                            Column(Modifier.weight(1f).fillMaxHeight().clickable { openRows("$day payments", spend.filter { it.transactionDate?.toLocalDateOrNull()?.dayOfWeek?.value == i + 1 }) }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Bottom) {
+                                Spacer(Modifier.fillMaxWidth().height((72 * (dayTotals[i] / dayMax).coerceAtLeast(.025)).dp).background(if (dayTotals[i] == dayMax && dayTotals[i] > 0) palette.ink else palette.categoryTwo.copy(alpha = .55f), RoundedCornerShape(2.dp)))
+                                Text(day, Modifier.padding(top = 5.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 10.sp)
+                            }
+                        }
+                    }
+                    val busiestDay = dayTotals.indices.maxByOrNull { dayTotals[it] } ?: 0
+                    Text(if (dayTotals[busiestDay] == 0.0) "No payments in this period" else "Busiest day: ${dayNames[busiestDay]}", Modifier.padding(top = 12.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.sp)
+                }
+            }
+            item {
+                Column(Modifier.fillMaxWidth().background(palette.band).padding(horizontal = 20.dp, vertical = 18.dp)) {
+                    InsightsSectionTitle("Money in", "${moneyIn.size} payments", palette)
+                    listOf(TransactionType.REFUND to "Refunds", TransactionType.REWARD to "Rewards", TransactionType.INCOME to "Income").forEach { (type, label) ->
+                        val rows = moneyIn.filter { it.transactionType == type }
+                        if (rows.isNotEmpty()) InsightsTextRow(label, "${rows.size} payments  ·  ${rows.sumOf { it.inrAmountValue ?: 0.0 }.formatHomeRupee()}", palette, amountColor = if (type == TransactionType.INCOME || type == TransactionType.REFUND || type == TransactionType.REWARD) palette.credit else palette.ink) { openRows(label, rows) }
+                    }
+                    val otherMoneyIn = moneyIn.filter { it.transactionType !in setOf(TransactionType.REFUND, TransactionType.REWARD, TransactionType.INCOME) }
+                    if (otherMoneyIn.isNotEmpty()) InsightsTextRow("Other", "${otherMoneyIn.size} payments  ·  ${otherMoneyIn.sumOf { it.inrAmountValue ?: 0.0 }.formatHomeRupee()}", palette, amountColor = palette.credit) { openRows("Other money in", otherMoneyIn) }
+                }
+            }
+            item { Text("Worked out on this phone", Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp, textAlign = TextAlign.Center) }
+            item { Spacer(Modifier.height(32.dp)) }
         }
-        IndexPinnedStrip(
-            breakdown = breakdown,
-            reviewRows = reviewRows,
-            palette = palette,
-            modifier = Modifier.align(Alignment.BottomCenter),
-            onOpenReview = onOpenReview
-        )
     }
+    if (sheetTitle != null) {
+        ModalBottomSheet(onDismissRequest = { sheetTitle = null }, containerColor = palette.background, shape = RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp)) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                Text(sheetTitle.orEmpty(), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp)) { items(sheetRows) { row -> InsightsTransactionRow(row, palette, onTransactionClick) } }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InsightsSectionTitle(title: String, meta: String, palette: HomePalette) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(title.uppercase(Locale.US), Modifier.weight(1f), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.76.sp)
+        Text(meta, color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun InsightsTextRow(title: String, detail: String, palette: HomePalette, amountColor: Color = palette.ink, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, Modifier.weight(1f), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(detail.substringAfterLast("  ·  ", detail), color = amountColor, fontFamily = SortedHomeFontFamily, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        }
+        if (detail.contains("  ·  ").not()) Text(detail, color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp)
+        Spacer(Modifier.fillMaxWidth().padding(top = 9.dp).height(1.dp).background(palette.faintRule))
+    }
+}
+
+@Composable
+private fun InsightsTransactionRow(transaction: TransactionUi, palette: HomePalette, onClick: (TransactionUi) -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable { onClick(transaction) }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(transaction.merchant.ifBlank { "Payment" }, color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 15.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${transaction.category}  ·  ${transaction.transactionDate.orEmpty()}", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Text((transaction.inrAmountValue ?: 0.0).formatHomeRupee(), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun insightsCategoryColor(index: Int, palette: HomePalette): Color = when (index % 5) {
+    0 -> palette.categoryOne
+    1 -> palette.categoryTwo
+    2 -> palette.categoryThree
+    3 -> if (isDarkModeActive()) Color(0xFFA8CFC2) else Color(0xFF6F9A86)
+    else -> if (isDarkModeActive()) Color(0xFFC2B27A) else Color(0xFF8C7A4A)
 }
 
 @Composable
@@ -4582,7 +4783,7 @@ private fun IndexDeskBar(
             maxLines = 1
         )
         Text(
-            text = "${monthKey?.monthStampLabel() ?: "CURRENT"} - $indexedCount LINES INDEXED",
+            text = "${monthKey?.monthStampLabel() ?: "CURRENT"} - $indexedCount PAYMENTS",
             modifier = Modifier
                 .weight(1f)
                 .padding(horizontal = 10.dp),
@@ -4651,8 +4852,6 @@ private fun IndexSummaryBlock(
     palette: TapePalette,
     onOpenReview: () -> Unit
 ) {
-    val heldOut = (breakdown.totalDebits - breakdown.spends + breakdown.income + breakdown.rewards + breakdown.refunds)
-        .coerceAtLeast(0.0)
     val reviewAmount = reviewRows.sumOf { it.inrAmountValue ?: 0.0 }
     Column(
         modifier = Modifier
@@ -4662,7 +4861,7 @@ private fun IndexSummaryBlock(
             .padding(start = 13.dp, end = 13.dp, top = 12.dp, bottom = 2.dp)
     ) {
         Text(
-            text = "INDEXED FROM THE TAPE",
+            text = "THIS MONTH",
             color = palette.inkFaint,
             fontFamily = SortedTapeFontFamily,
             fontSize = 9.sp,
@@ -4678,9 +4877,9 @@ private fun IndexSummaryBlock(
             maxLines = 1
         )
         TapeDoubleRule(palette = palette)
-        TapeSummationRow(" $indexedCount LINES INDEXED", breakdown.spends.formatRupee(), palette)
+        TapeSummationRow(" $indexedCount PAYMENTS", breakdown.spends.formatRupee(), palette)
         TapeSummationRow(" $merchantCount MERCHANTS - $categoryCount CATEGORIES", "", palette)
-        TapeSummationRow(" ${breakdown.debitCount - breakdown.spendCount} LINES HELD OUT", "(${heldOut.formatRupee()})", palette)
+        TapeSummationRow(" ALL OUTGOING PAYMENTS", breakdown.totalDebits.formatRupee(), palette)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -4689,7 +4888,7 @@ private fun IndexSummaryBlock(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = " ${reviewRows.size} LINES UNSTAMPED",
+                text = " ${reviewRows.size} NEED REVIEW",
                 modifier = Modifier.weight(1f),
                 color = palette.query,
                 fontFamily = SortedTapeFontFamily,
@@ -4819,7 +5018,7 @@ private fun IndexGroupBlock(
                     onClick = { onGroupClick(group) }
                 )
             }
-            IndexBlockFoot("INDEXED TOTAL", groups.sumOf { it.total }.formatRupee(), palette)
+            IndexBlockFoot("CATEGORY TOTAL", groups.sumOf { it.total }.formatRupee(), palette)
         }
     }
 }
@@ -4839,7 +5038,7 @@ private fun IndexRepeatsBlock(
             palette = palette
         )
         if (candidates.isEmpty()) {
-            IndexEmptyLine("NOT ENOUGH LINES TO INDEX REPEATS YET", palette)
+            IndexEmptyLine("NOT ENOUGH PAYMENTS TO SPOT A PATTERN YET", palette)
         } else {
             candidates.take(6).forEach { candidate ->
                 IndexEntryRow(
@@ -4877,13 +5076,13 @@ private fun IndexChangedBlock(
         }
         IndexEntryRow(
             name = activeMonthKey?.monthStampLabel() ?: "CURRENT",
-            meta = "${breakdown.spendCount} LINES",
+            meta = "${breakdown.spendCount} PAYMENTS",
             value = breakdown.spends.formatRupee(),
             palette = palette
         )
         IndexEntryRow(
             name = previousMonthKey?.monthStampLabel() ?: "PREVIOUS",
-            meta = "${previousBreakdown.spendCount} LINES",
+            meta = "${previousBreakdown.spendCount} PAYMENTS",
             value = previousBreakdown.spends.formatRupee(),
             palette = palette,
             dim = true
@@ -4907,7 +5106,7 @@ private fun IndexChangedBlock(
             val deltaValue = group.total - old
             IndexEntryRow(
                 name = group.label.uppercase(Locale.US),
-                meta = if (old == 0.0) "FIRST SEEN" else "${group.count} LINES",
+                meta = if (old == 0.0) "FIRST SEEN" else "${group.count} PAYMENTS",
                 value = if (deltaValue < 0) "(${(-deltaValue).formatRupee()})" else deltaValue.formatRupee(),
                 palette = palette,
                 delta = if (old == 0.0) "NEW" else {
@@ -4926,18 +5125,18 @@ private fun IndexHeldBlock(
     palette: TapePalette
 ) {
     IndexBlockShell(
-        heading = "HELD OUT OF SPEND",
-        meta = "${breakdown.debitCount - breakdown.spendCount} LINES",
+        heading = "OUTGOING CATEGORIES",
+        meta = "${breakdown.debitCount} PAYMENTS IN TOTAL",
         palette = palette
     ) {
+        val otherOutgoing = (breakdown.totalDebits - breakdown.transfers - breakdown.investments).coerceAtLeast(0.0)
         val rows = listOf(
-            Triple("MOVED", "TRANSFERS", breakdown.transfers),
-            Triple("INVESTED", "ORDERS", breakdown.investments),
-            Triple("INCOME", "CREDITS", breakdown.income),
-            Triple("REWARDS", "CREDITS", breakdown.rewards)
+            Triple("EVERYDAY", "PURCHASES AND BILLS", otherOutgoing),
+            Triple("INVESTED", "INVESTMENTS", breakdown.investments),
+            Triple("MOVED", "TRANSFERS", breakdown.transfers)
         ).filter { it.third > 0.0 }
         if (rows.isEmpty()) {
-            IndexEmptyLine("NO HELD-OUT MONEY PRINTED", palette)
+            IndexEmptyLine("NO OUTGOING PAYMENTS THIS MONTH", palette)
         } else {
             rows.forEach { (name, meta, value) ->
                 IndexEntryRow(
@@ -4948,7 +5147,7 @@ private fun IndexHeldBlock(
                     palette = palette
                 )
             }
-            IndexBlockFoot("HELD OUT TOTAL", rows.sumOf { it.third }.formatRupee(), palette)
+            IndexBlockFoot("ALL INCLUDED", breakdown.totalDebits.formatRupee(), palette)
         }
     }
 }
@@ -4995,7 +5194,7 @@ private fun IndexRefundBlock(
                             )
                         }
                         Text(
-                            text = "POSSIBLE REFUND - NOT SUBTRACTED",
+                            text = "POSSIBLE REFUND - SHOWN SEPARATELY",
                             color = palette.inkFaint,
                             fontFamily = SortedTapeFontFamily,
                             fontSize = 8.sp,
@@ -5005,7 +5204,7 @@ private fun IndexRefundBlock(
                     }
                 }
             }
-            IndexBlockFoot("SIGNALLED - NOT SUBTRACTED", refunds.sumOf { it.inrAmountValue ?: 0.0 }.formatRupee(), palette)
+            IndexBlockFoot("REFUNDS SHOWN SEPARATELY", refunds.sumOf { it.inrAmountValue ?: 0.0 }.formatRupee(), palette)
         }
     }
 }
@@ -5018,12 +5217,12 @@ private fun IndexUnstampedBlock(
     onOpenReview: () -> Unit
 ) {
     IndexBlockShell(
-        heading = "NEEDS A STAMP",
-        meta = "${reviewRows.size} LINES",
+        heading = "NEED REVIEW",
+        meta = "${reviewRows.size} PAYMENTS",
         palette = palette
     ) {
         if (reviewRows.isEmpty()) {
-            IndexEmptyLine("NOTHING TO STAMP", palette)
+            IndexEmptyLine("NOTHING NEEDS REVIEW", palette)
         } else {
             reviewRows.take(6).forEach { transaction ->
                 IndexEntryRow(
@@ -5064,17 +5263,17 @@ private fun IndexSourcesBlock(
     palette: TapePalette
 ) {
     IndexBlockShell(
-        heading = "SOURCE HEALTH",
+        heading = "IMPORTS",
         meta = "ON DEVICE",
         palette = palette
     ) {
         if (rows.isEmpty()) {
-            IndexEmptyLine("NO SOURCE LINES PRINTED", palette)
+            IndexEmptyLine("NO PAYMENTS IMPORTED YET", palette)
         } else {
             rows.forEach { row ->
                 IndexEntryRow(
                     name = row.source.uppercase(Locale.US),
-                    meta = "${row.totalCount} READ - ${row.spendCount} SPEND",
+                    meta = "${row.totalCount} PAYMENTS - ${row.spendCount} IN TOTAL",
                     value = "${row.reviewCount} REVIEW",
                     palette = palette,
                     query = row.reviewCount > 0
@@ -5367,7 +5566,7 @@ private fun IndexPinnedStrip(
             maxLines = 1
         )
         Text(
-            text = "  ${breakdown.spendCount} INDEXED",
+            text = "  ${breakdown.spendCount} PAYMENTS",
             modifier = Modifier
                 .weight(1f)
                 .padding(start = 8.dp),
@@ -5395,249 +5594,1081 @@ private fun IndexPinnedStrip(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun SpendExplanationScreen(
     feedState: FeedState,
+    selectedMonthKey: String?,
     onBack: () -> Unit,
     onTransactionClick: (TransactionUi) -> Unit,
     onOpenReview: () -> Unit
 ) {
-    val breakdown = remember(feedState.transactions) { feedState.transactions.monthBreakdown() }
-    val buckets = remember(feedState.transactions) { feedState.transactions.explainBuckets() }
-    val reviewTransactions = remember(feedState.transactions) { feedState.transactions.reviewCandidates() }
-    val sourceRows = remember(feedState.transactions) { feedState.transactions.sourceHealthRows() }
-
-    TapeRoute(
-        title = "WHY",
-        meta = breakdown.monthKey?.monthStampLabel() ?: "CURRENT TAPE",
-        onBack = onBack
-    ) { palette ->
-        item {
-            SpendExplanationHero(
-                breakdown = breakdown,
-                feedLabel = feedState.label,
-                reviewTransactions = reviewTransactions,
-                palette = palette,
-                onOpenReview = onOpenReview
-            )
-        }
-        items(
-            buckets.filter { it.count > 0 || it.title == "Included spend" },
-            key = { it.title }
-        ) { bucket ->
-            ExplainBucketCard(
-                bucket = bucket,
-                palette = palette,
-                onTransactionClick = onTransactionClick
-            )
-        }
-        item {
-            SourceHealthMiniCard(sourceRows = sourceRows, palette = palette)
-        }
-        if (reviewTransactions.isNotEmpty()) {
-            item {
-                ReviewQueueCard(
-                    transactions = reviewTransactions,
-                    palette = palette,
-                    onTransactionClick = onTransactionClick,
-                    onOpenInbox = onOpenReview
-                )
-            }
+    val palette = homePalette()
+    val monthRows = remember(feedState.transactions, selectedMonthKey) {
+        feedState.transactions.latestMonthTransactions(selectedMonthKey)
+    }
+    val outgoing = remember(monthRows) { monthRows.filter { it.countsTowardSpentTotal() } }
+    val moneyIn = remember(monthRows) { monthRows.filter { it.countsTowardMoneyIn() } }
+    val unresolvedDebits = remember(monthRows) {
+        monthRows.filter {
+            it.direction == DirectionUi.Debit && it.status != TransactionStatus.COMPLETED ||
+                it.direction == DirectionUi.Debit && it.amountValue > 0.0 && it.inrAmountValue == null
         }
     }
-}
+    val total = outgoing.sumOf { it.inrAmountValue ?: 0.0 }
+    val categories = remember(outgoing) {
+        outgoing.groupBy { it.category.ifBlank { "Other" } }
+            .map { (category, rows) -> SummaryGroup(category, rows.size, rows.sumOf { it.inrAmountValue ?: 0.0 }, "INR", category) }
+            .sortedByDescending { it.total }
+    }
+    val moneyInGroups = remember(moneyIn) {
+        moneyIn.groupBy { it.transactionType.displayName() }
+            .map { (label, rows) -> SummaryGroup(label, rows.size, rows.sumOf { it.inrAmountValue ?: 0.0 }, "INR", label) }
+            .sortedByDescending { it.total }
+    }
+    val reviewTransactions = remember(outgoing) { outgoing.filter(TransactionUi::needsReview) }
+    var sheetTitle by remember { mutableStateOf<String?>(null) }
+    var sheetRows by remember { mutableStateOf(emptyList<TransactionUi>()) }
+    val openRows: (String, List<TransactionUi>) -> Unit = { title, rows -> sheetTitle = title; sheetRows = rows }
 
-@Composable
-private fun SpendExplanationHero(
-    breakdown: MonthBreakdown,
-    feedLabel: String,
-    reviewTransactions: List<TransactionUi>,
-    palette: TapePalette,
-    onOpenReview: () -> Unit
-) {
-    val heldOut = (breakdown.totalDebits - breakdown.spends).coerceAtLeast(0.0)
-    val reviewAmount = reviewTransactions.sumOf { it.inrAmountValue ?: 0.0 }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-            .border(1.dp, palette.rule)
-            .animateContentSize(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing))
-            .padding(horizontal = 12.dp, vertical = 12.dp)
-    ) {
-        Text(
-            text = "MONTH SPEND CLOSE-OUT",
-            color = palette.inkFaint,
-            fontFamily = SortedTapeFontFamily,
-            fontSize = 9.sp,
-            letterSpacing = 1.7.sp,
-            maxLines = 1
-        )
-        Text(
-            text = breakdown.spends.formatRupee(),
-            modifier = Modifier.padding(top = 8.dp),
-            color = palette.ink,
-            fontFamily = SortedTapeFontFamily,
-            fontSize = 32.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        TapeDoubleRule(palette = palette)
-        TapeSummationRow("${breakdown.spendCount} LINES INCLUDED", breakdown.spends.formatRupee(), palette)
-        TapeSummationRow("${breakdown.debitCount - breakdown.spendCount} LINES HELD OUT", "(${heldOut.formatRupee()})", palette)
-        TapeSummationRow("TOTAL DEBIT MOVEMENT", breakdown.totalDebits.formatRupee(), palette)
-        TapeSummationRow("${reviewTransactions.size} LINES UNSTAMPED", reviewAmount.formatRupee(), palette, palette.query)
-        if (breakdown.refunds > 0.0 || breakdown.rewards > 0.0) {
-            TapeSummationRow("REFUND / REWARD SIGNALS", "NOT SUBTRACTED", palette, palette.credit)
-        }
+    Column(Modifier.fillMaxSize().background(palette.background)) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 10.dp),
+            Modifier.fillMaxWidth().background(palette.header).padding(start = 8.dp, end = 20.dp, top = 5.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TapeStamp(feedLabel.uppercase(Locale.US).take(18), palette, palette.inkFaint)
-            Spacer(modifier = Modifier.weight(1f))
+            IconButton(onClick = onBack, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = palette.ink)
+            }
+            Column(Modifier.weight(1f).padding(start = 4.dp)) {
+                Text("This month's spending", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text(selectedMonthKey?.monthNameLabel() ?: "This month", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.sp)
+            }
+        }
+        LazyColumn(Modifier.fillMaxSize()) {
+            item {
+                Column(
+                    Modifier.fillMaxWidth().clickable { openRows("Outgoing payments", outgoing) }
+                        .padding(horizontal = 20.dp, vertical = 22.dp)
+                ) {
+                    Text("Spent this month", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Text(total.formatHomeRupee(), Modifier.padding(top = 3.dp), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 48.sp, lineHeight = 50.sp, fontWeight = FontWeight.SemiBold)
+                    Text("${outgoing.size} payments", Modifier.padding(top = 2.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Text("Includes transfers and investments.", Modifier.padding(top = 10.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp)
+                }
+            }
+            item {
+                Column(Modifier.fillMaxWidth().background(palette.band).padding(horizontal = 20.dp, vertical = 16.dp)) {
+                    InsightsSectionTitle("By category", "${categories.size} categories", palette)
+                    categories.forEach { group ->
+                        val share = if (total > 0.0) (group.total / total).toFloat().coerceIn(0f, 1f) else 0f
+                        Column(Modifier.fillMaxWidth().clickable { openRows(group.label, outgoing.filter { it.category.ifBlank { "Other" } == group.label }) }.padding(vertical = 10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(group.label, Modifier.weight(1f), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                Text(group.total.formatHomeRupee(), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                            Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                                Box(Modifier.weight(1f).height(5.dp).clip(RoundedCornerShape(3.dp)).background(palette.softFill)) {
+                                    Box(Modifier.fillMaxWidth(share).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(palette.categoryTwo))
+                                }
+                                Text("${(share * 100).roundToInt()}% · ${group.count}", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                    if (categories.isEmpty()) Text("No outgoing payments this month.", Modifier.padding(top = 12.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp)
+                }
+            }
+            if (moneyIn.isNotEmpty()) {
+                item {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp)) {
+                        InsightsSectionTitle("Money in", "Shown separately", palette)
+                        Text("Refunds, rewards and income do not reduce spending.", Modifier.padding(top = 4.dp, bottom = 8.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp)
+                        moneyInGroups.forEach { group ->
+                            InsightsTextRow(group.label, "${group.count} payments · ${group.total.formatHomeRupee()}", palette, amountColor = palette.credit) {
+                                openRows(group.label, moneyIn.filter { it.transactionType.displayName() == group.label })
+                            }
+                        }
+                    }
+                }
+            }
+            if (unresolvedDebits.isNotEmpty()) {
+                item {
+                    Row(Modifier.fillMaxWidth().background(palette.band).clickable { openRows("Not in total yet", unresolvedDebits) }.padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Not in the total yet", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            Text("${unresolvedDebits.size} payments need an amount, currency or status check.", Modifier.padding(top = 2.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp)
+                        }
+                        Text("›", color = palette.muted, fontSize = 18.sp)
+                    }
+                }
+            }
             if (reviewTransactions.isNotEmpty()) {
-                TapeActionText(
-                    label = "OPEN QUERIES",
-                    palette = palette,
-                    color = palette.query,
-                    onClick = onOpenReview
-                )
+                item {
+                    TextButton(onClick = onOpenReview, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Text("Review ${reviewTransactions.size} payments", color = palette.review, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+            item { Text("Stays on this phone", Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp, textAlign = TextAlign.Center) }
+        }
+    }
+    if (sheetTitle != null) {
+        ModalBottomSheet(onDismissRequest = { sheetTitle = null }, containerColor = palette.background, shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                Text(sheetTitle.orEmpty(), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 540.dp)) {
+                    items(sheetRows, key = { it.sourceHash }) { row -> InsightsTransactionRow(row, palette, onTransactionClick) }
+                }
             }
         }
     }
 }
 
-@Composable
-private fun ExplainBucketCard(
-    bucket: ExplainBucket,
-    palette: TapePalette,
-    onTransactionClick: (TransactionUi) -> Unit
-) {
-    val previewRows = bucket.transactions
-        .sortedByDescending { it.inrAmountValue ?: 0.0 }
-        .take(5)
+private data class ReviewCorrectionChoice(
+    val transaction: TransactionUi,
+    val category: String,
+    val transactionType: TransactionType
+)
 
-    TapeLedgerBlock(
-        heading = bucket.title,
-        meta = "${bucket.count} LINES",
-        palette = palette
-    ) {
-        TapeSummationRow("BUCKET TOTAL", bucket.amount.formatRupee(), palette)
-        Text(
-            text = bucket.description.uppercase(Locale.US),
-            modifier = Modifier.padding(top = 3.dp, bottom = 6.dp),
-            color = palette.inkFaint,
-            fontFamily = SortedTapeFontFamily,
-            fontSize = 8.sp,
-            letterSpacing = 0.8.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-        previewRows.forEach { transaction ->
-            TapeInlineLine(
-                transaction = transaction,
-                palette = palette,
-                onClick = { onTransactionClick(transaction) }
-            )
-        }
-        if (previewRows.isNotEmpty()) {
-            IndexBlockFoot("PREVIEW SUBTOTAL", previewRows.sumOf { it.inrAmountValue ?: 0.0 }.formatRupee(), palette)
-        }
-    }
-}
+private val ReviewCategories = listOf(
+    "Food",
+    "Shopping",
+    "Bills",
+    "Travel",
+    "Health",
+    "Home",
+    "Fun",
+    "Gifts",
+    "Investment",
+    "Transfer"
+)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SortInboxScreen(
     feedState: FeedState,
+    selectedMonthKey: String?,
+    modifier: Modifier = Modifier,
     onBack: () -> Unit,
-    onTransactionClick: (TransactionUi) -> Unit
+    onTransactionClick: (TransactionUi) -> Unit,
+    onCorrect: (TransactionUi, String, TransactionType, Boolean) -> Unit,
+    onOpenSync: () -> Unit,
+    onOpenRules: () -> Unit
 ) {
-    val reviewTransactions = remember(feedState.transactions) { feedState.transactions.reviewCandidates() }
-    val filters = remember {
-        listOf(
-            ReviewFilter("All") { true },
-            ReviewFilter("Other") { it.category == "Other" || it.miscCategory == "Uncategorized" },
-            ReviewFilter("Confidence") { it.confidence < 0.70 || it.categorySource == CategorySource.FALLBACK },
-            ReviewFilter("Merchant") { it.merchant.looksLikeRawPaymentHandle() },
-            ReviewFilter("Gmail") { it.source == "Gmail" },
-            ReviewFilter("FX") { !it.countsInInrTotals() }
-        )
+    val palette = homePalette()
+    val persistedCandidates = remember(feedState.transactions, selectedMonthKey) {
+        feedState.transactions.reviewCandidates(selectedMonthKey)
     }
-    var selectedFilter by remember { mutableStateOf(filters.first().label) }
-    val activeFilter = filters.firstOrNull { it.label == selectedFilter } ?: filters.first()
-    val filteredTransactions = remember(reviewTransactions, selectedFilter) {
-        reviewTransactions.filter(activeFilter.predicate)
-    }
-    val total = filteredTransactions.sumOf { it.inrAmountValue ?: 0.0 }
+    val initialReviewIds = remember { persistedCandidates.map(TransactionUi::sourceHash).toSet() }
+    var handledHashes by remember { mutableStateOf(emptySet<String>()) }
+    var currentIndex by remember { mutableStateOf(0) }
+    var categoriesOpen by remember { mutableStateOf(false) }
+    var pendingCorrection by remember { mutableStateOf<ReviewCorrectionChoice?>(null) }
+    var madeRules by remember { mutableStateOf(0) }
 
-    TapeRoute(
-        title = "QUERY",
-        meta = "${filteredTransactions.size} LINES NEED A STAMP",
-        onBack = onBack
-    ) { palette ->
+    val candidates = remember(persistedCandidates, handledHashes) {
+        persistedCandidates.filterNot { it.sourceHash in handledHashes }
+    }
+    val persistedHashes = persistedCandidates.map(TransactionUi::sourceHash).toSet()
+    LaunchedEffect(persistedHashes) {
+        handledHashes = handledHashes.filterTo(mutableSetOf()) { it in persistedHashes }
+    }
+    LaunchedEffect(candidates.size) {
+        currentIndex = if (candidates.isEmpty()) 0 else currentIndex.coerceAtMost(candidates.lastIndex)
+    }
+
+    val monthKey = selectedMonthKey ?: feedState.transactions.selectedMonthKey()
+    val monthSpend = feedState.transactions.latestMonthSpendTransactions(monthKey)
+        .sumOf { it.inrAmountValue ?: 0.0 }
+    val initialMonthSpend = remember { monthSpend }
+    val resolvedCount = initialReviewIds.count { sourceHash ->
+        candidates.none { it.sourceHash == sourceHash }
+    }
+    val progressTotal = maxOf(initialReviewIds.size, resolvedCount + candidates.size)
+    val current = candidates.getOrNull(currentIndex)
+
+    fun submitCorrection(choice: ReviewCorrectionChoice, rememberRule: Boolean) {
+        onCorrect(choice.transaction, choice.category, choice.transactionType, rememberRule)
+        handledHashes = handledHashes + choice.transaction.sourceHash
+        if (rememberRule) madeRules += 1
+        pendingCorrection = null
+        categoriesOpen = false
+    }
+
+    fun offerCorrection(choice: ReviewCorrectionChoice) {
+        if (choice.transaction.canCreateReviewRule()) {
+            pendingCorrection = choice
+        } else {
+            submitCorrection(choice, rememberRule = false)
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(palette.background)
+    ) {
+        ReviewProgressHeader(
+            resolvedCount = resolvedCount,
+            totalCount = progressTotal,
+            hasCurrent = current != null,
+            palette = palette,
+            onBack = onBack
+        )
+
+        if (feedState.needsSmsPermission) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(palette.review.copy(alpha = 0.10f))
+                    .clickable(onClick = onOpenSync)
+                    .padding(horizontal = 20.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(palette.reviewDot)
+                )
+                Text(
+                    text = "SMS imports paused",
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 10.dp),
+                    color = palette.review,
+                    fontFamily = SortedHomeFontFamily,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = "Fix",
+                    color = palette.review,
+                    fontFamily = SortedHomeFontFamily,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+
+        if (current == null) {
+            ReviewFinishedState(
+                reviewedCount = resolvedCount,
+                monthLabel = monthKey?.monthNameLabel() ?: "This month",
+                monthSpend = monthSpend,
+                change = monthSpend - initialMonthSpend,
+                madeRules = madeRules,
+                palette = palette,
+                onBackHome = onBack,
+                onOpenRules = onOpenRules
+            )
+        } else {
+            ReviewCurrentPayment(
+                transaction = current,
+                monthSpend = monthSpend,
+                palette = palette,
+                onChooseCategory = { category ->
+                    offerCorrection(
+                        ReviewCorrectionChoice(
+                            transaction = current,
+                            category = category,
+                            transactionType = current.reviewTypeForCategory(category)
+                        )
+                    )
+                },
+                onSuggestedType = {
+                    val type = current.reviewSuggestedOutgoingType()
+                    offerCorrection(
+                        ReviewCorrectionChoice(
+                            transaction = current,
+                            category = if (type == TransactionType.INVESTMENT) "Investment" else "Transfer",
+                            transactionType = type
+                        )
+                    )
+                },
+                onKeep = {
+                    submitCorrection(
+                        ReviewCorrectionChoice(
+                            transaction = current,
+                            category = current.category,
+                            transactionType = current.transactionType
+                        ),
+                        rememberRule = false
+                    )
+                },
+                onEdit = { onTransactionClick(current) },
+                onAllCategories = { categoriesOpen = true },
+                onSkip = {
+                    currentIndex = if (candidates.size <= 1) {
+                        currentIndex
+                    } else {
+                        (currentIndex + 1) % candidates.size
+                    }
+                }
+            )
+        }
+    }
+
+    if (categoriesOpen && current != null) {
+        ModalBottomSheet(
+            onDismissRequest = { categoriesOpen = false },
+            containerColor = if (isDarkModeActive()) Color(0xFF143A35) else Color(0xFFF5F8EE),
+            shape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp)
+        ) {
+            ReviewCategorySheet(
+                transaction = current,
+                palette = palette,
+                onCategory = { category ->
+                    categoriesOpen = false
+                    offerCorrection(
+                        ReviewCorrectionChoice(
+                            transaction = current,
+                            category = category,
+                            transactionType = current.reviewTypeForCategory(category)
+                        )
+                    )
+                }
+            )
+        }
+    }
+
+    pendingCorrection?.let { choice ->
+        ModalBottomSheet(
+            onDismissRequest = { pendingCorrection = null },
+            containerColor = if (isDarkModeActive()) Color(0xFF143A35) else Color(0xFFF5F8EE),
+            shape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp)
+        ) {
+            ReviewRuleOfferSheet(
+                choice = choice,
+                palette = palette,
+                onJustThisOne = { submitCorrection(choice, rememberRule = false) },
+                onMakeRule = { submitCorrection(choice, rememberRule = true) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReviewProgressHeader(
+    resolvedCount: Int,
+    totalCount: Int,
+    hasCurrent: Boolean,
+    palette: HomePalette,
+    onBack: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(palette.header)
+            .padding(horizontal = 10.dp, vertical = 10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack, modifier = Modifier.size(40.dp)) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = palette.ink
+                )
+            }
+            Text(
+                text = "Review",
+                modifier = Modifier.padding(start = 2.dp),
+                color = palette.ink,
+                fontFamily = SortedHomeFontFamily,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = when {
+                    hasCurrent -> "${(resolvedCount + 1).coerceAtMost(totalCount)} of $totalCount"
+                    totalCount == 0 -> "Nothing to do"
+                    else -> "All done"
+                },
+                color = palette.muted,
+                fontFamily = SortedHomeFontFamily,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+        if (totalCount > 0) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                repeat(totalCount) { index ->
+                    val color = when {
+                        index < resolvedCount -> palette.ink
+                        index == resolvedCount && hasCurrent -> palette.review
+                        else -> palette.ink.copy(alpha = 0.14f)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(color)
+                    )
+                }
+            }
+        }
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(palette.rule)
+    )
+}
+
+@Composable
+private fun ReviewCurrentPayment(
+    transaction: TransactionUi,
+    monthSpend: Double,
+    palette: HomePalette,
+    onChooseCategory: (String) -> Unit,
+    onSuggestedType: () -> Unit,
+    onKeep: () -> Unit,
+    onEdit: () -> Unit,
+    onAllCategories: () -> Unit,
+    onSkip: () -> Unit
+) {
+    val reason = transaction.reviewPromptTitle()
+    val hint = transaction.reviewPromptHint()
+    val categoryGuess = transaction.reviewCategoryGuess()
+    val secondCategory = transaction.reviewSecondaryCategory(categoryGuess)
+    val suggestionFirst = reason == "Looks like a transfer" || reason == "Looks like an investment"
+
+    LazyColumn(modifier = Modifier.fillMaxSize()) {
         item {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .dottedOutline(palette.query)
-                    .padding(horizontal = 12.dp, vertical = 12.dp)
+                    .padding(horizontal = 20.dp, vertical = 20.dp)
             ) {
+                Row(
+                    modifier = Modifier
+                        .graphicsLayer(rotationZ = -1.5f)
+                        .dottedOutline(palette.review)
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(palette.reviewDot)
+                    )
+                    Text(
+                        text = reason.uppercase(Locale.US),
+                        modifier = Modifier.padding(start = 8.dp),
+                        color = palette.review,
+                        fontFamily = SortedHomeFontFamily,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 1.08.sp
+                    )
+                }
                 Text(
-                    text = "SORT INBOX",
-                    color = palette.inkFaint,
-                    fontFamily = SortedTapeFontFamily,
-                    fontSize = 9.sp,
-                    letterSpacing = 1.7.sp,
-                    maxLines = 1
+                    text = hint,
+                    modifier = Modifier.padding(top = 8.dp),
+                    color = palette.muted,
+                    fontFamily = SortedHomeFontFamily,
+                    fontSize = 12.5.sp
                 )
                 Text(
-                    text = total.formatRupee(),
-                    modifier = Modifier.padding(top = 8.dp),
-                    color = palette.query,
-                    fontFamily = SortedTapeFontFamily,
-                    fontSize = 30.sp,
+                    text = transaction.merchant,
+                    modifier = Modifier.padding(top = 18.dp),
+                    color = palette.ink,
+                    fontFamily = SortedHomeFontFamily,
+                    fontSize = 26.sp,
+                    lineHeight = 29.sp,
                     fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = transaction.reviewMeta(),
+                    modifier = Modifier.padding(top = 5.dp),
+                    color = palette.muted,
+                    fontFamily = SortedHomeFontFamily,
+                    fontSize = 12.5.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                TapeDoubleRule(palette = palette)
-                TapeSummationRow("${filteredTransactions.size} QUERY LINES", total.formatRupee(), palette, palette.query)
-                TapeSummationRow("SOURCE", feedState.label.uppercase(Locale.US), palette)
-                Spacer(modifier = Modifier.height(10.dp))
-                TapeFilterRail(
-                    title = "STAMP FILTER",
-                    choices = filters.map { it.label },
-                    selected = selectedFilter,
-                    palette = palette,
-                    onSelected = { selectedFilter = it }
+                Text(
+                    text = transaction.displayAmount(),
+                    modifier = Modifier.padding(top = 14.dp),
+                    color = palette.ink,
+                    fontFamily = SortedHomeFontFamily,
+                    fontSize = 46.sp,
+                    lineHeight = 46.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
                 )
             }
         }
-        if (filteredTransactions.isEmpty()) {
-            item {
-                TapeLedgerBlock(
-                    heading = "Nothing to stamp",
-                    meta = "clear",
-                    palette = palette
-                ) {
-                    IndexEmptyLine("CURRENT MONTH LINES LOOK SORTED", palette)
+
+        item {
+            ReviewAlertBand(transaction = transaction, palette = palette)
+        }
+
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                if (suggestionFirst) {
+                    ReviewChoiceButton(
+                        label = "Sort as ${transaction.reviewSuggestedOutgoingType().displayName()}",
+                        note = "Sorted's guess",
+                        primary = true,
+                        palette = palette,
+                        onClick = onSuggestedType
+                    )
+                    ReviewChoiceButton(
+                        label = "Sort as $categoryGuess",
+                        note = null,
+                        primary = false,
+                        palette = palette,
+                        onClick = { onChooseCategory(categoryGuess) }
+                    )
+                } else {
+                    ReviewChoiceButton(
+                        label = "Sort as $categoryGuess",
+                        note = "Sorted's guess",
+                        primary = true,
+                        palette = palette,
+                        onClick = { onChooseCategory(categoryGuess) }
+                    )
+                    ReviewChoiceButton(
+                        label = "Sort as $secondCategory",
+                        note = null,
+                        primary = false,
+                        palette = palette,
+                        onClick = { onChooseCategory(secondCategory) }
+                    )
+                    ReviewChoiceButton(
+                        label = "Sort as ${transaction.reviewSuggestedOutgoingType().displayName()}",
+                        note = null,
+                        primary = false,
+                        palette = palette,
+                        onClick = onSuggestedType
+                    )
                 }
+                ReviewTextAction(label = "Keep as is", palette = palette, onClick = onKeep)
+                ReviewTextAction(label = "Edit transaction", palette = palette, onClick = onEdit)
+                ReviewTextAction(label = "All categories", palette = palette, onClick = onAllCategories)
             }
-        } else {
-            items(filteredTransactions, key = { it.sourceHash }) { transaction ->
-                TapeInlineLine(
-                    transaction = transaction,
-                    palette = palette,
-                    reason = transaction.reviewReason(),
-                    onClick = { onTransactionClick(transaction) }
+        }
+
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .drawBehind {
+                        drawLine(
+                            color = palette.faintRule,
+                            start = Offset.Zero,
+                            end = Offset(size.width, 0f),
+                            strokeWidth = 1.dp.toPx()
+                        )
+                    }
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Spent this month",
+                        color = palette.muted,
+                        fontFamily = SortedHomeFontFamily,
+                        fontSize = 11.5.sp
+                    )
+                    Text(
+                        text = monthSpend.formatHomeRupee(),
+                        modifier = Modifier.padding(top = 2.dp),
+                        color = palette.ink,
+                        fontFamily = SortedHomeFontFamily,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Text(
+                    text = "Skip for now",
+                    modifier = Modifier.clickable(onClick = onSkip),
+                    color = palette.muted,
+                    fontFamily = SortedHomeFontFamily,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
                 )
             }
         }
     }
+}
+
+@Composable
+private fun ReviewAlertBand(
+    transaction: TransactionUi,
+    palette: HomePalette
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(palette.band)
+            .drawBehind {
+                drawLine(palette.rule, Offset.Zero, Offset(size.width, 0f), 1.dp.toPx())
+                drawLine(palette.rule, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
+                val step = 21.dp.toPx()
+                var y = 43.dp.toPx()
+                while (y < size.height) {
+                    drawLine(
+                        palette.ink.copy(alpha = 0.07f),
+                        Offset(20.dp.toPx(), y),
+                        Offset(size.width - 20.dp.toPx(), y),
+                        1.dp.toPx()
+                    )
+                    y += step
+                }
+            }
+            .padding(horizontal = 20.dp, vertical = 14.dp)
+    ) {
+        Text(
+            text = "WHAT THE ALERT SAID",
+            color = palette.muted,
+            fontFamily = SortedHomeFontFamily,
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 1.47.sp
+        )
+        Text(
+            text = transaction.reviewAlertCopy(),
+            modifier = Modifier.padding(top = 8.dp),
+            color = palette.ink,
+            fontFamily = SortedHomeFontFamily,
+            fontSize = 12.5.sp,
+            lineHeight = 21.sp
+        )
+    }
+}
+
+@Composable
+private fun ReviewChoiceButton(
+    label: String,
+    note: String?,
+    primary: Boolean,
+    palette: HomePalette,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (primary) palette.ink else palette.softFill)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 15.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+            color = if (primary) palette.background else palette.ink,
+            fontFamily = SortedHomeFontFamily,
+            fontSize = 15.5.sp,
+            fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (!note.isNullOrBlank()) {
+            Text(
+                text = note,
+                modifier = Modifier.padding(start = 10.dp),
+                color = if (primary) palette.background.copy(alpha = 0.75f) else palette.muted,
+                fontFamily = SortedHomeFontFamily,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReviewTextAction(
+    label: String,
+    palette: HomePalette,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 44.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            color = palette.muted,
+            fontFamily = SortedHomeFontFamily,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Text(
+            text = "  ›",
+            color = palette.muted,
+            fontFamily = SortedHomeFontFamily,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+private fun ReviewFinishedState(
+    reviewedCount: Int,
+    monthLabel: String,
+    monthSpend: Double,
+    change: Double,
+    madeRules: Int,
+    palette: HomePalette,
+    onBackHome: () -> Unit,
+    onOpenRules: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        SortedTallyMark(
+            ink = palette.ink,
+            clay = palette.review,
+            modifier = Modifier
+                .padding(top = 52.dp)
+                .size(60.dp)
+        )
+        Text(
+            text = "Nothing needs review",
+            modifier = Modifier.padding(top = 16.dp),
+            color = palette.ink,
+            fontFamily = SortedHomeFontFamily,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = if (reviewedCount == 0) "$monthLabel is up to date." else "$reviewedCount payments reviewed.",
+            modifier = Modifier.padding(top = 7.dp, start = 24.dp, end = 24.dp),
+            color = palette.muted,
+            fontFamily = SortedHomeFontFamily,
+            fontSize = 13.5.sp,
+            lineHeight = 21.sp,
+            textAlign = TextAlign.Center
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 28.dp)
+                .background(palette.band)
+                .drawBehind {
+                    drawLine(palette.rule, Offset.Zero, Offset(size.width, 0f), 1.dp.toPx())
+                    drawLine(palette.rule, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
+                }
+                .padding(horizontal = 20.dp, vertical = 18.dp)
+        ) {
+            ReviewSummaryRow("Spent this month", monthSpend.formatHomeRupee(), palette)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 10.dp)
+                    .height(1.dp)
+                    .background(palette.faintRule)
+            )
+            ReviewSummaryRow(
+                label = "Change after review",
+                value = when {
+                    change > 0.0 -> "+${change.formatHomeRupee()}"
+                    change < 0.0 -> "−${kotlin.math.abs(change).formatHomeRupee()}"
+                    else -> "—"
+                },
+                palette = palette
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            ReviewChoiceButton(
+                label = "Back to home",
+                note = null,
+                primary = true,
+                palette = palette,
+                onClick = onBackHome
+            )
+            if (madeRules > 0) {
+                ReviewTextAction(
+                    label = "$madeRules new auto-sorting ${if (madeRules == 1) "rule" else "rules"}",
+                    palette = palette,
+                    onClick = onOpenRules
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReviewSummaryRow(
+    label: String,
+    value: String,
+    palette: HomePalette
+) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+            color = palette.muted,
+            fontFamily = SortedHomeFontFamily,
+            fontSize = 13.sp
+        )
+        Text(
+            text = value,
+            color = palette.ink,
+            fontFamily = SortedHomeFontFamily,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun ReviewCategorySheet(
+    transaction: TransactionUi,
+    palette: HomePalette,
+    onCategory: (String) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "All categories",
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            color = palette.ink,
+            fontFamily = SortedHomeFontFamily,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = "${transaction.merchant} · ${transaction.displayAmount()}",
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+            color = palette.muted,
+            fontFamily = SortedHomeFontFamily,
+            fontSize = 12.sp
+        )
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 470.dp)
+                .padding(horizontal = 20.dp, vertical = 10.dp)
+        ) {
+            items(ReviewCategories) { category ->
+                ReviewSheetRow(
+                    title = category,
+                    detail = if (category == transaction.reviewCategoryGuess()) "Sorted's guess" else null,
+                    palette = palette,
+                    onClick = { onCategory(category) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReviewSheetRow(
+    title: String,
+    detail: String?,
+    palette: HomePalette,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .drawBehind {
+                drawLine(
+                    palette.faintRule,
+                    Offset(0f, size.height),
+                    Offset(size.width, size.height),
+                    1.dp.toPx()
+                )
+            }
+            .clickable(onClick = onClick)
+            .padding(vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = palette.ink,
+                fontFamily = SortedHomeFontFamily,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium
+            )
+            if (!detail.isNullOrBlank()) {
+                Text(
+                    text = detail,
+                    modifier = Modifier.padding(top = 2.dp),
+                    color = palette.muted,
+                    fontFamily = SortedHomeFontFamily,
+                    fontSize = 11.5.sp
+                )
+            }
+        }
+        Text("›", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 14.sp)
+    }
+}
+
+@Composable
+private fun ReviewRuleOfferSheet(
+    choice: ReviewCorrectionChoice,
+    palette: HomePalette,
+    onJustThisOne: () -> Unit,
+    onMakeRule: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 10.dp)
+    ) {
+        Text(
+            text = "Always sort ${choice.transaction.merchant} as ${choice.category}?",
+            color = palette.ink,
+            fontFamily = SortedHomeFontFamily,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = "Use this for future ${choice.transaction.merchant} payments. You can change rules in Settings.",
+            modifier = Modifier.padding(top = 4.dp),
+            color = palette.muted,
+            fontFamily = SortedHomeFontFamily,
+            fontSize = 12.sp,
+            lineHeight = 18.sp
+        )
+        Row(
+            modifier = Modifier.padding(top = 16.dp, bottom = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(modifier = Modifier.weight(1f)) {
+                ReviewChoiceButton(
+                    label = "Just this one",
+                    note = null,
+                    primary = false,
+                    palette = palette,
+                    onClick = onJustThisOne
+                )
+            }
+            Box(modifier = Modifier.weight(1f)) {
+                ReviewChoiceButton(
+                    label = "Make a rule",
+                    note = null,
+                    primary = true,
+                    palette = palette,
+                    onClick = onMakeRule
+                )
+            }
+        }
+    }
+}
+
+private fun TransactionUi.reviewPromptTitle(): String {
+    val merchantLower = merchant.lowercase(Locale.US)
+    return when {
+        transactionType == TransactionType.INVESTMENT ||
+            merchantLower.contains("zerodha") ||
+            merchantLower.contains("groww") ||
+            merchantLower.contains("mutual fund") -> "Looks like an investment"
+        transactionType == TransactionType.TRANSFER ||
+            merchantLower.startsWith("to ") ||
+            merchantLower.contains("own account") -> "Looks like a transfer"
+        !countsInInrTotals() -> "Check this amount"
+        source == "Gmail" && (inrAmountValue ?: 0.0) >= 10_000.0 -> "Check this payment"
+        else -> "Which category?"
+    }
+}
+
+private fun TransactionUi.reviewPromptHint(): String {
+    return when (reviewPromptTitle()) {
+        "Looks like an investment" -> "Investment payments stay in your monthly total"
+        "Looks like a transfer" -> "Transfers stay in your monthly total"
+        "Check this amount" -> "Sorted needs you to confirm the converted amount"
+        "Check this payment" -> "A larger payment imported from Gmail"
+        else -> "A new place — which category should it use?"
+    }
+}
+
+private fun TransactionUi.reviewCategoryGuess(): String {
+    if (category.isNotBlank() && category != "Other") return category
+    val value = merchant.lowercase(Locale.US)
+    return when {
+        listOf("swiggy", "zomato", "restaurant", "cafe").any(value::contains) -> "Food"
+        listOf("amazon", "flipkart", "myntra", "store").any(value::contains) -> "Shopping"
+        listOf("electric", "airtel", "jio", "bill", "bescom").any(value::contains) -> "Bills"
+        listOf("uber", "ola", "metro", "irctc", "flight").any(value::contains) -> "Travel"
+        listOf("hospital", "pharmacy", "medical", "clinic").any(value::contains) -> "Health"
+        else -> "Shopping"
+    }
+}
+
+private fun TransactionUi.reviewSecondaryCategory(primary: String): String {
+    return when (primary) {
+        "Food" -> "Shopping"
+        "Shopping" -> "Food"
+        "Bills" -> "Home"
+        "Travel" -> "Shopping"
+        "Health" -> "Home"
+        "Home" -> "Bills"
+        else -> "Shopping"
+    }
+}
+
+private fun TransactionUi.reviewSuggestedOutgoingType(): TransactionType {
+    val value = merchant.lowercase(Locale.US)
+    return if (
+        transactionType == TransactionType.INVESTMENT ||
+        listOf("zerodha", "groww", "mutual fund", "investment").any(value::contains)
+    ) {
+        TransactionType.INVESTMENT
+    } else {
+        TransactionType.TRANSFER
+    }
+}
+
+private fun TransactionUi.reviewTypeForCategory(category: String): TransactionType = when (category) {
+    "Investment" -> TransactionType.INVESTMENT
+    "Transfer" -> TransactionType.TRANSFER
+    else -> if (transactionType == TransactionType.SUBSCRIPTION) TransactionType.SUBSCRIPTION else TransactionType.EXPENSE
+}
+
+private fun TransactionUi.canCreateReviewRule(): Boolean {
+    return id != null && merchant.isNotBlank() && merchant != "Unknown" && !merchant.looksLikeRawPaymentHandle()
+}
+
+private fun TransactionUi.reviewMeta(): String {
+    return listOfNotNull(
+        transactionDate?.takeIf(String::isNotBlank),
+        paymentMode.takeIf(String::isNotBlank)
+    ).joinToString(" · ").ifBlank { source }
+}
+
+private fun TransactionUi.reviewAlertCopy(): String {
+    val amountText = if (currency == "INR") {
+        amountValue.formatHomeRupee()
+    } else {
+        amount
+    }
+    return "$amountText at $merchant. $detail. Imported from $source."
 }
 
 @Composable
@@ -5889,11 +6920,11 @@ private fun ReviewQueueCard(
     val total = transactions.sumOf { it.inrAmountValue ?: 0.0 }
 
     TapeLedgerBlock(
-        heading = "Unstamped lines",
-        meta = "${transactions.size} queries",
+        heading = "Need review",
+        meta = "${transactions.size} payments",
         palette = palette
     ) {
-        TapeSummationRow("QUERY TOTAL", total.formatRupee(), palette, palette.query)
+        TapeSummationRow("NEEDS REVIEW", total.formatRupee(), palette, palette.query)
         if (previewRows.isEmpty()) {
             IndexEmptyLine("NO REVIEW ITEMS", palette)
         } else {
@@ -5992,7 +7023,7 @@ private fun InsightPulseCard(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = breakdown.monthKey?.monthMovementLabel() ?: "Current movement",
+                text = breakdown.monthKey?.monthMovementLabel() ?: "Spent this month",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp,
                 letterSpacing = 0.sp
@@ -6011,7 +7042,7 @@ private fun InsightPulseCard(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 MiniMetric(
-                    label = "Avg debit",
+                    label = "Average payment",
                     value = averageDebit.formatInr(),
                     modifier = Modifier.weight(1f)
                 )
@@ -6462,38 +7493,450 @@ private fun CaptureTabContent(
     feedState: FeedState,
     modifier: Modifier,
     saveState: ManualSaveState,
-    onSettings: () -> Unit,
-    onSave: (ManualTransactionDraft) -> Unit
+    onSave: (ManualTransactionDraft) -> Unit,
+    onUndo: (String) -> Unit,
+    onClose: () -> Unit,
+    onResetSaved: () -> Unit
 ) {
-    val palette = tapePalette()
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(palette.desk)
-    ) {
-        AddDeskBar(
-            palette = palette,
-            onSettings = onSettings
-        )
-        TapePaper(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .padding(horizontal = 14.dp),
-            palette = palette
-        ) {
-            item {
-                ManualAddCard(
-                    feedState = feedState,
-                    saveState = saveState,
-                    onSave = onSave,
-                    palette = palette
-                )
+    AddPaymentScreen(
+        feedState = feedState,
+        saveState = saveState,
+        modifier = modifier,
+        onSave = onSave,
+        onUndo = onUndo,
+        onClose = onClose,
+        onResetSaved = onResetSaved
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddPaymentScreen(
+    feedState: FeedState,
+    saveState: ManualSaveState,
+    modifier: Modifier = Modifier,
+    onSave: (ManualTransactionDraft) -> Unit,
+    onUndo: (String) -> Unit,
+    onClose: () -> Unit,
+    onResetSaved: () -> Unit
+) {
+    val palette = homePalette()
+    val context = LocalContext.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val amountFocusRequester = remember { FocusRequester() }
+    var amount by remember { mutableStateOf("") }
+    var merchant by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf<String?>(null) }
+    var date by remember { mutableStateOf(LocalDate.now()) }
+    var paymentMode by remember { mutableStateOf(PaymentMode.CASH) }
+    var sheet by remember { mutableStateOf<String?>(null) }
+    var showPlaceEditor by remember { mutableStateOf(false) }
+    var newPlace by remember { mutableStateOf("") }
+    var validationError by remember { mutableStateOf<String?>(null) }
+    var savedDraft by remember { mutableStateOf<ManualTransactionDraft?>(null) }
+    var savedHash by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(saveState.sourceHash, saveState.draft) {
+        if (saveState.sourceHash != null && saveState.draft != null) {
+            savedHash = saveState.sourceHash
+            savedDraft = saveState.draft
+        } else if (saveState.sourceHash == null && !saveState.isSaving) {
+            savedHash = null
+            savedDraft = null
+        }
+    }
+    LaunchedEffect(savedDraft) {
+        if (savedDraft == null) {
+            delay(180)
+            amountFocusRequester.requestFocus()
+        }
+    }
+
+    val categories = listOf(
+        "Food", "Groceries", "Shopping", "Subscriptions", "Transport",
+        "Utilities", "Health", "Home", "Entertainment", "Other"
+    )
+    val recentPlaces = remember(feedState.transactions) {
+        feedState.transactions
+            .filter { it.merchant.isNotBlank() && it.merchant != "Unknown" }
+            .groupBy { it.merchant.trim() }
+            .map { (name, transactions) ->
+                val latest = transactions.maxByOrNull { it.transactionDate.orEmpty() }
+                Triple(name, latest?.category ?: "Other", transactions.size)
             }
-            item {
-                Spacer(modifier = Modifier.height(104.dp))
+            .sortedByDescending { it.third }
+            .take(8)
+    }
+    val parsedAmount = amount.toDoubleOrNull()
+    val canSave = parsedAmount != null && parsedAmount > 0.0 && !saveState.isSaving
+
+    fun resetForm() {
+        amount = ""
+        merchant = ""
+        category = null
+        date = LocalDate.now()
+        paymentMode = PaymentMode.CASH
+        validationError = null
+        savedDraft = null
+        savedHash = null
+        onResetSaved()
+    }
+
+    val amountTone = when {
+        validationError != null -> palette.review
+        canSave -> palette.ink
+        else -> palette.muted
+    }
+    val currentDateLabel = when (date) {
+        LocalDate.now() -> "Today"
+        LocalDate.now().minusDays(1) -> "Yesterday"
+        else -> date.format(java.time.format.DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()))
+    }
+    val savedPayment = savedDraft
+    val monthTotal = remember(feedState.transactions, savedPayment) {
+        val monthKey = (savedPayment?.date ?: LocalDate.now().toString()).take(7)
+        feedState.transactions
+            .filter { it.transactionDate?.take(7) == monthKey && it.countsTowardSpentTotal() }
+            .sumOf { it.inrAmountValue ?: 0.0 }
+    }
+
+    Column(
+        modifier = modifier.fillMaxSize().imePadding().background(palette.background)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().background(palette.header)
+                .padding(start = 16.dp, end = 20.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier.size(40.dp).clip(CircleShape).clickable(onClick = onClose),
+                contentAlignment = Alignment.Center
+            ) { Text("×", color = palette.ink, fontSize = 28.sp, lineHeight = 30.sp) }
+            Text(
+                "Add a payment", Modifier.weight(1f), color = palette.ink,
+                fontFamily = SortedHomeFontFamily, fontSize = 17.sp, fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                date.format(java.time.format.DateTimeFormatter.ofPattern("MMMM", Locale.getDefault())),
+                color = palette.muted, fontFamily = SortedHomeFontFamily,
+                fontSize = 12.5.sp, fontWeight = FontWeight.Medium
+            )
+        }
+
+        if (savedPayment == null) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("Amount", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text("₹", modifier = Modifier.padding(top = 8.dp), color = amountTone, fontFamily = SortedHomeFontFamily, fontSize = 26.sp, fontWeight = FontWeight.Medium)
+                        BasicTextField(
+                            value = amount,
+                            onValueChange = { entered ->
+                                val clean = entered.filter { it.isDigit() || it == '.' }
+                                val decimalAt = clean.indexOf('.')
+                                amount = if (decimalAt < 0) {
+                                    clean.take(9)
+                                } else {
+                                    clean.substring(0, decimalAt).take(9) + "." +
+                                        clean.substring(decimalAt + 1).replace(".", "").take(2)
+                                }
+                                validationError = null
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            textStyle = TextStyle(
+                                color = amountTone,
+                                fontFamily = SortedHomeFontFamily,
+                                fontSize = 56.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                lineHeight = 58.sp,
+                                fontFeatureSettings = "tnum"
+                            ),
+                            modifier = Modifier.width((amount.length * 34 + 20).coerceIn(96, 300).dp).focusRequester(amountFocusRequester),
+                            decorationBox = { innerTextField ->
+                                Box(contentAlignment = Alignment.CenterStart) {
+                                    if (amount.isEmpty()) {
+                                        Text("0", color = amountTone, fontFamily = SortedHomeFontFamily, fontSize = 56.sp, fontWeight = FontWeight.SemiBold, lineHeight = 58.sp)
+                                    }
+                                    innerTextField()
+                                }
+                            }
+                        )
+                    }
+                    if (validationError != null) {
+                        Text(validationError.orEmpty(), color = palette.review, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp)
+                    }
+                    if (saveState.error != null) {
+                        Text(saveState.error.orEmpty(), color = palette.review, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp)
+                    }
+                }
+
+                Column(modifier = Modifier.fillMaxWidth().background(palette.band).padding(horizontal = 20.dp)) {
+                    AddPaymentDetailRow("Where", merchant.ifBlank { "Add a place" }, merchant.isBlank(), palette) { sheet = "place" }
+                    AddPaymentDetailRow("Category", category ?: "Pick one", category == null, palette) { sheet = "category" }
+                    AddPaymentDetailRow("When", currentDateLabel, false, palette) { sheet = "date" }
+                    AddPaymentDetailRow("Paid with", paymentMode.displayName(), false, palette, last = true) { sheet = "paid" }
+                }
+
+                Spacer(Modifier.weight(1f))
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)
+                        .heightIn(min = 54.dp).clip(RoundedCornerShape(10.dp))
+                        .background(if (canSave) palette.ink else palette.softFill)
+                        .clickable {
+                            if (!canSave) {
+                                validationError = "Enter how much you paid"
+                            } else {
+                                validationError = null
+                                keyboardController?.hide()
+                                onSave(
+                                    ManualTransactionDraft(
+                                        merchant = merchant.trim().ifBlank { "Cash payment" },
+                                        amount = parsedAmount,
+                                        date = date.toString(),
+                                        category = category ?: "Other",
+                                        miscCategory = "Manual",
+                                        paymentMode = paymentMode,
+                                        transactionType = TransactionType.EXPENSE,
+                                        direction = Direction.DEBIT
+                                    )
+                                )
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        if (saveState.isSaving) "Saving…" else "Save payment",
+                        color = if (canSave) palette.background else palette.muted,
+                        fontFamily = SortedHomeFontFamily, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+            }
+        } else {
+            AddPaymentSaved(
+                draft = savedPayment,
+                monthTotal = monthTotal,
+                palette = palette,
+                onAddAnother = { resetForm() },
+                onUndo = {
+                    val hash = savedHash
+                    if (hash != null) onUndo(hash)
+                    savedDraft = null
+                    savedHash = null
+                },
+                onClose = onClose,
+                undoing = saveState.isSaving,
+                error = saveState.error
+            )
+        }
+    }
+
+    if (sheet != null) {
+        ModalBottomSheet(
+            onDismissRequest = { sheet = null },
+            containerColor = palette.background,
+            shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp)
+        ) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 18.dp)) {
+                val title = when (sheet) {
+                    "place" -> "Where did you pay?"
+                    "category" -> "Category"
+                    "date" -> "When did you pay?"
+                    else -> "Paid with"
+                }
+                Text(title, color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                when (sheet) {
+                    "place" -> {
+                        TextButton(onClick = { sheet = null; showPlaceEditor = true }) { Text("Add a place", color = palette.ink) }
+                        recentPlaces.forEach { (name, suggestedCategory, count) ->
+                            AddPaymentSheetRow(name, "$suggestedCategory · $count ${if (count == 1) "payment" else "payments"}", palette) {
+                                merchant = name
+                                if (category == null) category = suggestedCategory
+                                sheet = null
+                            }
+                        }
+                    }
+                    "category" -> categories.forEach { choice ->
+                        AddPaymentSheetRow(choice, if (choice == category) "Selected" else "", palette) {
+                            category = choice
+                            sheet = null
+                        }
+                    }
+                    "date" -> {
+                        AddPaymentSheetRow("Today", LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("d MMM", Locale.getDefault())), palette) {
+                            date = LocalDate.now(); sheet = null
+                        }
+                        AddPaymentSheetRow("Yesterday", LocalDate.now().minusDays(1).format(java.time.format.DateTimeFormatter.ofPattern("d MMM", Locale.getDefault())), palette) {
+                            date = LocalDate.now().minusDays(1); sheet = null
+                        }
+                        AddPaymentSheetRow("Choose a date", "Open calendar", palette) {
+                            sheet = null
+                            DatePickerDialog(
+                                context,
+                                { _, year, month, day -> date = LocalDate.of(year, month + 1, day) },
+                                date.year,
+                                date.monthValue - 1,
+                                date.dayOfMonth
+                            ).show()
+                        }
+                    }
+                    "paid" -> listOf(PaymentMode.CASH, PaymentMode.UPI, PaymentMode.CARD).forEach { mode ->
+                        AddPaymentSheetRow(mode.displayName(), if (mode == paymentMode) "Selected" else "", palette) {
+                            paymentMode = mode
+                            sheet = null
+                        }
+                    }
+                }
             }
         }
+    }
+
+    if (showPlaceEditor) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showPlaceEditor = false },
+            containerColor = palette.background,
+            title = { Text("Add a place", color = palette.ink, fontFamily = SortedHomeFontFamily) },
+            text = {
+                OutlinedTextField(
+                    value = newPlace,
+                    onValueChange = { newPlace = it.take(48) },
+                    singleLine = true,
+                    placeholder = { Text("Place or person") }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    merchant = newPlace.trim()
+                    newPlace = ""
+                    showPlaceEditor = false
+                }, enabled = newPlace.isNotBlank()) { Text("Add", color = palette.ink) }
+            },
+            dismissButton = { TextButton(onClick = { showPlaceEditor = false }) { Text("Cancel", color = palette.muted) } }
+        )
+    }
+}
+
+@Composable
+private fun AddPaymentDetailRow(
+    label: String,
+    value: String,
+    mutedValue: Boolean,
+    palette: HomePalette,
+    last: Boolean = false,
+    onClick: () -> Unit
+) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(label, Modifier.width(88.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp)
+            Text(value, Modifier.weight(1f), color = if (mutedValue) palette.muted else palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 15.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("›", Modifier.padding(start = 8.dp), color = palette.muted, fontSize = 21.sp)
+        }
+        if (!last) Spacer(Modifier.fillMaxWidth().height(1.dp).background(palette.faintRule))
+    }
+}
+
+@Composable
+private fun AddPaymentSheetRow(label: String, detail: String, palette: HomePalette, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            if (detail.isNotBlank()) Text(detail, color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp)
+        }
+        Text("›", color = palette.muted, fontSize = 20.sp)
+    }
+    Spacer(Modifier.fillMaxWidth().height(1.dp).background(palette.faintRule))
+}
+
+@Composable
+private fun AddPaymentSaved(
+    draft: ManualTransactionDraft,
+    monthTotal: Double,
+    palette: HomePalette,
+    onAddAnother: () -> Unit,
+    onUndo: () -> Unit,
+    onClose: () -> Unit,
+    undoing: Boolean,
+    error: String?
+) {
+    Column(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("Added", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+            Text("You can change or delete it any time.", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.5.sp, textAlign = TextAlign.Center)
+        }
+        Column(Modifier.fillMaxWidth().background(palette.band).padding(horizontal = 20.dp, vertical = 16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.size(34.dp).clip(CircleShape).background(palette.softFill), contentAlignment = Alignment.Center) {
+                    Text(draft.merchant.firstOrNull()?.uppercase() ?: "C", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(draft.merchant, color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 15.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("${draft.category} · ${manualDateLabel(draft.date)} · ${draft.paymentMode.displayName()}", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.sp)
+                }
+                Text(draft.amount.formatHomeRupee(), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold, style = TextStyle(fontFeatureSettings = "tnum"))
+            }
+            Spacer(Modifier.fillMaxWidth().padding(top = 12.dp).height(1.dp).background(palette.faintRule))
+            Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Spent this month", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp)
+                Text(monthTotal.formatHomeRupee(), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, style = TextStyle(fontFeatureSettings = "tnum"))
+            }
+            Text("Added by you", Modifier.padding(top = 8.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp)
+        }
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Box(Modifier.fillMaxWidth().heightIn(min = 50.dp).clip(RoundedCornerShape(8.dp)).background(palette.ink).clickable(onClick = onAddAnother), contentAlignment = Alignment.Center) {
+                Text("Add another", color = palette.background, fontFamily = SortedHomeFontFamily, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold)
+            }
+            TextButton(onClick = onUndo, enabled = !undoing) {
+                Text(if (undoing) "Undoing…" else "Undo this payment", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 14.sp)
+            }
+            if (error != null) Text(error, color = palette.review, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp)
+        }
+        Spacer(Modifier.weight(1f))
+        Box(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp).heightIn(min = 50.dp).clip(RoundedCornerShape(8.dp)).background(palette.softFill).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
+            Text("Back to home", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 15.5.sp, fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+private fun formatManualAmount(raw: String): String {
+    if (raw.isBlank()) return "0"
+    val parts = raw.split('.', limit = 2)
+    val whole = parts.first().ifBlank { "0" }
+    val grouped = buildString {
+        whole.forEachIndexed { index, digit ->
+            val remaining = whole.length - index
+            if (index > 0 && (remaining == 3 || remaining > 3 && (remaining - 3) % 2 == 0)) append(',')
+            append(digit)
+        }
+    }
+    return if (parts.size == 2) "$grouped.${parts[1]}" else grouped
+}
+
+private fun manualDateLabel(raw: String): String {
+    val date = raw.toLocalDateOrNull() ?: return raw
+    return when (date) {
+        LocalDate.now() -> "Today"
+        LocalDate.now().minusDays(1) -> "Yesterday"
+        else -> date.format(java.time.format.DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()))
     }
 }
 
@@ -6563,13 +8006,11 @@ private fun ManualAddCard(
             .take(10)
     }
     val parsedAmount = amount.toDoubleOrNull()
-    val isHeldOut = transactionType != TransactionType.EXPENSE &&
-        transactionType != TransactionType.SUBSCRIPTION
+    val isMoneyIn = direction == Direction.CREDIT
     val spendDelta = if (
         parsedAmount != null &&
         parsedAmount > 0.0 &&
-        direction == Direction.DEBIT &&
-        transactionType.countsAsSpend()
+        direction == Direction.DEBIT
     ) {
         parsedAmount
     } else {
@@ -6715,29 +8156,23 @@ private fun ManualAddCard(
             stamps = listOf("SPEND", "MOVED", "INVESTED", "REFUND", "INCOME", "REWARD"),
             selected = selectedTypeLabel,
             palette = palette,
-            selectedColor = if (isHeldOut) palette.held else palette.amber,
+            selectedColor = if (isMoneyIn) palette.credit else palette.amber,
             onSelected = {
                 applyType(it)
                 printedAck = false
             }
         )
-        if (isHeldOut) {
-            AddHeldOutBox(
-                title = "HELD OUT OF SPEND",
-                body = "This line prints on the tape but does not enter your month spend total.",
+        if (isMoneyIn) {
+            AddMoneyInNotice(
+                title = "MONEY IN",
+                body = "Shown separately. It does not reduce this month's outgoing total.",
                 palette = palette
-            )
-            TapeSummationRow(
-                label = "${breakdown.monthKey?.monthNameLabel()?.uppercase(Locale.US) ?: "MONTH"} SPEND",
-                value = "UNCHANGED",
-                palette = palette,
-                color = palette.held
             )
         } else {
             AddSectionLabel("CATEGORY", palette)
             AddStampRail(
                 stamps = categories
-                    .filterNot { it in listOf("Investment", "Transfer", "Income", "Refund", "Reward") }
+                    .filterNot { it in listOf("Income", "Refund", "Reward") }
                     .map { it.uppercase(Locale.US) },
                 selected = category.uppercase(Locale.US),
                 palette = palette,
@@ -6775,7 +8210,7 @@ private fun ManualAddCard(
                 afterSpend = afterSpend,
                 beforeSpend = breakdown.spends,
                 afterLines = afterLines,
-                isHeldOut = isHeldOut,
+                isMoneyIn = isMoneyIn,
                 printed = printedAck,
                 palette = palette
             )
@@ -7094,7 +8529,7 @@ private fun AddStamp(
 }
 
 @Composable
-private fun AddHeldOutBox(
+private fun AddMoneyInNotice(
     title: String,
     body: String,
     palette: TapePalette
@@ -7103,12 +8538,12 @@ private fun AddHeldOutBox(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 10.dp)
-            .border(1.dp, palette.held)
+            .border(1.dp, palette.credit)
             .padding(horizontal = 10.dp, vertical = 9.dp)
     ) {
         Text(
             text = title,
-            color = palette.held,
+            color = palette.credit,
             fontFamily = SortedTapeFontFamily,
             fontSize = 8.sp,
             fontWeight = FontWeight.SemiBold,
@@ -7156,7 +8591,7 @@ private fun AddPrintPreview(
     afterSpend: Double,
     beforeSpend: Double,
     afterLines: Int,
-    isHeldOut: Boolean,
+    isMoneyIn: Boolean,
     printed: Boolean,
     palette: TapePalette
 ) {
@@ -7168,7 +8603,7 @@ private fun AddPrintPreview(
             mode = mode,
             date = date,
             printed = printed,
-            heldOut = isHeldOut,
+            isMoneyIn = isMoneyIn,
             palette = palette
         )
         TapeDoubleRule(palette = palette)
@@ -7184,23 +8619,23 @@ private fun AddPrintPreview(
             value = afterSpend.formatRupee(),
             palette = palette
         )
-        if (!isHeldOut) {
+        if (!isMoneyIn) {
             TapeSummationRow(
                 label = "WAS",
                 value = beforeSpend.formatRupee(),
                 palette = palette
             )
             TapeSummationRow(
-                label = "LINES",
+                label = "PAYMENTS",
                 value = afterLines.toString(),
                 palette = palette
             )
         } else {
             TapeSummationRow(
-                label = "COUNTS IN SPEND",
-                value = "NO",
+                label = "MONEY IN",
+                value = amount.formatRupee(),
                 palette = palette,
-                color = palette.held
+                color = palette.credit
             )
         }
         if (printed) {
@@ -7228,7 +8663,7 @@ private fun AddPreviewLine(
     mode: String,
     date: String,
     printed: Boolean,
-    heldOut: Boolean,
+    isMoneyIn: Boolean,
     palette: TapePalette
 ) {
     Column(
@@ -7250,18 +8685,17 @@ private fun AddPreviewLine(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = amount.formatRupee(),
-                color = if (heldOut) palette.held else palette.ink,
+                text = (if (isMoneyIn) "+" else "") + amount.formatRupee(),
+                color = if (isMoneyIn) palette.credit else palette.ink,
                 fontFamily = SortedTapeFontFamily,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
-                textDecoration = if (heldOut) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
                 maxLines = 1
             )
         }
         Spacer(modifier = Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            AddStamp(category.uppercase(Locale.US), selected = true, palette = palette, color = if (heldOut) palette.held else palette.amber)
+            AddStamp(category.uppercase(Locale.US), selected = true, palette = palette, color = if (isMoneyIn) palette.credit else palette.amber)
             Spacer(modifier = Modifier.width(6.dp))
             AddStamp("MANUAL", selected = false, palette = palette, color = palette.inkSoft)
             Spacer(modifier = Modifier.width(8.dp))
@@ -7406,40 +8840,216 @@ private fun SourcesTabContent(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsScreen(
     themeMode: AppThemeMode,
     feedState: FeedState,
     gmailState: GmailUiState,
+    modifier: Modifier = Modifier,
     onThemeModeChange: (AppThemeMode) -> Unit,
-    onOpenRuleCenter: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onRequestSmsPermission: () -> Unit,
+    onOpenSmsSettings: () -> Unit,
+    onImportGmail: () -> Unit,
+    onExport: () -> Unit,
+    onDeleteLocalData: () -> Unit,
+    onOpenRuleCenter: () -> Unit
 ) {
-    TapeRoute(
-        title = "DEVICE",
-        meta = "PRIVATE RECEIPT",
-        onBack = onBack
-    ) { palette ->
-        item {
-            ThemeSettingsCard(
-                selected = themeMode,
-                palette = palette,
-                onSelected = onThemeModeChange
-            )
+    val palette = homePalette()
+    val appContext = LocalContext.current.applicationContext
+    var rules by remember { mutableStateOf(emptyList<CategoryRuleEntity>()) }
+    var privacyOpen by remember { mutableStateOf(false) }
+    var deleteConfirmOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        rules = withContext(Dispatchers.IO) { TransactionRepository(appContext).listCategoryRules(limit = 300) }
+    }
+    val smsAllowed = !feedState.needsSmsPermission
+    val gmailConnected = !gmailState.label.contains("not connected", ignoreCase = true) &&
+        (gmailState.label.contains("connected", ignoreCase = true) || gmailState.label.contains("synced", ignoreCase = true))
+    val gmailNeedsAction = gmailState.error != null || gmailState.label.contains("permission", ignoreCase = true)
+    val gmailStatus = when {
+        gmailState.isImporting -> "Checking for payment emails"
+        gmailState.error?.contains("OAuth", ignoreCase = true) == true ||
+            gmailState.error?.contains("UNREGISTERED", ignoreCase = true) == true ||
+            gmailState.error?.contains("test-user", ignoreCase = true) == true -> "Google setup needs attention"
+        gmailState.error?.contains("cancel", ignoreCase = true) == true -> "Google access was cancelled"
+        gmailState.error?.contains("permission", ignoreCase = true) == true -> "Gmail read access wasn’t granted"
+        gmailState.error != null -> gmailState.error.take(88)
+        gmailConnected -> "Connected on this phone"
+        else -> "Not connected"
+    }
+    val settingsHeader = if (isDarkModeActive()) Color(0xFF0F2C28) else palette.header
+
+    Column(modifier.fillMaxSize().background(palette.background)) {
+        Row(
+            Modifier.fillMaxWidth().height(56.dp).background(settingsHeader)
+                .padding(start = 10.dp, end = 20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = palette.ink)
+            }
+            Text("Settings", Modifier.padding(start = 4.dp), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
         }
-        item {
-            LocalDataSettingsCard(feedState = feedState, palette = palette)
+        Spacer(Modifier.fillMaxWidth().height(1.dp).background(palette.rule))
+        LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+            item {
+                Column(Modifier.fillMaxWidth().padding(top = 20.dp)) {
+                    SettingsSectionHeading("Imports", if (feedState.transactions.isEmpty()) "No payments yet" else "${feedState.transactions.size} payments", palette)
+                    Column(Modifier.padding(horizontal = 20.dp)) {
+                        SettingsActionRow(
+                            title = "SMS",
+                            detail = if (smsAllowed) "Reading payment alerts on this phone" else "Allow access to find payment alerts",
+                            action = if (smsAllowed) "Manage" else "Allow",
+                            actionColor = if (smsAllowed) palette.ink else palette.review,
+                            palette = palette,
+                            onClick = if (smsAllowed) onOpenSmsSettings else onRequestSmsPermission
+                        )
+                        SettingsActionRow(
+                            title = "Gmail",
+                            detail = gmailStatus,
+                            action = when {
+                                gmailState.isImporting -> "Working"
+                                gmailNeedsAction -> "Retry"
+                                gmailConnected -> "Import"
+                                else -> "Connect"
+                            },
+                            actionColor = if (gmailNeedsAction) palette.review else palette.ink,
+                            palette = palette,
+                            onClick = onImportGmail
+                        )
+                    }
+                }
+            }
+            item {
+                Column(Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 1.dp).background(palette.band).padding(horizontal = 20.dp, vertical = 18.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SettingsLockGlyph(palette.ink)
+                        Text("Stays on this phone", Modifier.padding(start = 9.dp), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    Text("Your transaction data stays on this phone and isn’t uploaded.", Modifier.padding(top = 8.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, lineHeight = 20.sp)
+                    Spacer(Modifier.fillMaxWidth().padding(top = 12.dp).height(1.dp).background(palette.faintRule))
+                    Row(Modifier.fillMaxWidth().clickable { privacyOpen = true }.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("What Sorted reads", Modifier.weight(1f), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
+                        Text("›", color = palette.muted, fontSize = 22.sp)
+                    }
+                }
+            }
+            item {
+                Column(Modifier.fillMaxWidth().padding(top = 20.dp)) {
+                    SettingsSectionHeading("Auto-sorting rules", "${rules.size} saved", palette)
+                    Text("Made from your corrections. Used on new payments.", Modifier.padding(horizontal = 20.dp, vertical = 8.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp, lineHeight = 18.sp)
+                    Column(Modifier.padding(horizontal = 20.dp)) {
+                        rules.take(2).forEach { rule ->
+                            val target = rule.departmentCategory ?: rule.miscCategory ?: rule.transactionType.displayName()
+                            SettingsActionRow(
+                                title = "${rule.merchantNormalized ?: rule.pattern} → $target",
+                                detail = if (rule.enabled) "On" else "Off",
+                                action = if (rule.enabled) "Edit" else "Off",
+                                actionColor = palette.muted,
+                                palette = palette,
+                                onClick = onOpenRuleCenter
+                            )
+                        }
+                        Row(Modifier.fillMaxWidth().clickable(onClick = onOpenRuleCenter).padding(vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (rules.isEmpty()) "Manage auto-sorting rules" else "See all rules", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
+                            Text("  ›", color = palette.muted, fontSize = 16.sp)
+                        }
+                    }
+                }
+            }
+            item {
+                Column(Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 1.dp).background(palette.band).padding(horizontal = 20.dp, vertical = 18.dp)) {
+                    SettingsSectionHeading("Appearance", "", palette, horizontalPadding = 0.dp)
+                    Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        listOf(AppThemeMode.Light, AppThemeMode.Dark, AppThemeMode.System).forEach { mode ->
+                            val selected = themeMode == mode
+                            Box(Modifier.weight(1f).background(if (selected) palette.ink else palette.softFill, RoundedCornerShape(6.dp)).clickable { onThemeModeChange(mode) }.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                                Text(mode.label, color = if (selected) palette.background else palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
+                            }
+                        }
+                    }
+                    Text(if (themeMode == AppThemeMode.System) "Follows your phone’s setting." else "Using ${themeMode.label.lowercase(Locale.getDefault())} appearance.", Modifier.padding(top = 10.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.sp)
+                }
+            }
+            item {
+                Column(Modifier.fillMaxWidth().padding(top = 20.dp)) {
+                    SettingsSectionHeading("Your data", "", palette)
+                    Column(Modifier.padding(horizontal = 20.dp)) {
+                        SettingsActionRow("Export transactions", "CSV file · choose where to save it", "Export", palette.ink, palette, onExport)
+                        SettingsActionRow("Delete local data", "Removes saved payments and rules from this phone.", "Delete", palette.review, palette, { deleteConfirmOpen = true }, last = true)
+                    }
+                }
+            }
+            item {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp)) {
+                    Text("Sorted · ${feedState.transactions.size} payments", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.sp)
+                    Text("Made to work without an account", Modifier.padding(top = 4.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.sp)
+                }
+            }
         }
-        item {
-            SourceSettingsCard(
-                feedState = feedState,
-                gmailState = gmailState,
-                palette = palette
-            )
+    }
+
+    if (privacyOpen) {
+        ModalBottomSheet(onDismissRequest = { privacyOpen = false }, containerColor = palette.background, shape = RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp)) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+                Text("What Sorted reads", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                Text("SMS payment alerts and, if you connect Gmail, the messages you allow Sorted to access. Sorted uses them to find transactions and keeps your transaction data on this phone.", Modifier.padding(top = 10.dp, bottom = 24.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 14.sp, lineHeight = 21.sp)
+            }
         }
-        item {
-            RuleCenterEntryCard(onOpenRuleCenter = onOpenRuleCenter, palette = palette)
+    }
+    if (deleteConfirmOpen) {
+        ModalBottomSheet(onDismissRequest = { deleteConfirmOpen = false }, containerColor = palette.background, shape = RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp)) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
+                Text("Delete local data?", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                Text("This removes saved payments, corrections, and auto-sorting rules from this phone. Import permissions stay on. This can’t be undone.", Modifier.padding(top = 8.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 14.sp, lineHeight = 21.sp)
+                Row(Modifier.fillMaxWidth().padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    TextButton(onClick = { deleteConfirmOpen = false }, modifier = Modifier.weight(1f)) { Text("Keep my data", color = palette.ink) }
+                    TextButton(onClick = { deleteConfirmOpen = false; onDeleteLocalData() }, modifier = Modifier.weight(1f)) { Text("Delete local data", color = palette.review) }
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun SettingsSectionHeading(title: String, meta: String, palette: HomePalette, horizontalPadding: androidx.compose.ui.unit.Dp = 20.dp) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = horizontalPadding), verticalAlignment = Alignment.CenterVertically) {
+        Text(title.uppercase(Locale.US), Modifier.weight(1f), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.76.sp)
+        if (meta.isNotBlank()) Text(meta, color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun SettingsActionRow(
+    title: String,
+    detail: String,
+    action: String,
+    actionColor: Color,
+    palette: HomePalette,
+    onClick: () -> Unit,
+    last: Boolean = false
+) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f).padding(end = 10.dp)) {
+                Text(title, color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 15.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(detail, Modifier.padding(top = 3.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            Text(action, color = actionColor, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+            Text("  ›", color = palette.muted, fontSize = 16.sp)
+        }
+        if (!last) Spacer(Modifier.fillMaxWidth().height(1.dp).background(palette.faintRule))
+    }
+}
+
+@Composable
+private fun SettingsLockGlyph(color: Color) {
+    Canvas(Modifier.size(18.dp)) {
+        val stroke = 1.5.dp.toPx()
+        drawRoundRect(color, topLeft = Offset(size.width * .2f, size.height * .43f), size = Size(size.width * .6f, size.height * .5f), cornerRadius = CornerRadius(size.width * .12f), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+        drawArc(color, 180f, 180f, false, topLeft = Offset(size.width * .32f, size.height * .07f), size = Size(size.width * .36f, size.height * .54f), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
     }
 }
 
@@ -7555,8 +9165,8 @@ private fun LocalDataSettingsCard(feedState: FeedState, palette: TapePalette) {
     ) {
         IndexEntryRow("TRANSACTIONS", "ALL SOURCES", feedState.transactions.size.toString(), palette)
         IndexEntryRow("CURRENT MONTH", "ACTIVE TAPE", monthBreakdown.monthKey ?: "UNKNOWN", palette)
-        IndexEntryRow("MONTH SPEND", "${monthBreakdown.spendCount} LINES", monthBreakdown.spends.formatRupee(), palette)
-        IndexEntryRow("UNSTAMPED", "NEEDS REVIEW", reviewCount.toString(), palette, query = reviewCount > 0)
+        IndexEntryRow("SPENT THIS MONTH", "${monthBreakdown.spendCount} PAYMENTS", monthBreakdown.spends.formatRupee(), palette)
+        IndexEntryRow("NEED REVIEW", "PAYMENTS", reviewCount.toString(), palette, query = reviewCount > 0)
         IndexBlockFoot("SOURCES", sourceSummary.uppercase(Locale.US), palette)
     }
 }
@@ -7665,6 +9275,7 @@ private fun RuleCenterScreen(
     onSettings: () -> Unit = {},
     onBack: (() -> Unit)?
 ) {
+    val palette = homePalette()
     val appContext = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     var rules by remember { mutableStateOf<List<CategoryRuleEntity>>(emptyList()) }
@@ -7685,43 +9296,89 @@ private fun RuleCenterScreen(
         reloadRules()
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        TapeRoute(
-            title = "STAMPS",
-            meta = "LOCAL RULE LEDGER",
-            onBack = onBack,
-            onSettings = if (onBack == null) onSettings else null
-        ) { palette ->
-            item {
-                RuleCenterSummaryCard(
-                    rules = rules,
-                    isLoading = isLoading,
-                    message = message,
-                    palette = palette
-                )
-            }
-            if (!isLoading && rules.isEmpty()) {
-                item {
-                    TapeLedgerBlock(
-                        heading = "No saved stamps",
-                        meta = "empty",
-                        palette = palette
-                    ) {
-                        IndexEmptyLine("CORRECTIONS SAVED WITH REMEMBER WILL APPEAR HERE", palette)
-                    }
+    Column(modifier.fillMaxSize().background(palette.background)) {
+        Row(
+            Modifier.fillMaxWidth().height(56.dp).background(palette.header)
+                .padding(start = 8.dp, end = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (onBack != null) {
+                IconButton(onClick = onBack, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = palette.ink)
                 }
             } else {
+                IconButton(onClick = onSettings, modifier = Modifier.size(40.dp)) {
+                    HomeSettingsSlidersGlyph(color = palette.ink, modifier = Modifier.size(19.dp))
+                }
+            }
+            Text(
+                "Auto-sorting rules",
+                Modifier.weight(1f).padding(start = 4.dp),
+                color = palette.ink,
+                fontFamily = SortedHomeFontFamily,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(Modifier.fillMaxWidth().height(1.dp).background(palette.rule))
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp)) {
+            Text(
+                "Rules from your corrections sort new payments.",
+                color = palette.muted,
+                fontFamily = SortedHomeFontFamily,
+                fontSize = 13.sp,
+                lineHeight = 19.sp
+            )
+            if (!isLoading) {
+                Text(
+                    "${rules.size} ${if (rules.size == 1) "rule" else "rules"} · ${rules.count { it.enabled }} on",
+                    Modifier.padding(top = 7.dp),
+                    color = palette.ink,
+                    fontFamily = SortedHomeFontFamily,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+        when {
+            isLoading -> Text(
+                "Loading rules…",
+                Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                color = palette.muted,
+                fontFamily = SortedHomeFontFamily,
+                fontSize = 14.sp
+            )
+            rules.isEmpty() -> Column(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 22.dp)
+            ) {
+                Text("No rules yet", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Save a correction as a rule and Sorted will use it for new payments.",
+                    Modifier.padding(top = 6.dp),
+                    color = palette.muted,
+                    fontFamily = SortedHomeFontFamily,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp
+                )
+            }
+            else -> LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
                 items(rules, key = { it.id }) { rule ->
                     RuleRow(
                         rule = rule,
                         palette = palette,
-                        onDisable = {
+                        onToggle = { enabled ->
                             scope.launch {
-                                val disabled = withContext(Dispatchers.IO) {
+                                val updated = withContext(Dispatchers.IO) {
                                     TransactionRepository(appContext)
-                                        .setCategoryRuleEnabled(rule.id, enabled = false)
+                                        .setCategoryRuleEnabled(rule.id, enabled = enabled)
                                 }
-                                message = if (disabled) "RULE DISABLED" else "RULE WAS NOT UPDATED"
+                                message = if (updated) {
+                                    if (enabled) "Rule turned on" else "Rule paused"
+                                } else {
+                                    "Rule could not be updated"
+                                }
                                 reloadRules()
                             }
                         }
@@ -7729,87 +9386,64 @@ private fun RuleCenterScreen(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun RuleCenterSummaryCard(
-    rules: List<CategoryRuleEntity>,
-    isLoading: Boolean,
-    message: String?,
-    palette: TapePalette
-) {
-    TapeLedgerBlock(
-        heading = "Rule close-out",
-        meta = if (isLoading) "reading" else "${rules.size} active",
-        palette = palette
-    ) {
-        TapeSummationRow("ACTIVE SAVED STAMPS", if (isLoading) "..." else rules.size.toString(), palette)
-        TapeSummationRow("AUTHORITY", "LOCAL OVERRIDE", palette, palette.amber)
-        Text(
-            text = (message ?: "LOCAL RULES OVERRIDE PARSER DEFAULTS DURING SMS AND GMAIL IMPORTS.")
-                .uppercase(Locale.US),
-            modifier = Modifier.padding(top = 7.dp),
-            color = if (message == null) palette.inkFaint else palette.amber,
-            fontFamily = SortedTapeFontFamily,
-            fontSize = 8.sp,
-            letterSpacing = 0.8.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
+        message?.let { status ->
+            Text(
+                status,
+                Modifier.fillMaxWidth().background(palette.band).padding(horizontal = 20.dp, vertical = 10.dp),
+                color = if (status.contains("could not", ignoreCase = true)) palette.review else palette.muted,
+                fontFamily = SortedHomeFontFamily,
+                fontSize = 12.5.sp
+            )
+        }
     }
 }
 
 @Composable
 private fun RuleRow(
     rule: CategoryRuleEntity,
-    palette: TapePalette,
-    onDisable: () -> Unit
+    palette: HomePalette,
+    onToggle: (Boolean) -> Unit
 ) {
-    TapeLedgerBlock(
-        heading = rule.merchantNormalized ?: rule.pattern,
-        meta = rule.source,
-        palette = palette
+    val title = rule.merchantNormalized?.takeIf(String::isNotBlank) ?: rule.pattern
+    val matchDetail = when (rule.matchType.lowercase(Locale.US)) {
+        "exact" -> "Exact payment name"
+        "contains" -> "Payment name contains \"${rule.pattern}\""
+        else -> "Matches \"${rule.pattern}\""
+    }
+    val sortedAs = listOfNotNull(
+        rule.departmentCategory?.takeIf(String::isNotBlank),
+        rule.miscCategory?.takeIf(String::isNotBlank),
+        rule.transactionType.displayName()
+    ).distinct().joinToString(" · ")
+
+    Column(
+        Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp)
     ) {
-        IndexEntryRow(
-            name = "MATCH",
-            meta = rule.matchType.uppercase(Locale.US),
-            value = rule.pattern.uppercase(Locale.US).take(18),
-            palette = palette
-        )
-        LazyRow(
-            modifier = Modifier.padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            items(
-                listOfNotNull(
-                    rule.departmentCategory,
-                    rule.miscCategory,
-                    rule.transactionType.displayName(),
-                    rule.source
-                )
-            ) { label ->
-                AddStamp(
-                    text = label.uppercase(Locale.US),
-                    selected = true,
-                    palette = palette,
-                    color = palette.amber
-                )
-            }
-        }
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 10.dp),
-            horizontalArrangement = Arrangement.End
+            Modifier.fillMaxWidth().padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            TapeActionText(
-                label = "Disable stamp",
-                palette = palette,
-                color = palette.query,
-                onClick = onDisable
+            Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                Text(title, color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(matchDetail, Modifier.padding(top = 3.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("Sorts as $sortedAs", Modifier.padding(top = 4.dp), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            Switch(
+                checked = rule.enabled,
+                onCheckedChange = onToggle,
+                modifier = Modifier.semantics {
+                    contentDescription = "${if (rule.enabled) "Pause" else "Turn on"} rule for $title"
+                },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = palette.background,
+                    checkedTrackColor = palette.categoryTwo,
+                    uncheckedThumbColor = palette.muted,
+                    uncheckedTrackColor = palette.softFill,
+                    uncheckedBorderColor = palette.rule
+                )
             )
         }
+        Spacer(Modifier.fillMaxWidth().height(1.dp).background(palette.faintRule))
     }
 }
 
@@ -7821,7 +9455,7 @@ private fun SourceHealthMiniCard(sourceRows: List<SourceHealthRow>, palette: Tap
         palette = palette
     ) {
         if (sourceRows.isEmpty()) {
-            IndexEmptyLine("NO SOURCE LINES PRINTED", palette)
+            IndexEmptyLine("NO PAYMENTS IMPORTED YET", palette)
         } else {
             sourceRows.forEach { row ->
                 SourceHealthInlineRow(row = row, palette = palette)
@@ -7887,7 +9521,9 @@ private fun SourceHealthCard(
     val sourceRows = feedState.transactions.sourceHealthRows()
     val reviewCount = feedState.transactions.reviewCandidates().size
     val gmailRows = feedState.transactions.latestMonthTransactions().count { it.source == "Gmail" }
-    val fxRows = feedState.transactions.latestMonthTransactions().count { !it.countsInInrTotals() }
+    val fxRows = feedState.transactions.latestMonthTransactions().count {
+        it.direction == DirectionUi.Debit && it.amountValue > 0.0 && it.inrAmountValue == null
+    }
     val gmailLabel = if (gmailState.error != null) "Needs attention" else gmailState.label
 
     TapeLedgerBlock(
@@ -7895,9 +9531,9 @@ private fun SourceHealthCard(
         meta = "receipt",
         palette = palette
     ) {
-        TapeSummationRow("REVIEW LINES", reviewCount.toString(), palette, if (reviewCount > 0) palette.query else palette.ink)
-        TapeSummationRow("GMAIL LINES", gmailRows.toString(), palette)
-        TapeSummationRow("FX HELD OUT", fxRows.toString(), palette)
+        TapeSummationRow("NEED REVIEW", reviewCount.toString(), palette, if (reviewCount > 0) palette.query else palette.ink)
+        TapeSummationRow("GMAIL PAYMENTS", gmailRows.toString(), palette)
+        TapeSummationRow("FX NEEDS CONVERSION", fxRows.toString(), palette)
         SettingsInfoRow("SMS", if (feedState.needsSmsPermission) "PERMISSION NEEDED" else "ENABLED", palette)
         SettingsInfoRow("GMAIL", gmailLabel.uppercase(Locale.US), palette)
         SettingsInfoRow("STORAGE", "LOCAL ONLY", palette)
@@ -8186,6 +9822,8 @@ private fun SortedLogoMark(modifier: Modifier = Modifier) {
 private fun SortedBottomBar(
     selectedTab: SortedTab,
     hasReview: Boolean,
+    highlightSelection: Boolean = true,
+    reviewSelected: Boolean = false,
     onTabSelected: (SortedTab) -> Unit,
     onOpenSync: () -> Unit,
     onOpenReview: () -> Unit
@@ -8210,27 +9848,27 @@ private fun SortedBottomBar(
                 ) {
                     HomeNavTextCell(
                         label = "Home",
-                        selected = selectedTab == SortedTab.Home,
+                        selected = highlightSelection && selectedTab == SortedTab.Home,
                         palette = palette,
                         onClick = { onTabSelected(SortedTab.Home) }
                     )
                     HomeNavTextCell(
                         label = "Insights",
-                        selected = selectedTab == SortedTab.Insights,
+                        selected = highlightSelection && selectedTab == SortedTab.Insights,
                         palette = palette,
                         onClick = { onTabSelected(SortedTab.Insights) }
                     )
                     HomeNavSyncCell(palette = palette, onClick = onOpenSync)
                     HomeNavTextCell(
                         label = "Review",
-                        selected = false,
+                        selected = reviewSelected,
                         palette = palette,
-                        showDot = hasReview,
+                        showDot = hasReview && !reviewSelected,
                         onClick = onOpenReview
                     )
                     HomeNavTextCell(
                         label = "Add",
-                        selected = selectedTab == SortedTab.Capture,
+                        selected = highlightSelection && selectedTab == SortedTab.Capture,
                         palette = palette,
                         onClick = { onTabSelected(SortedTab.Capture) }
                     )
@@ -8383,17 +10021,20 @@ private fun SyncChooserBar(
         exit = fadeOut(animationSpec = tween(durationMillis = 130)) +
             shrinkVertically(animationSpec = tween(durationMillis = 190, easing = FastOutSlowInEasing))
     ) {
-        val palette = tapePalette()
-        Row(
-            modifier = Modifier
-                .background(palette.tape.copy(alpha = 0.96f))
-                .border(1.dp, palette.rule)
-                .padding(horizontal = 8.dp, vertical = 7.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically
+        val palette = homePalette()
+        val shape = RoundedCornerShape(4.dp)
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                .clip(shape)
+                .background(palette.background, shape)
+                .border(1.dp, palette.rule, shape)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
-            SyncChoiceChip("SMS", SyncSource.Sms, onSync)
-            SyncChoiceChip("Gmail", SyncSource.Gmail, onSync)
+            Text("Imports", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text("Choose where to look for payments", Modifier.padding(top = 2.dp, bottom = 6.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.sp)
+            SyncSourceRow("SMS", "Read payment alerts", palette) { onSync(SyncSource.Sms) }
+            Spacer(Modifier.fillMaxWidth().height(1.dp).background(palette.faintRule))
+            SyncSourceRow("Gmail", "Import payment emails", palette) { onSync(SyncSource.Gmail) }
         }
     }
 }
@@ -8411,40 +10052,47 @@ private fun SyncStatusPill(
         exit = fadeOut(animationSpec = tween(durationMillis = 140)) +
             shrinkVertically(animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing))
     ) {
-        val palette = tapePalette()
-        Box(
-            modifier = Modifier
-                .background(palette.tape.copy(alpha = 0.96f))
-                .border(1.dp, palette.amber)
-                .padding(horizontal = 12.dp, vertical = 7.dp)
+        val palette = homePalette()
+        val status = message.orEmpty()
+        val needsAction = listOf("failed", "needed", "missing", "cancelled", "paused")
+            .any { status.contains(it, ignoreCase = true) }
+        Row(
+            Modifier.widthIn(max = 360.dp).clip(RoundedCornerShape(4.dp)).background(palette.band)
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            Box(Modifier.size(6.dp).clip(CircleShape).background(if (needsAction) palette.review else palette.categoryTwo))
             Text(
-                text = message.orEmpty().uppercase(Locale.US),
-                color = palette.amber,
-                fontFamily = SortedTapeFontFamily,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
+                text = status,
+                color = if (needsAction) palette.review else palette.ink,
+                fontFamily = SortedHomeFontFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1,
-                letterSpacing = 0.8.sp
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
 }
 
 @Composable
-private fun SyncChoiceChip(
+private fun SyncSourceRow(
     label: String,
-    source: SyncSource,
-    onSync: (SyncSource) -> Unit
+    detail: String,
+    palette: HomePalette,
+    onClick: () -> Unit
 ) {
-    val palette = tapePalette()
-    AddStamp(
-        text = label.uppercase(Locale.US),
-        selected = true,
-        palette = palette,
-        color = palette.amber,
-        onClick = { onSync(source) }
-    )
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f).padding(vertical = 7.dp)) {
+            Text(label, color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
+            Text(detail, Modifier.padding(top = 2.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp)
+        }
+        Text("›", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 20.sp)
+    }
 }
 
 @Composable
@@ -9427,7 +11075,7 @@ private fun MonthSummary(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = breakdown.monthKey?.monthSpendLabel() ?: "Tracked INR spend",
+                        text = breakdown.monthKey?.monthSpendLabel() ?: "Spent this month",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
@@ -9446,7 +11094,7 @@ private fun MonthSummary(
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = "${breakdown.spendCount} spends",
+                        text = "${breakdown.spendCount} payments",
                         color = MaterialTheme.colorScheme.primary,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium,
@@ -9472,14 +11120,14 @@ private fun MonthSummary(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 HomeMetricTile(
-                    label = "Total outflow",
-                    value = breakdown.totalDebits.formatInr(),
+                    label = "Investments included",
+                    value = breakdown.investments.formatInr(),
                     accent = categoryColor("Food"),
                     modifier = Modifier.weight(1f)
                 )
                 HomeMetricTile(
-                    label = "Recurring SIPs",
-                    value = breakdown.recurringInvestments.formatInr(),
+                    label = "Transfers included",
+                    value = breakdown.transfers.formatInr(),
                     accent = categoryColor("Investment"),
                     modifier = Modifier.weight(1f)
                 )
@@ -9490,7 +11138,7 @@ private fun MonthSummary(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 HomeMetricTile(
-                    label = "Avg spend",
+                    label = "Average payment",
                     value = averageSpend.formatInr(),
                     accent = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier.weight(1f)
@@ -9680,8 +11328,8 @@ private fun List<TransactionUi>.monthBreakdown(monthKey: String? = selectedMonth
     val monthTransactions = filter {
         it.inrAmountValue != null && it.isInSelectedMonth(monthKey)
     }
-    val debitTransactions = monthTransactions.filter { it.direction == DirectionUi.Debit }
-    val spendTransactions = debitTransactions.filter { it.transactionType.countsAsSpend() }
+    val debitTransactions = monthTransactions.filter { it.countsTowardSpentTotal() }
+    val spendTransactions = debitTransactions
     val fxConverted = debitTransactions
         .filter { !it.countsInInrTotals() }
         .sumOf { it.inrAmountValue ?: 0.0 }
@@ -9694,7 +11342,7 @@ private fun List<TransactionUi>.monthBreakdown(monthKey: String? = selectedMonth
     val investments = investmentTransactions.sumOf { it.inrAmountValue ?: 0.0 }
     val recurringInvestments = recurringInvestmentTransactions.sumOf { it.inrAmountValue ?: 0.0 }
     val oneTimeInvestments = investments - recurringInvestments
-    val creditTransactions = monthTransactions.filter { it.direction == DirectionUi.Credit }
+    val creditTransactions = monthTransactions.filter { it.countsTowardMoneyIn() }
     val refunds = creditTransactions
         .filter { it.transactionType == TransactionType.REFUND || it.category == "Refund" }
         .sumOf { it.inrAmountValue ?: 0.0 }
@@ -9711,6 +11359,8 @@ private fun List<TransactionUi>.monthBreakdown(monthKey: String? = selectedMonth
         spendCount = spendTransactions.size,
         totalDebits = debitTransactions.sumOf { it.inrAmountValue ?: 0.0 },
         spends = spends,
+        creditCount = creditTransactions.size,
+        totalCredits = creditTransactions.sumOf { it.inrAmountValue ?: 0.0 },
         transfers = transfers,
         investments = investments,
         recurringInvestments = recurringInvestments,
@@ -9742,10 +11392,13 @@ private fun List<TransactionUi>.latestMonthCreditTransactions(monthKey: String? 
 
 private fun List<TransactionUi>.latestMonthSpendTransactions(monthKey: String? = selectedMonthKey()): List<TransactionUi> {
     return filter {
-        it.direction == DirectionUi.Debit &&
-            it.transactionType.countsAsSpend() &&
+        it.countsTowardSpentTotal() &&
             it.isInSelectedMonth(monthKey)
     }
+}
+
+private fun List<TransactionUi>.latestMonthMoneyInTransactions(monthKey: String? = selectedMonthKey()): List<TransactionUi> {
+    return filter { it.countsTowardMoneyIn() && it.isInSelectedMonth(monthKey) }
 }
 
 private fun TransactionUi.isRecurringInvestmentPattern(allTransactions: List<TransactionUi>): Boolean {
@@ -9783,97 +11436,8 @@ private fun TransactionUi.isRecurringInvestmentPattern(allTransactions: List<Tra
     return amount <= 10_000.0 && recurringMonths >= 3
 }
 
-private fun List<TransactionUi>.explainBuckets(): List<ExplainBucket> {
-    val monthTransactions = latestMonthTransactions()
-        .filter { it.inrAmountValue != null }
-    val debitTransactions = monthTransactions.filter { it.direction == DirectionUi.Debit }
-    val spendTransactions = debitTransactions.filter { it.transactionType.countsAsSpend() }
-    val transferTransactions = debitTransactions.filter { it.transactionType == TransactionType.TRANSFER }
-    val investmentTransactions = debitTransactions.filter { it.transactionType == TransactionType.INVESTMENT }
-    val recurringInvestmentTransactions = investmentTransactions.filter { it.isRecurringInvestmentPattern(this) }
-    val oneTimeInvestmentTransactions = investmentTransactions - recurringInvestmentTransactions.toSet()
-    val otherDebitTransactions = debitTransactions.filter {
-        !it.transactionType.countsAsSpend() &&
-            it.transactionType != TransactionType.TRANSFER &&
-            it.transactionType != TransactionType.INVESTMENT
-    }
-    val refundTransactions = monthRefundSignals()
-    val incomeTransactions = latestMonthCreditTransactions()
-        .filter { it.transactionType == TransactionType.INCOME || it.category == "Income" }
-    val rewardTransactions = latestMonthCreditTransactions()
-        .filter { it.transactionType == TransactionType.REWARD || it.category == "Reward" }
-    val fxTransactions = monthTransactions.filter { !it.countsInInrTotals() }
-
-    return listOf(
-        ExplainBucket(
-            title = "Included spend",
-            amount = spendTransactions.sumOf { it.inrAmountValue ?: 0.0 },
-            count = spendTransactions.size,
-            description = "Expense and subscription debits.",
-            transactions = spendTransactions
-        ),
-        ExplainBucket(
-            title = "Recurring SIPs",
-            amount = recurringInvestmentTransactions.sumOf { it.inrAmountValue ?: 0.0 },
-            count = recurringInvestmentTransactions.size,
-            description = "Pattern-matched monthly SIP and mutual fund deductions.",
-            transactions = recurringInvestmentTransactions
-        ),
-        ExplainBucket(
-            title = "One-time investments",
-            amount = oneTimeInvestmentTransactions.sumOf { it.inrAmountValue ?: 0.0 },
-            count = oneTimeInvestmentTransactions.size,
-            description = "Lump-sum broker, fund, or investment transfers.",
-            transactions = oneTimeInvestmentTransactions
-        ),
-        ExplainBucket(
-            title = "Transfers",
-            amount = transferTransactions.sumOf { it.inrAmountValue ?: 0.0 },
-            count = transferTransactions.size,
-            description = "Money moved between people, cards, wallets, and accounts.",
-            transactions = transferTransactions
-        ),
-        ExplainBucket(
-            title = "Other debits",
-            amount = otherDebitTransactions.sumOf { it.inrAmountValue ?: 0.0 },
-            count = otherDebitTransactions.size,
-            description = "Debits that are not trusted as spend yet.",
-            transactions = otherDebitTransactions
-        ),
-        ExplainBucket(
-            title = "Refund signals",
-            amount = refundTransactions.sumOf { it.inrAmountValue ?: 0.0 },
-            count = refundTransactions.size,
-            description = "Credits that look like refunds or reversals. Not netted yet.",
-            transactions = refundTransactions
-        ),
-        ExplainBucket(
-            title = "Income",
-            amount = incomeTransactions.sumOf { it.inrAmountValue ?: 0.0 },
-            count = incomeTransactions.size,
-            description = "Salary, interest, payouts, or other income-like credits.",
-            transactions = incomeTransactions
-        ),
-        ExplainBucket(
-            title = "Rewards",
-            amount = rewardTransactions.sumOf { it.inrAmountValue ?: 0.0 },
-            count = rewardTransactions.size,
-            description = "Cashback, rewards, or loyalty credits.",
-            transactions = rewardTransactions
-        ),
-        ExplainBucket(
-            title = "FX converted",
-            amount = fxTransactions.sumOf { it.inrAmountValue ?: 0.0 },
-            count = fxTransactions.size,
-            description = "Non-INR transactions converted using stored daily FX rates.",
-            transactions = fxTransactions
-        )
-    )
-}
-
 private fun List<TransactionUi>.monthMerchantGroups(): List<SummaryGroup> {
-    return latestMonthDebitTransactions()
-        .filter { it.inrAmountValue != null }
+    return latestMonthSpendTransactions()
         .groupBy { it.merchant }
         .map { (merchant, transactions) ->
             SummaryGroup(
@@ -9904,8 +11468,7 @@ private fun List<TransactionUi>.monthSpendMerchantGroups(monthKey: String? = sel
 }
 
 private fun List<TransactionUi>.monthCategoryGroups(): List<SummaryGroup> {
-    return latestMonthDebitTransactions()
-        .filter { it.inrAmountValue != null }
+    return latestMonthSpendTransactions()
         .groupBy { it.category }
         .map { (category, transactions) ->
             SummaryGroup(
@@ -9937,32 +11500,39 @@ private fun List<TransactionUi>.monthSpendCategoryGroups(monthKey: String? = sel
 
 private fun List<TransactionUi>.reviewCandidates(monthKey: String? = selectedMonthKey()): List<TransactionUi> {
     return latestMonthTransactions(monthKey)
-        .filter { it.inrAmountValue != null }
+        .filter {
+            it.status in setOf(TransactionStatus.COMPLETED, TransactionStatus.PENDING, TransactionStatus.UNKNOWN) &&
+                (it.inrAmountValue != null || (it.direction == DirectionUi.Debit && it.amountValue > 0.0))
+        }
         .filter(TransactionUi::needsReview)
-        .sortedByDescending { it.inrAmountValue ?: 0.0 }
+        .sortedByDescending { it.inrAmountValue ?: it.amountValue }
 }
 
 private fun TransactionUi.needsReview(): Boolean {
+    if (status != TransactionStatus.COMPLETED) return true
+    if (direction == DirectionUi.Debit && amountValue > 0.0 && inrAmountValue == null) return true
+    if (categorySource == CategorySource.USER_RULE) return false
+
     val amount = inrAmountValue ?: 0.0
     return category == "Other" ||
         miscCategory == "Uncategorized" ||
         categorySource == CategorySource.FALLBACK ||
         confidence < 0.70 ||
         merchant.looksLikeRawPaymentHandle() ||
-        (source == "Gmail" && amount >= 10_000.0) ||
-        (!countsInInrTotals() && amount > 0.0)
+        (source == "Gmail" && amount >= 10_000.0)
 }
 
 private fun TransactionUi.reviewReason(): String {
     val amount = inrAmountValue ?: 0.0
     return when {
+        status != TransactionStatus.COMPLETED -> "Payment status needs checking"
+        direction == DirectionUi.Debit && amountValue > 0.0 && inrAmountValue == null -> "Currency conversion needed"
         category == "Other" -> "Category needs sorting"
         miscCategory == "Uncategorized" -> "Merchant tag missing"
         categorySource == CategorySource.FALLBACK -> "Fallback categorization"
         confidence < 0.70 -> "Low parser confidence"
         merchant.looksLikeRawPaymentHandle() -> "Merchant needs cleanup"
-        source == "Gmail" && amount >= 10_000.0 -> "High-value Gmail row"
-        !countsInInrTotals() && amount > 0.0 -> "FX conversion review"
+        source == "Gmail" && amount >= 10_000.0 -> "High-value Gmail payment"
         else -> "Review"
     }
 }
@@ -9985,8 +11555,7 @@ private fun List<TransactionUi>.monthRefundSignals(): List<TransactionUi> {
 
 private fun List<TransactionUi>.recurringCandidates(): List<RecurringCandidate> {
     return filter {
-        it.direction == DirectionUi.Debit &&
-            it.inrAmountValue != null &&
+        it.countsTowardSpentTotal() &&
             !it.transactionDate.isNullOrBlank()
     }
         .groupBy { it.merchant.uppercase(Locale.US).trim() }
@@ -10049,11 +11618,11 @@ private fun List<TransactionUi>.sourceHealthRows(): List<SourceHealthRow> {
             SourceHealthRow(
                 source = source,
                 totalCount = rows.size,
-                spendCount = rows.count { it.direction == DirectionUi.Debit && it.transactionType.countsAsSpend() },
+                spendCount = rows.count(TransactionUi::countsTowardSpentTotal),
                 reviewCount = rows.count(TransactionUi::needsReview),
-                fxCount = rows.count { !it.countsInInrTotals() },
+                fxCount = rows.count { it.direction == DirectionUi.Debit && it.amountValue > 0.0 && it.inrAmountValue == null },
                 totalAmount = rows
-                    .filter { it.direction == DirectionUi.Debit }
+                    .filter(TransactionUi::countsTowardSpentTotal)
                     .sumOf { it.inrAmountValue ?: 0.0 }
             )
         }
@@ -10207,147 +11776,781 @@ private fun GmailImportSummary.displayLabel(): String {
     return "Imported $importedTransactions of $transactionsDetected detected. $skippedDuplicates matched SMS.$fxLabel"
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DrilldownScreen(
+private fun MerchantCategoryDetailScreen(
     state: DrilldownState,
     allTransactions: List<TransactionUi>,
     onBack: () -> Unit,
     onTransactionClick: (TransactionUi) -> Unit
 ) {
-    val palette = tapePalette()
-    val transactions = remember(state, allTransactions) {
-        state.filteredTransactions(allTransactions)
-    }
-    val amountRows = remember(transactions) {
-        transactions.filter { it.inrAmountValue != null }
-    }
-    val total = remember(amountRows) {
-        amountRows.sumOf { it.inrAmountValue ?: 0.0 }
-    }
-    val average = remember(amountRows, total) {
-        if (amountRows.isNotEmpty()) total / amountRows.size else 0.0
-    }
-    val largest = remember(amountRows) {
-        amountRows.maxByOrNull { it.inrAmountValue ?: 0.0 }
-    }
-    val reviewCount = remember(amountRows) {
-        amountRows.count(TransactionUi::needsReview)
-    }
-    val sourceMix = remember(amountRows) {
-        amountRows
-            .groupingBy { it.source.uppercase(Locale.US) }
-            .eachCount()
-            .entries
-            .sortedByDescending { it.value }
-            .joinToString(" - ") { "${it.value} ${it.key}" }
-            .ifBlank { "NO SOURCE" }
-    }
-    val splitRows = remember(transactions, state.kind) {
-        val grouped = when (state.kind) {
-            DrilldownKind.Merchant -> transactions.groupBy { it.category }
-            DrilldownKind.Category -> transactions.groupBy { it.merchant }
-        }
-        grouped
-            .map { (label, rows) ->
-                SummaryGroup(
-                    label = label,
-                    count = rows.size,
-                    total = rows.sumOf { it.inrAmountValue ?: 0.0 },
-                    currency = "INR",
-                    category = rows.firstOrNull()?.category ?: label
-                )
+    val palette = homePalette()
+    val groupTransactions = remember(state, allTransactions) {
+        allTransactions.filter { transaction ->
+            transaction.inrAmountValue != null && when (state.kind) {
+                DrilldownKind.Merchant -> transaction.merchant == state.group.label
+                DrilldownKind.Category -> transaction.category == state.group.label
             }
-            .sortedByDescending { it.total }
+        }
     }
-    val dateGroups = remember(transactions) {
-        transactions
-            .sortedWith(
-                compareByDescending<TransactionUi> { it.transactionDate.orEmpty() }
-                    .thenByDescending { it.inrAmountValue ?: 0.0 }
-            )
-            .groupBy { it.transactionDate.recentDateLabel().uppercase(Locale.US) }
+    val availableMonths = remember(groupTransactions, state.monthKeys) {
+        groupTransactions.mapNotNull { it.transactionDate?.take(7) }
+            .filter { state.monthKeys == null || it in state.monthKeys }
+            .distinct()
+            .sortedDescending()
     }
+    var selectedMonth by remember(state, availableMonths) {
+        mutableStateOf(state.monthKey?.takeIf { it in availableMonths } ?: availableMonths.firstOrNull())
+    }
+    var monthSheetOpen by remember { mutableStateOf(false) }
+    var paymentSheetTitle by remember { mutableStateOf<String?>(null) }
+    var paymentSheetSubtitle by remember { mutableStateOf<String?>(null) }
+    var paymentSheetRows by remember { mutableStateOf(emptyList<TransactionUi>()) }
+    val monthLabel = selectedMonth?.monthNameLabel() ?: "This month"
+    val breakdownTitle = if (state.kind == DrilldownKind.Merchant) "Categories" else "Top merchants"
 
-    Scaffold(
-        containerColor = palette.desk
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            SegmentDeskBar(
-                state = state,
-                transactions = transactions,
-                palette = palette,
-                onBack = onBack
-            )
-            TapePaper(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = 14.dp),
-                palette = palette
+    Scaffold(containerColor = palette.background) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).background(palette.background)) {
+            Row(
+                Modifier.fillMaxWidth()
+                    .background(if (isDarkModeActive()) Color(0xFF0F2C28) else palette.header)
+                    .padding(start = 8.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                item {
-                    SegmentCloseOutBlock(
-                        state = state,
-                        total = total,
-                        average = average,
-                        largest = largest,
-                        reviewCount = reviewCount,
-                        sourceMix = sourceMix,
-                        lineCount = transactions.size,
-                        palette = palette
-                    )
+                IconButton(onClick = onBack, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = palette.ink)
                 }
-                item {
-                    SegmentShareRule(
-                        rows = splitRows,
-                        total = total,
-                        palette = palette
-                    )
+                Column(Modifier.weight(1f).padding(start = 4.dp)) {
+                    Text(state.title, color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(if (state.kind == DrilldownKind.Merchant) "Merchant" else "Category", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp)
                 }
-                item {
-                    SegmentSplitBlock(
-                        state = state,
-                        rows = splitRows,
-                        palette = palette
-                    )
+                Surface(
+                    modifier = Modifier.clickable { monthSheetOpen = true },
+                    color = if (isDarkModeActive()) Color(0x217FB3A4) else Color(0x214E8471),
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Row(Modifier.padding(horizontal = 11.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(monthLabel, color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                        Text("⌄", Modifier.padding(start = 4.dp), color = palette.muted, fontSize = 14.sp)
+                    }
                 }
-                item {
-                    IndexBlockShell(
-                        heading = "LINES ON THIS SEGMENT",
-                        meta = "${transactions.size} PRINTED",
-                        palette = palette
-                    ) {
-                        if (transactions.isEmpty()) {
-                            IndexEmptyLine("NO LINES FOUND ON THIS SEGMENT", palette)
+            }
+            Spacer(Modifier.fillMaxWidth().height(1.dp).background(palette.rule))
+
+            Crossfade(
+                targetState = selectedMonth,
+                animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                label = "merchant_category_month"
+            ) { shownMonth ->
+                val rows = remember(groupTransactions, shownMonth) {
+                    groupTransactions.filter { it.transactionDate?.take(7) == shownMonth }
+                        .sortedWith(compareByDescending<TransactionUi> { it.transactionDate.orEmpty() }.thenByDescending { it.inrAmountValue ?: 0.0 })
+                }
+                val spend = remember(rows) { rows.filter { it.countsTowardSpentTotal() } }
+                val notCounted = remember(rows) { rows.filter { it.countsTowardMoneyIn() } }
+                val total = spend.sumOf { it.inrAmountValue ?: 0.0 }
+                val reviews = spend.filter(TransactionUi::needsReview)
+                val notCountedTotal = notCounted.sumOf { it.inrAmountValue ?: 0.0 }
+                val groups = remember(spend, state.kind) {
+                    spend.groupBy { row ->
+                        if (state.kind == DrilldownKind.Merchant) row.category.ifBlank { "Other" }
+                        else row.merchant.ifBlank { "Unknown" }
+                    }.map { (name, matching) ->
+                        DrilldownBreakdown(name, matching, matching.sumOf { it.inrAmountValue ?: 0.0 })
+                    }.sortedByDescending { it.amount }
+                }
+                val methods = remember(spend) {
+                    spend.groupBy { it.paymentMode.ifBlank { "Not available" } }
+                        .map { (name, matching) -> DrilldownBreakdown(name, matching, matching.sumOf { it.inrAmountValue ?: 0.0 }) }
+                        .sortedByDescending { it.amount }
+                }
+                val days = remember(spend) {
+                    spend.groupBy { it.transactionDate?.recentDateLabel()?.takeIf(String::isNotBlank) ?: "Date unavailable" }
+                }
+                val dayTotals = remember(days) { days.mapValues { (_, matching) -> matching.sumOf { it.inrAmountValue ?: 0.0 } } }
+                val shownMonthLabel = shownMonth?.monthNameLabel() ?: "This month"
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)
+                ) {
+                    item(key = "detail-hero") {
+                        Column(
+                            Modifier.fillMaxWidth().clickable(enabled = spend.isNotEmpty()) {
+                                paymentSheetTitle = "Payments"
+                                paymentSheetSubtitle = "${spend.size} payments · ${total.formatHomeRupee()}"
+                                paymentSheetRows = spend
+                            }.padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 0.dp)
+                        ) {
+                            Text("Spent in $shownMonthLabel", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            Row(Modifier.padding(top = 5.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(total.formatHomeRupee(), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 48.sp, lineHeight = 48.sp, fontWeight = FontWeight.SemiBold)
+                                Row(
+                                    Modifier.padding(bottom = 7.dp).clickable(enabled = spend.isNotEmpty()) {
+                                        paymentSheetTitle = "Payments"
+                                        paymentSheetSubtitle = "${spend.size} payments · ${total.formatHomeRupee()}"
+                                        paymentSheetRows = spend
+                                    },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    Text("${spend.size} payments", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                    Text("›", color = palette.muted, fontSize = 16.sp)
+                                }
+                            }
+                            Text(
+                                "All outgoing payments, grouped by category.",
+                                Modifier.padding(top = 9.dp),
+                                color = palette.muted,
+                                fontFamily = SortedHomeFontFamily,
+                                fontSize = 12.5.sp
+                            )
                         }
                     }
-                }
-                dateGroups.forEach { (label, rows) ->
-                    item {
-                        SegmentDateHeader(
-                            label = label,
-                            total = rows.sumOf { it.inrAmountValue ?: 0.0 },
-                            palette = palette
-                        )
+
+                    if (reviews.isNotEmpty()) {
+                        item(key = "detail-review") {
+                            AnimatedVisibility(
+                                visible = true,
+                                enter = fadeIn(tween(180)) + expandVertically(tween(220, easing = FastOutSlowInEasing)),
+                                exit = fadeOut(tween(160)) + shrinkVertically(tween(180, easing = FastOutSlowInEasing))
+                            ) {
+                                Text(
+                                    "${reviews.size} NEED REVIEW",
+                                    Modifier.padding(start = 20.dp, top = 16.dp).graphicsLayer(rotationZ = -1.5f)
+                                        .dottedOutline(palette.review)
+                                        .clickable {
+                                            paymentSheetTitle = "Need review"
+                                            paymentSheetSubtitle = "${reviews.size} payments · ${reviews.sumOf { it.inrAmountValue ?: 0.0 }.formatHomeRupee()}"
+                                            paymentSheetRows = reviews
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                                    color = palette.review,
+                                    fontFamily = SortedHomeFontFamily,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    letterSpacing = 1.1.sp
+                                )
+                            }
+                        }
                     }
-                    items(rows, key = { it.sourceHash }) { transaction ->
-                        SegmentTransactionLine(
-                            transaction = transaction,
-                            palette = palette,
-                            onClick = { onTransactionClick(transaction) }
-                        )
+
+                    if (groups.isNotEmpty()) {
+                        item(key = "detail-breakdown") {
+                            Column(Modifier.fillMaxWidth().padding(top = 20.dp).background(palette.band).drawBehind {
+                                drawLine(palette.rule, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx())
+                                drawLine(palette.rule, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
+                            }.padding(horizontal = 20.dp, vertical = 16.dp)) {
+                                DrilldownSectionHeading(breakdownTitle, "", palette, topPadding = 0.dp)
+                                groups.forEach { group ->
+                                    DrilldownShareRow(
+                                        group = group,
+                                        total = total,
+                                        palette = palette,
+                                        onClick = {
+                                            paymentSheetTitle = group.name
+                                            paymentSheetSubtitle = "${group.rows.size} payments · ${group.amount.formatHomeRupee()}"
+                                            paymentSheetRows = group.rows
+                                        }
+                                    )
+                                }
+                                if (state.kind == DrilldownKind.Merchant && methods.isNotEmpty()) {
+                                    Spacer(Modifier.fillMaxWidth().padding(top = 2.dp).height(1.dp).background(palette.rule))
+                                    DrilldownSectionHeading("Paid with", "", palette, topPadding = 14.dp)
+                                    methods.forEach { method ->
+                                        DrilldownSecondaryRow(method.name, method.amount, method.rows.size, palette) {
+                                            paymentSheetTitle = method.name
+                                            paymentSheetSubtitle = "${method.rows.size} payments · ${method.amount.formatHomeRupee()}"
+                                            paymentSheetRows = method.rows
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
-                }
-                item {
-                    Spacer(modifier = Modifier.height(80.dp))
+
+                    if (spend.isNotEmpty()) {
+                        item(key = "detail-payments-heading") {
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("PAYMENTS", Modifier.weight(1f), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.76.sp)
+                                    Text("All outgoing", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+                                }
+                            }
+                        }
+                        days.forEach { (label, dayRows) ->
+                            item(key = "detail-day-$label") {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(horizontal = 20.dp).drawBehind {
+                                        drawLine(palette.rule, Offset(0f, size.height - 1.dp.toPx()), Offset(size.width, size.height - 1.dp.toPx()), 1.dp.toPx())
+                                    }.clickable {
+                                        paymentSheetTitle = label
+                                        paymentSheetSubtitle = "${dayRows.size} payments · ${dayTotals[label]?.formatHomeRupee().orEmpty()}"
+                                        paymentSheetRows = dayRows
+                                    }.padding(top = 10.dp, bottom = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(label, Modifier.weight(1f), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(dayTotals[label]?.formatHomeRupee().orEmpty(), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                }
+                            }
+                            items(dayRows, key = { "detail-${it.sourceHash}" }) { transaction ->
+                                DrilldownTransactionRow(transaction, palette) { onTransactionClick(transaction) }
+                            }
+                        }
+                    } else {
+                        item(key = "detail-empty") {
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 34.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    if (state.kind == DrilldownKind.Merchant) "No spending here this month" else "No spending in this category",
+                                    color = palette.ink,
+                                    fontFamily = SortedHomeFontFamily,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    if (state.kind == DrilldownKind.Merchant) "Payments from this merchant will show here." else "Payments in this category will show here.",
+                                    Modifier.padding(top = 6.dp),
+                                    color = palette.muted,
+                                    fontFamily = SortedHomeFontFamily,
+                                    fontSize = 13.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                                if (availableMonths.any { it != shownMonth }) {
+                                    TextButton(onClick = { monthSheetOpen = true }, modifier = Modifier.padding(top = 8.dp)) {
+                                        Text("Look at another month", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (notCounted.isNotEmpty()) {
+                        item(key = "detail-not-counted") {
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp)
+                                    .drawBehind { drawLine(palette.faintRule, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }
+                                    .clickable {
+                                        paymentSheetTitle = "Money in"
+                                        paymentSheetSubtitle = "${notCounted.size} payments · ${notCounted.sumOf { it.inrAmountValue ?: 0.0 }.formatHomeRupee()}"
+                                        paymentSheetRows = notCounted
+                                    },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Money in", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                    Text("Refunds, rewards and income", Modifier.padding(top = 2.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp)
+                                }
+                                Text(notCountedTotal.formatHomeRupee(), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text("›", Modifier.padding(start = 8.dp), color = palette.muted, fontSize = 18.sp)
+                            }
+                        }
+                    }
+
+                    item(key = "detail-footer") {
+                        Text("Stays on this phone", Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp, textAlign = TextAlign.Center)
+                    }
                 }
             }
         }
     }
+
+    if (monthSheetOpen) {
+        ModalBottomSheet(
+            onDismissRequest = { monthSheetOpen = false },
+            containerColor = palette.background,
+            shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
+        ) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 18.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Choose a month", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                        Text(state.title, Modifier.padding(top = 3.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp)
+                    }
+                    TextButton(onClick = { monthSheetOpen = false }) { Text("Close", color = palette.muted) }
+                }
+                availableMonths.forEach { month ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { selectedMonth = month; monthSheetOpen = false }
+                            .padding(vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(month.monthNameLabel(), Modifier.weight(1f), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 15.sp, fontWeight = if (month == selectedMonth) FontWeight.SemiBold else FontWeight.Medium)
+                        Text("${groupTransactions.count { it.transactionDate?.take(7) == month }} payments", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.sp)
+                        if (month == selectedMonth) Text("  ✓", color = palette.credit, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    if (month != availableMonths.last()) Spacer(Modifier.fillMaxWidth().height(1.dp).background(palette.faintRule))
+                }
+            }
+        }
+    } else if (paymentSheetTitle != null) {
+        ModalBottomSheet(
+            onDismissRequest = { paymentSheetTitle = null },
+            containerColor = palette.background,
+            shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
+        ) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(paymentSheetTitle.orEmpty(), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                        Text(paymentSheetSubtitle.orEmpty(), Modifier.padding(top = 3.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp)
+                    }
+                    TextButton(onClick = { paymentSheetTitle = null }) { Text("Close", color = palette.muted) }
+                }
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 540.dp).padding(top = 8.dp)) {
+                    items(paymentSheetRows, key = { "sheet-${it.sourceHash}" }) { transaction ->
+                        DrilldownTransactionRow(transaction, palette) { onTransactionClick(transaction) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private data class DrilldownBreakdown(
+    val name: String,
+    val rows: List<TransactionUi>,
+    val amount: Double
+)
+
+@Composable
+private fun DrilldownSectionHeading(title: String, meta: String, palette: HomePalette, topPadding: androidx.compose.ui.unit.Dp = 16.dp) {
+    Row(Modifier.fillMaxWidth().padding(top = topPadding, bottom = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title.uppercase(Locale.US), Modifier.weight(1f), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.76.sp)
+        if (meta.isNotBlank()) Text(meta, color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun DrilldownShareRow(group: DrilldownBreakdown, total: Double, palette: HomePalette, onClick: () -> Unit) {
+    val share = if (total > 0.0) (group.amount / total).toFloat().coerceIn(0f, 1f) else 0f
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 11.dp).animateContentSize(tween(220))) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(group.name, Modifier.weight(1f), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(group.amount.formatHomeRupee(), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold)
+            Text("${(share * 100).toInt()}%", Modifier.width(36.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.End)
+        }
+        Row(Modifier.padding(top = 7.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(2.dp)).background(palette.softFill)) {
+                Box(Modifier.fillMaxWidth(share).fillMaxHeight().clip(RoundedCornerShape(2.dp)).background(palette.ink))
+            }
+            Text("${group.rows.size}", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+@Composable
+private fun DrilldownSecondaryRow(name: String, amount: Double, count: Int, palette: HomePalette, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(name, Modifier.weight(1f), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(amount.formatHomeRupee(), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold)
+        Text("$count", Modifier.width(60.dp).padding(start = 8.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp, textAlign = TextAlign.End)
+        Text("›", Modifier.padding(start = 8.dp), color = palette.muted, fontSize = 16.sp)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DrilldownScreen(
+    state: DrilldownState,
+    allTransactions: List<TransactionUi>,
+    onBack: () -> Unit,
+    onTransactionClick: (TransactionUi) -> Unit,
+    onOpenGroup: (DrilldownKind, SummaryGroup) -> Unit
+) {
+    val palette = homePalette()
+    val baseTransactions = remember(state, allTransactions) {
+        allTransactions.filter { transaction ->
+            transaction.inrAmountValue != null &&
+                (if (state.spendOnly) {
+                    transaction.countsTowardSpentTotal()
+                } else {
+                    transaction.direction == DirectionUi.Debit
+                }) &&
+                when (state.kind) {
+                    DrilldownKind.Merchant -> transaction.merchant == state.group.label
+                    DrilldownKind.Category -> transaction.category == state.group.label
+                } &&
+                (state.monthKeys == null || transaction.transactionDate?.take(7) in state.monthKeys)
+        }.sortedWith(
+            compareByDescending<TransactionUi> { it.transactionDate.orEmpty() }
+                .thenByDescending { it.inrAmountValue ?: 0.0 }
+        )
+    }
+    val availableMonths = remember(baseTransactions) {
+        baseTransactions.mapNotNull { it.transactionDate?.take(7) }.distinct().sortedDescending()
+    }
+    var selectedMonth by remember(state) {
+        mutableStateOf(state.monthKey?.takeIf { it in availableMonths } ?: availableMonths.firstOrNull())
+    }
+    var showAllBreakdown by remember(state) { mutableStateOf(false) }
+    var sheet by remember { mutableStateOf<Pair<String, List<TransactionUi>>?>(null) }
+    val monthIsRange = state.monthKeys != null && state.monthKeys.size > 1
+    val monthLabel = when {
+        monthIsRange -> "This year"
+        selectedMonth != null -> selectedMonth!!.monthNameLabel()
+        else -> "This month"
+    }
+    val transactions = remember(baseTransactions, selectedMonth, monthIsRange) {
+        if (monthIsRange || selectedMonth == null) baseTransactions
+        else baseTransactions.filter { it.transactionDate?.take(7) == selectedMonth }
+    }
+    val total = remember(transactions) { transactions.sumOf { it.inrAmountValue ?: 0.0 } }
+    val reviewRows = remember(transactions) { transactions.filter(TransactionUi::needsReview) }
+    val breakdownGroups = remember(transactions, state.kind) {
+        transactions.groupBy { transaction ->
+            if (state.kind == DrilldownKind.Merchant) transaction.category.ifBlank { "Other" }
+            else transaction.merchant.ifBlank { "Unknown" }
+        }.map { (label, rows) ->
+            SummaryGroup(
+                label = label,
+                count = rows.size,
+                total = rows.sumOf { it.inrAmountValue ?: 0.0 },
+                currency = "INR",
+                category = if (state.kind == DrilldownKind.Merchant) label else rows.firstOrNull()?.category ?: "Other"
+            )
+        }.sortedByDescending { it.total }
+    }
+    val paymentModes = remember(transactions) {
+        transactions.groupBy { it.paymentMode.ifBlank { "Not available" } }
+            .map { (label, rows) ->
+                label to rows.sortedByDescending { it.transactionDate.orEmpty() }
+            }
+            .sortedByDescending { it.second.size }
+    }
+
+    Scaffold(containerColor = palette.background) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).background(palette.background)) {
+            Row(
+                Modifier.fillMaxWidth().background(palette.header).padding(start = 8.dp, end = 20.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack, modifier = Modifier.size(44.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = palette.ink)
+                }
+                Column(Modifier.weight(1f).padding(start = 4.dp)) {
+                    Text(
+                        if (state.kind == DrilldownKind.Merchant) "Merchant" else "Category",
+                        color = palette.muted,
+                        fontFamily = SortedHomeFontFamily,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        state.title,
+                        color = palette.ink,
+                        fontFamily = SortedHomeFontFamily,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Spacer(Modifier.fillMaxWidth().height(1.dp).background(palette.rule))
+
+            if (!monthIsRange && availableMonths.size > 1) {
+                val monthIndex = availableMonths.indexOf(selectedMonth).coerceAtLeast(0)
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    IconButton(
+                        onClick = { selectedMonth = availableMonths.getOrNull(monthIndex + 1) },
+                        enabled = monthIndex < availableMonths.lastIndex,
+                        modifier = Modifier.size(40.dp)
+                    ) { MonthArrowGlyph(-1, if (monthIndex < availableMonths.lastIndex) palette.ink else palette.faintRule, Modifier.size(18.dp)) }
+                    Text(monthLabel, Modifier.animateContentSize().padding(horizontal = 8.dp), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    IconButton(
+                        onClick = { selectedMonth = availableMonths.getOrNull(monthIndex - 1) },
+                        enabled = monthIndex > 0,
+                        modifier = Modifier.size(40.dp)
+                    ) { MonthArrowGlyph(1, if (monthIndex > 0) palette.ink else palette.faintRule, Modifier.size(18.dp)) }
+                }
+            } else {
+                Text(
+                    monthLabel,
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                    color = palette.muted,
+                    fontFamily = SortedHomeFontFamily,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            Crossfade(
+                targetState = selectedMonth ?: "all",
+                animationSpec = tween(220, easing = FastOutSlowInEasing),
+                label = "drilldown_month_content"
+            ) { monthTransition ->
+                val visibleRows = remember(baseTransactions, monthTransition, monthIsRange) {
+                    if (monthIsRange || monthTransition == "all") baseTransactions
+                    else baseTransactions.filter { it.transactionDate?.take(7) == monthTransition }
+                }
+                val visibleTotal = visibleRows.sumOf { it.inrAmountValue ?: 0.0 }
+                val visibleReviewRows = visibleRows.filter(TransactionUi::needsReview)
+                val visibleGroups = remember(visibleRows, state.kind) {
+                    visibleRows.groupBy { row ->
+                        if (state.kind == DrilldownKind.Merchant) row.category.ifBlank { "Other" }
+                        else row.merchant.ifBlank { "Unknown" }
+                    }.map { (label, rows) ->
+                        SummaryGroup(label, rows.size, rows.sumOf { it.inrAmountValue ?: 0.0 }, "INR", if (state.kind == DrilldownKind.Merchant) label else rows.firstOrNull()?.category ?: "Other")
+                    }.sortedByDescending { it.total }
+                }
+                val visiblePaymentModes = remember(visibleRows) {
+                    visibleRows.groupBy { it.paymentMode.ifBlank { "Not available" } }
+                        .map { (label, rows) -> label to rows.sortedByDescending { it.transactionDate.orEmpty() } }
+                        .sortedByDescending { it.second.size }
+                }
+                val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)
+                ) {
+                    item(key = "hero") {
+                        Column(
+                            Modifier.fillMaxWidth().clickable(enabled = visibleRows.isNotEmpty()) {
+                                sheet = "${visibleRows.size} payments" to visibleRows
+                            }.padding(horizontal = 20.dp, vertical = 16.dp)
+                        ) {
+                            Text(
+                                if (state.spendOnly) {
+                                    if (state.kind == DrilldownKind.Merchant) "Spent here" else "Spent in this category"
+                                } else "Payments",
+                                color = palette.muted,
+                                fontFamily = SortedHomeFontFamily,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Crossfade(visibleTotal, animationSpec = tween(180), label = "drilldown_total") { amount ->
+                                Text(
+                                    amount.formatHomeRupee(),
+                                    Modifier.padding(top = 4.dp),
+                                    color = palette.ink,
+                                    fontFamily = SortedHomeFontFamily,
+                                    fontSize = 44.sp,
+                                    lineHeight = 48.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Text(
+                                "${visibleRows.size} ${if (visibleRows.size == 1) "payment" else "payments"}",
+                                color = palette.muted,
+                                fontFamily = SortedHomeFontFamily,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    if (visibleReviewRows.isNotEmpty()) {
+                        item(key = "review") {
+                            AnimatedVisibility(
+                                visible = true,
+                                enter = fadeIn(tween(220)) + expandVertically(tween(240, easing = FastOutSlowInEasing))
+                            ) {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)
+                                        .clickable { sheet = "Need review" to visibleReviewRows }
+                                        .dottedOutline(palette.review)
+                                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(Modifier.size(7.dp).background(palette.reviewDot, CircleShape))
+                                    Text("${visibleReviewRows.size} need review", Modifier.weight(1f).padding(start = 9.dp), color = palette.review, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(visibleReviewRows.sumOf { it.inrAmountValue ?: 0.0 }.formatHomeRupee(), color = palette.review, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
+
+                    if (visibleGroups.isNotEmpty()) {
+                        item(key = "breakdown_title") {
+                            DrilldownSectionHeading(
+                                if (state.kind == DrilldownKind.Merchant) "Categories" else "Top merchants",
+                                "${visibleGroups.size} ${if (state.kind == DrilldownKind.Merchant) "categories" else "places"}",
+                                palette
+                            )
+                        }
+                        val shownGroups = if (showAllBreakdown) visibleGroups else visibleGroups.take(4)
+                        items(shownGroups, key = { "mix-${it.label}" }) { group ->
+                            DrilldownMixRow(
+                                group = group,
+                                total = visibleTotal,
+                                color = drilldownMixColor(visibleGroups.indexOf(group), palette),
+                                palette = palette,
+                                onClick = {
+                                    val nextKind = if (state.kind == DrilldownKind.Merchant) DrilldownKind.Category else DrilldownKind.Merchant
+                                    onOpenGroup(nextKind, group)
+                                }
+                            )
+                        }
+                        if (visibleGroups.size > 4) {
+                            item(key = "show_all") {
+                                TextButton(onClick = { showAllBreakdown = !showAllBreakdown }) {
+                                    Text(if (showAllBreakdown) "Show less" else "Show all ${visibleGroups.size}", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp)
+                                }
+                            }
+                        }
+                    }
+
+                    if (state.kind == DrilldownKind.Merchant && visiblePaymentModes.isNotEmpty()) {
+                        item(key = "paid_with_heading") { DrilldownSectionHeading("Paid with", "${visiblePaymentModes.size} methods", palette) }
+                        items(visiblePaymentModes, key = { "mode-${it.first}" }) { (mode, rows) ->
+                            DrilldownPaymentModeRow(mode, rows, visibleTotal, palette) {
+                                sheet = "$mode · ${rows.size} payments" to rows
+                            }
+                        }
+                    }
+
+                    item(key = "payments_heading") {
+                        DrilldownSectionHeading("Payments", "${visibleRows.size}", palette)
+                    }
+                    if (visibleRows.isEmpty()) {
+                        item(key = "empty") {
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp)) {
+                                Text("No payments in this period", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                                Text("Choose another month to see payments here.", Modifier.padding(top = 5.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp)
+                            }
+                        }
+                    } else {
+                        val dateGroups = visibleRows.groupBy { row ->
+                            row.transactionDate?.recentDateLabel()?.takeIf(String::isNotBlank) ?: "Date unavailable"
+                        }
+                        dateGroups.forEach { (dateLabel, rows) ->
+                            item(key = "date-$dateLabel") {
+                                Row(
+                                    Modifier.fillMaxWidth().background(palette.band).padding(horizontal = 20.dp, vertical = 9.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(dateLabel, Modifier.weight(1f), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(rows.sumOf { it.inrAmountValue ?: 0.0 }.formatHomeRupee(), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                            items(rows, key = { "payment-${it.sourceHash}" }) { transaction ->
+                                DrilldownTransactionRow(transaction, palette) { onTransactionClick(transaction) }
+                            }
+                        }
+                    }
+                    item(key = "privacy") {
+                        Text("Stays on this phone", Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp, textAlign = TextAlign.Center)
+                    }
+                }
+            }
+        }
+    }
+
+    sheet?.let { (title, rows) ->
+        ModalBottomSheet(
+            onDismissRequest = { sheet = null },
+            containerColor = palette.background,
+            shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
+        ) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                Text(title, color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 540.dp).padding(top = 8.dp)) {
+                    items(rows, key = { "sheet-${it.sourceHash}" }) { transaction ->
+                        DrilldownTransactionRow(transaction, palette) { onTransactionClick(transaction) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DrilldownSectionHeading(title: String, meta: String, palette: HomePalette) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(title, Modifier.weight(1f), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Text(meta, color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun DrilldownMixRow(
+    group: SummaryGroup,
+    total: Double,
+    color: Color,
+    palette: HomePalette,
+    onClick: () -> Unit
+) {
+    val share = if (total > 0.0) (group.total / total).toFloat().coerceIn(0f, 1f) else 0f
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp).animateContentSize(tween(220))) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(group.label, Modifier.weight(1f), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Column(horizontalAlignment = Alignment.End) {
+                Text(group.total.formatHomeRupee(), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text("${group.count} · ${(share * 100).toInt()}%", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+            }
+            Text("›", Modifier.padding(start = 10.dp), color = palette.muted, fontSize = 18.sp)
+        }
+        Box(Modifier.fillMaxWidth().padding(top = 8.dp).height(6.dp).clip(RoundedCornerShape(3.dp)).background(palette.softFill)) {
+            Box(Modifier.fillMaxWidth(share).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(color))
+        }
+    }
+}
+
+@Composable
+private fun DrilldownPaymentModeRow(
+    mode: String,
+    rows: List<TransactionUi>,
+    total: Double,
+    palette: HomePalette,
+    onClick: () -> Unit
+) {
+    val amount = rows.sumOf { it.inrAmountValue ?: 0.0 }
+    val share = if (total > 0.0) amount / total * 100 else 0.0
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(mode, color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text("${rows.size} ${if (rows.size == 1) "payment" else "payments"} · ${share.toInt()}%", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp)
+        }
+        Text(amount.formatHomeRupee(), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        Text("›", Modifier.padding(start = 10.dp), color = palette.muted, fontSize = 18.sp)
+    }
+}
+
+@Composable
+private fun DrilldownTransactionRow(transaction: TransactionUi, palette: HomePalette, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onClick).drawBehind {
+            drawLine(palette.faintRule, Offset(20.dp.toPx(), size.height - 1.dp.toPx()), Offset(size.width - 20.dp.toPx(), size.height - 1.dp.toPx()), 1.dp.toPx())
+        }.padding(horizontal = 20.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(34.dp).clip(CircleShape).background(palette.softFill), contentAlignment = Alignment.Center) {
+            Text(transaction.merchant.firstOrNull()?.uppercaseChar()?.toString() ?: "•", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Column(Modifier.weight(1f).padding(start = 11.dp, end = 10.dp)) {
+            Text(transaction.merchant.ifBlank { "Payment" }, color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                listOf(transaction.category, transaction.transactionDate.recentDateLabel(), transaction.paymentMode.takeIf { it.isNotBlank() }).filterNotNull().filter { it.isNotBlank() }.joinToString(" · "),
+                Modifier.padding(top = 2.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+            )
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text((transaction.inrAmountValue ?: 0.0).formatHomeRupee(), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold)
+            if (transaction.needsReview()) {
+                Text("REVIEW", Modifier.padding(top = 3.dp).dottedOutline(palette.review).padding(horizontal = 4.dp, vertical = 1.dp), color = palette.review, fontFamily = SortedHomeFontFamily, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.8.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun drilldownMixColor(index: Int, palette: HomePalette): Color = when (index % 3) {
+    0 -> palette.categoryOne
+    1 -> palette.categoryTwo
+    else -> if (isDarkModeActive()) Color(0xFFA8CFC2) else Color(0xFF6F9A86)
 }
 
 @Composable
@@ -10397,7 +12600,7 @@ private fun SegmentDeskBar(
         )
         Spacer(modifier = Modifier.weight(1f))
         Text(
-            text = "${transactions.size} LINES",
+            text = "${transactions.size} PAYMENTS",
             color = palette.inkFaint,
             fontFamily = SortedTapeFontFamily,
             fontSize = 9.sp,
@@ -10457,7 +12660,7 @@ private fun SegmentCloseOutBlock(
         )
         TapeDoubleRule(palette = palette)
         TapeSummationRow(
-            label = "$lineCount LINES PRINTED",
+            label = "$lineCount PAYMENTS",
             value = total.formatRupee(),
             palette = palette
         )
@@ -10472,7 +12675,7 @@ private fun SegmentCloseOutBlock(
             palette = palette
         )
         TapeSummationRow(
-            label = "$reviewCount LINES UNSTAMPED",
+            label = "$reviewCount NEED REVIEW",
             value = if (reviewCount == 0) "CLEAR" else "NEEDS STAMP",
             palette = palette,
             color = if (reviewCount == 0) palette.inkSoft else palette.query
@@ -10555,7 +12758,7 @@ private fun SegmentSplitBlock(
 ) {
     IndexBlockShell(
         heading = if (state.kind == DrilldownKind.Merchant) "CATEGORY SPLIT" else "MERCHANT SPLIT",
-        meta = "${rows.size} INDEXED",
+        meta = "${rows.size} PAYMENTS",
         palette = palette
     ) {
         if (rows.isEmpty()) {
@@ -10754,11 +12957,10 @@ private fun DrilldownBreakdownRow(label: String, count: Int) {
 private fun DrilldownState.filteredTransactions(
     allTransactions: List<TransactionUi>
 ): List<TransactionUi> {
-    val sourceTransactions = if (spendOnly) {
-        allTransactions.latestMonthSpendTransactions(monthKey)
-    } else {
-        allTransactions.latestMonthDebitTransactions(monthKey)
-    }
+    val sourceTransactions = monthKeys?.let { keys ->
+        allTransactions.filter { it.transactionDate?.take(7) in keys }
+            .filter { !spendOnly || it.countsTowardSpentTotal() }
+    } ?: if (spendOnly) allTransactions.latestMonthSpendTransactions(monthKey) else allTransactions.latestMonthDebitTransactions(monthKey)
 
     return sourceTransactions
         .filter { it.inrAmountValue != null }
@@ -11142,7 +13344,365 @@ private fun SourcePill(source: String) {
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun TransactionDetail(
+    transaction: TransactionUi,
+    saveState: CorrectionSaveState,
+    onCorrect: (TransactionCorrectionDraft) -> Unit,
+    onIgnore: () -> Unit,
+    categoryShare: Int,
+    onClose: () -> Unit,
+    onOpenCategory: () -> Unit
+) {
+    val palette = homePalette()
+    val context = LocalContext.current
+    var sheet by remember(transaction.id, transaction.sourceHash) { mutableStateOf<String?>(null) }
+    var amount by remember(transaction.id, transaction.amountValue) { mutableStateOf(transaction.amountValue.toString()) }
+    var place by remember(transaction.id, transaction.merchant) { mutableStateOf(transaction.merchant) }
+    var date by remember(transaction.id, transaction.transactionDate) {
+        mutableStateOf(transaction.transactionDate.orEmpty())
+    }
+    var note by remember(transaction.id, transaction.note) { mutableStateOf(transaction.note.orEmpty()) }
+    var category by remember(transaction.id, transaction.category) { mutableStateOf(transaction.category) }
+    var type by remember(transaction.id, transaction.transactionType) { mutableStateOf(transaction.transactionType) }
+    var validation by remember { mutableStateOf<String?>(null) }
+    var undoDraft by remember(transaction.id) { mutableStateOf<TransactionCorrectionDraft?>(null) }
+
+    LaunchedEffect(undoDraft) {
+        if (undoDraft != null) {
+            kotlinx.coroutines.delay(6000)
+            undoDraft = null
+        }
+    }
+
+    val categoryOptions = listOf(
+        "Food", "Groceries", "Shopping", "Subscriptions", "Transport", "Utilities",
+        "Health", "Entertainment", "Home", "Investment", "Transfer", "Income", "Refund", "Reward", "Other"
+    )
+    val countOptions = listOf(
+        TransactionType.EXPENSE, TransactionType.SUBSCRIPTION, TransactionType.TRANSFER, TransactionType.INVESTMENT,
+        TransactionType.REFUND, TransactionType.REWARD, TransactionType.INCOME
+    )
+    val amountValue = amount.toDoubleOrNull()
+    val shownAmount = amountValue?.formatMoney(transaction.currency) ?: transaction.amount
+    val isMoneyBack = type == TransactionType.REFUND || type == TransactionType.REWARD || type == TransactionType.INCOME
+    val countsLabel = when {
+        transaction.countsTowardSpentTotal() -> "Included in monthly total"
+        transaction.countsTowardMoneyIn() -> "Money in · shown separately"
+        else -> "Not in monthly total"
+    }
+    val currentPeriod = date.takeIf { it.length >= 7 }?.take(7)?.monthNameLabel() ?: "Payment"
+    val statusMessage = saveState.error ?: saveState.message
+    val canEdit = transaction.id != null
+    val initialDraft = TransactionCorrectionDraft(
+        transaction = transaction,
+        merchant = transaction.merchant,
+        miscCategory = transaction.miscCategory,
+        category = transaction.category,
+        transactionType = transaction.transactionType,
+        amount = transaction.amountValue,
+        transactionDate = transaction.transactionDate,
+        note = transaction.note.orEmpty(),
+        rememberRule = false
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 780.dp)
+            .background(palette.background)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().background(palette.header).padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onClose, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = palette.ink)
+            }
+            Text("Payment", modifier = Modifier.weight(1f), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text(currentPeriod, color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.width(8.dp))
+        }
+
+        if (undoDraft != null && statusMessage != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth().background(palette.softFill).padding(horizontal = 20.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(statusMessage, modifier = Modifier.weight(1f), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                TextButton(onClick = {
+                    undoDraft?.let(onCorrect)
+                    undoDraft = null
+                }) { Text("Undo", color = palette.muted) }
+            }
+        } else if (saveState.error != null) {
+            Text(saveState.error.orEmpty(), modifier = Modifier.fillMaxWidth().background(palette.softFill).padding(horizontal = 20.dp, vertical = 10.dp), color = palette.review, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp)
+        }
+
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 18.dp)) {
+                Text(place.ifBlank { transaction.merchant }, color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 24.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    listOfNotNull(date.takeIf(String::isNotBlank)?.let(::manualDateLabel) ?: "Date unknown", transaction.transactionTime?.takeIf(String::isNotBlank), transaction.paymentMode.takeIf(String::isNotBlank)).joinToString(" · "),
+                    modifier = Modifier.padding(top = 5.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp
+                )
+                Text(
+                    text = (if (isMoneyBack) "+" else "") + shownAmount,
+                    modifier = Modifier.padding(top = 14.dp),
+                    color = if (isMoneyBack) palette.credit else palette.ink,
+                    fontFamily = SortedHomeFontFamily,
+                    fontSize = 52.sp,
+                    lineHeight = 56.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    DetailStatusPill(countsLabel, palette, filled = transaction.countsTowardSpentTotal())
+                    if (transaction.categorySource == CategorySource.USER_RULE) DetailStatusPill("Edited by you", palette, filled = false)
+                    else if (transaction.source == "Manual") DetailStatusPill("Added by you", palette, filled = false)
+                }
+            }
+
+            Column(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 6.dp).background(palette.band).padding(horizontal = 20.dp)) {
+                DetailInfoRow("Category", category, palette, clickable = canEdit) { sheet = "category" }
+                DetailInfoRow("Paid with", transaction.paymentMode, palette)
+                DetailInfoRow("Account", transaction.accountHint?.let { "Ending ${it.takeLast(4)}" } ?: "Not available", palette)
+                DetailInfoRow("Monthly total", countsLabel, palette)
+                DetailInfoRow("Payment type", type.detailCountsLabel(), palette, clickable = canEdit) { sheet = "counts" }
+                DetailInfoRow("Reference", "Not available", palette, last = true)
+            }
+
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                if (canEdit) {
+                    DetailPrimaryAction("Edit transaction", palette, enabled = !saveState.isSaving) { sheet = "edit" }
+                }
+                if (canEdit) {
+                    TextButton(
+                        onClick = { sheet = "rule" },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)
+                    ) {
+                        Text("Always sort ${place.ifBlank { transaction.merchant }} as $category", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    }
+                } else {
+                    Text("Sync your messages to edit saved payments.", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.sp)
+                }
+            }
+
+            Column(Modifier.fillMaxWidth().background(palette.band).padding(horizontal = 20.dp, vertical = 14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("PAYMENT DETAILS", modifier = Modifier.weight(1f), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
+                    Text(transaction.source, color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp)
+                }
+                Text(
+                    "Original alert text is not stored on this phone. The details above are the information Sorted saved for this payment.",
+                    modifier = Modifier.padding(top = 8.dp),
+                    color = palette.ink,
+                    fontFamily = SortedHomeFontFamily,
+                    fontSize = 12.5.sp,
+                    lineHeight = 21.sp
+                )
+            }
+
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable(enabled = canEdit, onClick = onOpenCategory).padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("See $category payments in $currentPeriod", modifier = Modifier.weight(1f), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    if (transaction.countsTowardSpentTotal()) Text("$categoryShare%", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text("  ›", color = palette.muted, fontSize = 18.sp)
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable(enabled = canEdit) { sheet = "delete" }.padding(vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Delete this payment", modifier = Modifier.weight(1f), color = palette.review, fontFamily = SortedHomeFontFamily, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Text("›", color = palette.review, fontSize = 18.sp)
+                }
+                Text(
+                    text = buildString {
+                        append(if (transaction.categorySource == CategorySource.USER_RULE) "Edited by you · " else "")
+                        append("Imported from ${transaction.source}")
+                        transaction.sourceReceivedDate?.let { append(" · read ${manualDateLabel(it)}") }
+                    },
+                    modifier = Modifier.padding(bottom = 20.dp),
+                    color = palette.muted,
+                    fontFamily = SortedHomeFontFamily,
+                    fontSize = 11.5.sp
+                )
+            }
+        }
+    }
+
+    if (sheet != null) {
+        ModalBottomSheet(
+            onDismissRequest = { sheet = null },
+            containerColor = palette.background,
+            shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
+        ) {
+            when (sheet) {
+                "edit" -> Column(
+                    Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).imePadding().padding(bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Edit transaction", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                    Text("${transaction.merchant} · ${manualDateLabel(date)}", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp)
+                    OutlinedTextField(value = amount, onValueChange = { raw -> amount = raw.filter { it.isDigit() || it == '.' }.let { value -> value.substringBefore('.') + if ('.' in value) ".${value.substringAfter('.').replace(".", "").take(2)}" else "" } }, label = { Text("Amount") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = place, onValueChange = { place = it.take(64) }, label = { Text("Place") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    Box(Modifier.fillMaxWidth().clickable {
+                        val parsed = date.toLocalDateOrNull() ?: LocalDate.now()
+                        DatePickerDialog(context, { _, year, month, day -> date = LocalDate.of(year, month + 1, day).toString() }, parsed.year, parsed.monthValue - 1, parsed.dayOfMonth).show()
+                    }) {
+                        OutlinedTextField(value = date.toLocalDateOrNull()?.toString()?.let(::manualDateLabel) ?: "Choose date", onValueChange = {}, label = { Text("Date") }, enabled = false, readOnly = true, modifier = Modifier.fillMaxWidth())
+                    }
+                    DetailInfoRow("Category", category, palette, clickable = canEdit) { sheet = "category" }
+                    DetailInfoRow("Payment type", type.detailCountsLabel(), palette, clickable = canEdit) { sheet = "counts" }
+                    OutlinedTextField(value = note, onValueChange = { note = it.take(180) }, label = { Text("Note") }, minLines = 2, maxLines = 3, modifier = Modifier.fillMaxWidth())
+                    if (validation != null || saveState.error != null) Text(validation ?: saveState.error.orEmpty(), color = palette.review, fontFamily = SortedHomeFontFamily, fontSize = 12.sp)
+                    DetailPrimaryAction(if (saveState.isSaving) "Saving…" else "Save changes", palette, enabled = !saveState.isSaving) {
+                        val parsedAmount = amount.toDoubleOrNull()
+                        validation = when {
+                            parsedAmount == null || parsedAmount <= 0.0 -> "Enter an amount greater than zero."
+                            place.isBlank() -> "Enter a place."
+                            date.toLocalDateOrNull() == null -> "Choose a valid date."
+                            else -> null
+                        }
+                        if (validation == null) {
+                            undoDraft = initialDraft
+                            onCorrect(TransactionCorrectionDraft(transaction, place.trim(), transaction.miscCategory, category, type, parsedAmount!!, date, note.trim(), false))
+                            sheet = null
+                        }
+                    }
+                }
+                "category" -> Column(Modifier.fillMaxWidth().heightIn(max = 560.dp).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
+                    Text("Category", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                    Text("$place · $shownAmount", modifier = Modifier.padding(top = 4.dp, bottom = 12.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp)
+                    categoryOptions.forEach { option ->
+                        DetailChoiceRow(option, selected = option == category, palette = palette) {
+                            val selectedType = when (option) {
+                                "Investment" -> TransactionType.INVESTMENT
+                                "Transfer" -> TransactionType.TRANSFER
+                                "Income" -> TransactionType.INCOME
+                                "Refund" -> TransactionType.REFUND
+                                "Reward" -> TransactionType.REWARD
+                                else -> type
+                            }
+                            category = option
+                            type = selectedType
+                            undoDraft = initialDraft
+                            onCorrect(TransactionCorrectionDraft(transaction, place, transaction.miscCategory, option, selectedType, amountValue ?: transaction.amountValue, date, note, false))
+                            sheet = null
+                        }
+                    }
+                }
+                "counts" -> Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
+                    Text("Payment type", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                    Text("This label describes the payment. Every outgoing payment stays in the monthly total.", modifier = Modifier.padding(top = 4.dp, bottom = 12.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp, lineHeight = 18.sp)
+                    countOptions.forEach { option ->
+                        DetailChoiceRow(option.detailCountsLabel(), selected = option == type, palette = palette) {
+                            val selectedCategory = when (option) {
+                                TransactionType.TRANSFER -> "Transfer"
+                                TransactionType.INVESTMENT -> "Investment"
+                                TransactionType.INCOME -> "Income"
+                                TransactionType.REFUND -> "Refund"
+                                TransactionType.REWARD -> "Reward"
+                                else -> if (category in setOf("Transfer", "Investment", "Income", "Refund", "Reward")) "Other" else category
+                            }
+                            category = selectedCategory
+                            type = option
+                            undoDraft = initialDraft
+                            onCorrect(TransactionCorrectionDraft(transaction, place, transaction.miscCategory, selectedCategory, option, amountValue ?: transaction.amountValue, date, note, false))
+                            sheet = null
+                        }
+                    }
+                }
+                "rule" -> Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
+                    Text("Always sort $place as $category?", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Sorted will use this for future payments from this place. You can change rules in Settings.", modifier = Modifier.padding(top = 6.dp, bottom = 16.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, lineHeight = 19.sp)
+                    DetailChoiceRow("This payment only", selected = false, palette = palette) { sheet = null }
+                    DetailChoiceRow("Make a rule", selected = false, palette = palette) {
+                        undoDraft = initialDraft
+                        onCorrect(TransactionCorrectionDraft(transaction, place.trim(), transaction.miscCategory, category, type, amountValue ?: transaction.amountValue, date, note, true))
+                        sheet = null
+                    }
+                }
+                "delete" -> Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
+                    Text("Delete this payment?", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                    Text("It will be removed from this phone. Sorted will not add it again on the next import.", modifier = Modifier.padding(top = 8.dp, bottom = 16.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, lineHeight = 19.sp)
+                    DetailSecondaryAction("Keep this payment", palette) { sheet = null }
+                    Spacer(Modifier.height(8.dp))
+                    DetailPrimaryAction("Delete payment", palette, enabled = !saveState.isSaving, danger = true) { onIgnore() }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailStatusPill(text: String, palette: HomePalette, filled: Boolean) {
+    Surface(color = if (filled) palette.ink else palette.softFill, shape = RoundedCornerShape(50)) {
+        Text(text, Modifier.padding(horizontal = 11.dp, vertical = 6.dp), color = if (filled) palette.background else palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun DetailInfoRow(label: String, value: String, palette: HomePalette, clickable: Boolean = false, last: Boolean = false, onClick: () -> Unit = {}) {
+    Row(
+        modifier = Modifier.fillMaxWidth().then(if (clickable) Modifier.clickable(onClick = onClick) else Modifier).drawBehind {
+            if (!last) drawLine(palette.faintRule, Offset(0f, size.height - 1.dp.toPx()), Offset(size.width, size.height - 1.dp.toPx()), 1.dp.toPx())
+        }.padding(vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(label, Modifier.width(96.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp)
+        Text(value, Modifier.weight(1f), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        if (clickable) Text("›", color = palette.muted, fontSize = 18.sp)
+    }
+}
+
+@Composable
+private fun DetailPrimaryAction(label: String, palette: HomePalette, enabled: Boolean = true, danger: Boolean = false, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(enabled = enabled, onClick = onClick),
+        shape = RoundedCornerShape(8.dp),
+        color = if (danger) palette.review else palette.ink,
+        contentColor = palette.background
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(label, Modifier.padding(horizontal = 16.dp, vertical = 14.dp), color = palette.background, fontFamily = SortedHomeFontFamily, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+private fun DetailSecondaryAction(label: String, palette: HomePalette, onClick: () -> Unit) {
+    Surface(modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(onClick = onClick), shape = RoundedCornerShape(8.dp), color = palette.softFill) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(label, Modifier.padding(horizontal = 16.dp, vertical = 14.dp), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 15.5.sp, fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+@Composable
+private fun DetailChoiceRow(label: String, selected: Boolean, palette: HomePalette, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 15.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
+        if (selected) Text("✓", color = palette.credit, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+private fun TransactionType.detailCountsLabel(): String = when (this) {
+    TransactionType.EXPENSE -> "Spending"
+    TransactionType.SUBSCRIPTION -> "Subscription"
+    TransactionType.TRANSFER -> "Transfer"
+    TransactionType.INVESTMENT -> "Investment"
+    TransactionType.REFUND -> "Refund"
+    TransactionType.REWARD -> "Reward"
+    TransactionType.INCOME -> "Income"
+    TransactionType.UNKNOWN -> "Other"
+}
+
+@Composable
+private fun TransactionDetailLegacy(
     transaction: TransactionUi,
     saveState: CorrectionSaveState,
     onCorrect: (TransactionCorrectionDraft) -> Unit,
@@ -11194,20 +13754,22 @@ private fun TransactionDetail(
     ) {
         TapeDoubleRule(palette = palette)
         Text(
-            text = "AMEND LINE",
+            text = "PAYMENT",
             color = palette.inkFaint,
-            fontFamily = SortedTapeFontFamily,
-            fontSize = 9.sp,
-            letterSpacing = 1.8.sp,
+            fontFamily = SortedHomeFontFamily,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 1.4.sp,
             maxLines = 1
         )
         Text(
-            text = transaction.merchant.uppercase(Locale.US),
+            text = transaction.merchant,
             modifier = Modifier.padding(top = 8.dp),
             color = palette.ink,
-            fontFamily = SortedTapeFontFamily,
-            fontSize = 22.sp,
+            fontFamily = SortedHomeFontFamily,
+            fontSize = 24.sp,
             fontWeight = FontWeight.SemiBold,
+            letterSpacing = 0.sp,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
@@ -11215,10 +13777,10 @@ private fun TransactionDetail(
         Text(
             text = transaction.amount,
             color = accent,
-            fontFamily = SortedTapeFontFamily,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 0.8.sp
+            fontFamily = SortedHomeFontFamily,
+            fontSize = 42.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.sp
         )
         Spacer(modifier = Modifier.height(14.dp))
         LazyRow(
@@ -11228,9 +13790,9 @@ private fun TransactionDetail(
             items(
                 listOf(
                     transaction.category,
-                    transaction.transactionType.displayName(),
+                    transaction.countingLabel(),
                     transaction.source,
-                    if (transaction.direction == DirectionUi.Credit) "Credit" else "Debit"
+                    if (transaction.direction == DirectionUi.Credit) "Money in" else "Money out"
                 )
             ) { label ->
                 AddStamp(
@@ -11243,18 +13805,22 @@ private fun TransactionDetail(
         }
         Spacer(modifier = Modifier.height(16.dp))
         TapeLedgerBlock(
-            heading = "Source line",
+            heading = "Payment details",
             meta = transaction.source,
             palette = palette,
             modifier = Modifier.padding(horizontal = 0.dp)
         ) {
             Text(
-                text = transaction.detail.uppercase(Locale.US),
+                text = listOfNotNull(
+                    transaction.paymentMode.takeIf { it.isNotBlank() },
+                    transaction.accountHint?.let { "Account · $it" },
+                    transaction.transactionDate
+                ).joinToString("  ·  ").ifBlank { transaction.detail },
                 color = palette.inkFaint,
-                fontFamily = SortedTapeFontFamily,
-                fontSize = 9.sp,
-                lineHeight = 14.sp,
-                letterSpacing = 0.8.sp
+                fontFamily = SortedHomeFontFamily,
+                fontSize = 13.sp,
+                lineHeight = 19.sp,
+                letterSpacing = 0.sp
             )
         }
         Spacer(modifier = Modifier.height(16.dp))
@@ -11264,7 +13830,7 @@ private fun TransactionDetail(
             verticalAlignment = Alignment.CenterVertically
         ) {
             TapeActionText(
-                label = if (editing) "Close restamp" else "Restamp line",
+                label = if (editing) "Close edit" else "Edit transaction",
                 palette = palette,
                 modifier = Modifier.weight(1f),
                 enabled = !saveState.isSaving,
@@ -11275,7 +13841,7 @@ private fun TransactionDetail(
                 }
             )
             TapeActionText(
-                label = if (confirmIgnore) "Cancel hold" else "Ignore line",
+                label = if (confirmIgnore) "Cancel" else "Delete payment",
                 palette = palette,
                 color = palette.query,
                 modifier = Modifier.weight(1f),
@@ -11294,7 +13860,7 @@ private fun TransactionDetail(
                     .padding(12.dp)
             ) {
                 Text(
-                    text = "HOLD THIS LINE OUT",
+                    text = "DELETE THIS PAYMENT?",
                     color = palette.query,
                     fontFamily = SortedTapeFontFamily,
                     fontSize = 10.sp,
@@ -11303,15 +13869,15 @@ private fun TransactionDetail(
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "IT WILL STAY IGNORED ON FUTURE SCANS.",
+                    text = "It will be removed from your payment list and will not return on the next import.",
                     color = palette.inkFaint,
-                    fontFamily = SortedTapeFontFamily,
-                    fontSize = 8.sp,
-                    letterSpacing = 0.8.sp
+                    fontFamily = SortedHomeFontFamily,
+                    fontSize = 13.sp,
+                    letterSpacing = 0.sp
                 )
                 Spacer(modifier = Modifier.height(10.dp))
                 TapeActionText(
-                    label = if (saveState.isSaving) "Saving" else "Ignore transaction",
+                    label = if (saveState.isSaving) "Deleting" else "Delete payment",
                     palette = palette,
                     color = palette.query,
                     modifier = Modifier.fillMaxWidth(),
@@ -11328,21 +13894,22 @@ private fun TransactionDetail(
                     .padding(12.dp)
             ) {
                 Text(
-                    text = "RESTAMP",
+                    text = "EDIT TRANSACTION",
                     color = palette.inkFaint,
-                    fontFamily = SortedTapeFontFamily,
-                    fontSize = 9.sp,
-                    letterSpacing = 1.8.sp
+                    fontFamily = SortedHomeFontFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 1.sp
                 )
                 AddInputLine(
-                    label = "MERCHANT",
+                    label = "PLACE",
                     value = merchant,
                     onValueChange = { merchant = it.take(48) },
                     placeholder = "NAME",
                     palette = palette
                 )
                 AddInputLine(
-                    label = "TAG",
+                    label = "DETAIL",
                     value = miscCategory,
                     onValueChange = { miscCategory = it.take(36) },
                     placeholder = "MERCHANT TAG",
@@ -11362,7 +13929,7 @@ private fun TransactionDetail(
                     }
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                AddSectionLabel("TYPE", palette)
+                AddSectionLabel("COUNTS AS", palette)
                 AddStampRail(
                     stamps = transactionTypes.map { it.displayName().uppercase(Locale.US) },
                     selected = transactionType.displayName(),
@@ -11386,7 +13953,7 @@ private fun TransactionDetail(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     AddStamp(
-                        text = "REMEMBER",
+                        text = "REMEMBER FOR THIS PLACE",
                         selected = rememberRule,
                         palette = palette,
                         color = palette.amber,
@@ -11394,7 +13961,7 @@ private fun TransactionDetail(
                         onClick = { rememberRule = true }
                     )
                     AddStamp(
-                        text = "THIS ONLY",
+                        text = "THIS PAYMENT ONLY",
                         selected = !rememberRule,
                         palette = palette,
                         color = palette.amber,
@@ -11405,20 +13972,20 @@ private fun TransactionDetail(
                 if (statusText != null) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = statusText.uppercase(Locale.US),
+                        text = statusText,
                         color = if (validationError == null && saveState.error == null) {
                             palette.amber
                         } else {
                             palette.query
                         },
-                        fontFamily = SortedTapeFontFamily,
-                        fontSize = 9.sp,
-                        letterSpacing = 0.8.sp
+                        fontFamily = SortedHomeFontFamily,
+                        fontSize = 13.sp,
+                        letterSpacing = 0.sp
                     )
                 }
                 Spacer(modifier = Modifier.height(14.dp))
                 TapeActionText(
-                    label = if (saveState.isSaving) "Saving" else "Save correction",
+                    label = if (saveState.isSaving) "Saving" else "Save changes",
                     palette = palette,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !saveState.isSaving,
@@ -11437,6 +14004,9 @@ private fun TransactionDetail(
                                     miscCategory = miscCategory,
                                     category = category,
                                     transactionType = transactionType,
+                                    amount = transaction.amountValue,
+                                    transactionDate = transaction.transactionDate ?: LocalDate.now().toString(),
+                                    note = transaction.note.orEmpty(),
                                     rememberRule = rememberRule
                                 )
                             )
@@ -11448,11 +14018,11 @@ private fun TransactionDetail(
         if (!editing && !confirmIgnore && statusText != null) {
             Spacer(modifier = Modifier.height(10.dp))
             Text(
-                text = statusText.uppercase(Locale.US),
+                text = statusText,
                 color = if (saveState.error == null) palette.amber else palette.query,
-                fontFamily = SortedTapeFontFamily,
-                fontSize = 9.sp,
-                letterSpacing = 0.8.sp
+                fontFamily = SortedHomeFontFamily,
+                fontSize = 13.sp,
+                letterSpacing = 0.sp
             )
         }
     }
@@ -11495,6 +14065,8 @@ private fun Double.formatHomeRupee(): String {
         .reversed()
     return "₹$rest,$last3"
 }
+
+private fun String.toCsvCell(): String = "\"${replace("\"", "\"\"")}\""
 
 private fun Double.formatCompactInr(): String {
     val magnitude = if (this < 0.0) -this else this
@@ -11554,6 +14126,25 @@ private fun TransactionUi.countsInInrTotals(): Boolean {
     return currency.equals("INR", ignoreCase = true)
 }
 
+private fun TransactionUi.countsTowardSpentTotal(): Boolean {
+    val direction = when (direction) {
+        DirectionUi.Debit -> Direction.DEBIT
+        DirectionUi.Credit -> Direction.CREDIT
+        DirectionUi.Unknown -> Direction.UNKNOWN
+    }
+    return OutflowPolicy.countsTowardSpent(
+        status = status,
+        direction = direction,
+        amount = inrAmountValue
+    )
+}
+
+private fun TransactionUi.countsTowardMoneyIn(): Boolean =
+    status == TransactionStatus.COMPLETED &&
+        direction == DirectionUi.Credit &&
+        amountValue > 0.0 &&
+        inrAmountValue != null
+
 private fun String?.normalizedCurrency(): String {
     return orEmpty().ifBlank { "INR" }.uppercase(Locale.US)
 }
@@ -11591,10 +14182,6 @@ private fun ImportSource.displayLabel(): String {
     }
 }
 
-private fun TransactionType.countsAsSpend(): Boolean {
-    return this == TransactionType.EXPENSE || this == TransactionType.SUBSCRIPTION
-}
-
 private fun TransactionType.displayName(): String {
     return when (this) {
         TransactionType.EXPENSE -> "Spend"
@@ -11608,12 +14195,23 @@ private fun TransactionType.displayName(): String {
     }
 }
 
+private fun TransactionUi.countingLabel(): String {
+    return when {
+        countsTowardSpentTotal() -> "Included in monthly total"
+        countsTowardMoneyIn() -> "Money in · shown separately"
+        else -> "Not in monthly total"
+    }
+}
+
+private fun TransactionUi.displayAmount(): String =
+    inrAmountValue?.formatHomeRupee() ?: amount
+
 private fun String.monthSpendLabel(): String {
-    return "${monthNameLabel()} INR spend"
+    return "Spent in ${monthNameLabel()}"
 }
 
 private fun String.monthMovementLabel(): String {
-    return "${monthNameLabel()} money moved"
+    return "Spent in ${monthNameLabel()}"
 }
 
 private fun String.monthNameLabel(): String {

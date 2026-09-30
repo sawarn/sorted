@@ -36,6 +36,7 @@ class SortedDatabase(context: Context) : SQLiteOpenHelper(
                 payment_mode TEXT NOT NULL,
                 account_hint TEXT,
                 transaction_date TEXT,
+                note TEXT,
                 transaction_time TEXT,
                 transaction_type TEXT NOT NULL,
                 status TEXT NOT NULL,
@@ -108,6 +109,9 @@ class SortedDatabase(context: Context) : SQLiteOpenHelper(
                 new_department_category TEXT,
                 old_transaction_type TEXT,
                 new_transaction_type TEXT,
+                new_amount REAL,
+                new_transaction_date TEXT,
+                new_note TEXT,
                 created_rule_id INTEGER,
                 created_at INTEGER NOT NULL
             )
@@ -149,10 +153,17 @@ class SortedDatabase(context: Context) : SQLiteOpenHelper(
             createUserCorrectionsTable(db)
             createIgnoredTransactionsTable(db)
         }
+
+        if (oldVersion in 4 until 5) {
+            db.execSQL("ALTER TABLE transactions ADD COLUMN note TEXT")
+            db.execSQL("ALTER TABLE user_corrections ADD COLUMN new_amount REAL")
+            db.execSQL("ALTER TABLE user_corrections ADD COLUMN new_transaction_date TEXT")
+            db.execSQL("ALTER TABLE user_corrections ADD COLUMN new_note TEXT")
+        }
     }
 
     private companion object {
         const val DatabaseName = "sorted.db"
-        const val DatabaseVersion = 4
+        const val DatabaseVersion = 5
     }
 }

@@ -32,8 +32,9 @@ When a bundled design HTML file exists for the screen, follow `.codex/skills/sor
 
 - Home must be understood in three seconds.
 - Every important total, count, and percent must open the transactions behind it.
-- Spending includes only spending.
-- Transfers, investments, refunds, rewards, and income are counted apart from spending.
+- Every eligible outgoing debit contributes to `Spent this month`, regardless of category or transaction type.
+- Transfers and investments remain identifiable categories within outgoing payments.
+- Incoming refunds, rewards, and income stay separate and are never netted against the outgoing total.
 - Refunds are signals until matching is mature; do not silently net them out.
 - Uncertainty is shown calmly with review language, not error language.
 - User corrections override parser/category defaults.
@@ -74,7 +75,7 @@ Use plain, familiar words:
 - Need review
 - Top spending
 - Recent spending
-- Not counted
+- Money in
 - Imports
 - Edit transaction
 - Auto-sorting rules
@@ -96,9 +97,9 @@ Tape remains in the material, rhythm, proof, and interaction model, not in confu
 
 ## How To Adapt Screens
 
-- Home: three-second month understanding.
+- Home: three-second understanding of the gross outgoing total and where it went.
 - Review: short pile of transactions needing action.
-- Insights: categories, merchants, changes, recurring, money back, not counted, imports.
+- Insights: categories, merchants, changes, recurring, money in, imports.
 - Add: amount-first manual transaction entry.
 - Transaction Detail: original alert, edit actions, and trust details.
 - Settings: privacy, imports, auto-sorting rules, export/delete, appearance.
@@ -139,7 +140,7 @@ Before finishing design work, ask:
 1. Can the user understand the screen in three seconds?
 2. Is the primary number obvious?
 3. Does every total/count/percent open its transactions?
-4. Does spending contain only spending?
+4. Do all eligible outgoing payments contribute, independent of category?
 5. Is uncertainty visible without alarm?
 6. Is amber used only for review/action?
 7. Is the copy plain enough for a normal user?
