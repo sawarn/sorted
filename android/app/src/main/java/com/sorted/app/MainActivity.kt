@@ -20,6 +20,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloat
@@ -41,6 +42,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -73,7 +75,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -127,6 +132,8 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -144,9 +151,13 @@ import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
 import com.sorted.app.engine.CategorySource
+import com.sorted.app.engine.CategorySuggestionInput
+import com.sorted.app.engine.CategorySuggestionResult
 import com.sorted.app.engine.Direction
 import com.sorted.app.engine.ParsedTransaction
 import com.sorted.app.engine.PaymentMode
+import com.sorted.app.engine.SpendAnalytics
+import com.sorted.app.engine.SpendAnalyticsEntry
 import com.sorted.app.engine.SmsParser
 import com.sorted.app.engine.TransactionStatus
 import com.sorted.app.engine.TransactionType
@@ -165,6 +176,7 @@ import com.sorted.app.fx.FxRateImporter
 import com.sorted.app.gmail.GmailImportPlan
 import com.sorted.app.gmail.GmailImportSummary
 import com.sorted.app.gmail.GmailImporter
+import com.sorted.app.gmail.GmailDebugFeedWriter
 import com.sorted.app.gmail.GmailSyncPreferences
 import com.sorted.app.gmail.GmailSyncScheduler
 import kotlinx.coroutines.CancellationException
@@ -181,6 +193,7 @@ import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 import kotlin.math.sin
 
 class MainActivity : ComponentActivity() {
@@ -247,6 +260,11 @@ private data class GmailSetupInfo(
 )
 
 private const val LogTag = "Sorted"
+private const val SmsSyncPreferencesName = "sms_sync"
+private const val SmsLastSyncAtKey = "last_successful_sync_at"
+private const val SmsParserRevisionKey = "parser_revision"
+private const val SmsParserRevision = 2
+private const val SmsSyncOverlapMillis = 7L * 24L * 60L * 60L * 1000L
 
 private data class SmsInboxMessage(
     val id: Long?,
@@ -270,9 +288,6 @@ private data class MonthBreakdown(
     val creditCount: Int,
     val totalCredits: Double,
     val transfers: Double,
-    val investments: Double,
-    val recurringInvestments: Double,
-    val oneTimeInvestments: Double,
     val refunds: Double,
     val income: Double,
     val rewards: Double,
@@ -304,16 +319,6 @@ private data class MonthStoryItem(
     val value: String,
     val detail: String,
     val category: String
-)
-
-private data class RecurringCandidate(
-    val merchant: String,
-    val expectedAmount: Double,
-    val count: Int,
-    val lastSeenDate: String?,
-    val category: String,
-    val transactionType: TransactionType,
-    val confidenceLabel: String
 )
 
 private data class SourceHealthRow(
@@ -375,7 +380,8 @@ private data class TransactionCorrectionDraft(
     val amount: Double,
     val transactionDate: String?,
     val note: String,
-    val rememberRule: Boolean
+    val rememberRule: Boolean,
+    val status: TransactionStatus = transaction.status
 )
 
 private data class DrilldownState(
@@ -490,16 +496,13 @@ private class SortedAppPreferences(context: Context) {
     }
 }
 
-private fun parsedSampleTransactions(): List<TransactionUi> {
-    return SampleSmsSource.messages
-        .map(SmsParser::parse)
-        .filter { it.isTransaction }
-        .map { it.toTransactionUi() }
-}
-
 private fun loadRealSmsTransactions(context: Context): List<TransactionUi> {
     val repository = TransactionRepository(context)
-    val messages = readRecentSmsMessages(context, limit = 10000)
+    val preferences = context.getSharedPreferences(SmsSyncPreferencesName, Context.MODE_PRIVATE)
+    val lastSyncAt = preferences.getLong(SmsLastSyncAtKey, 0L)
+    val parserNeedsRefresh = preferences.getInt(SmsParserRevisionKey, 0) < SmsParserRevision
+    val afterMillis = if (parserNeedsRefresh) null else lastSyncAt.takeIf { it > 0L }?.minus(SmsSyncOverlapMillis)
+    val messages = readRecentSmsMessages(context, limit = 10000, afterMillis = afterMillis)
     val parsedRecords = messages.map { message ->
         val parsed = SmsParser.parse(message.body, message.address).withReceivedDateCorrection(message.receivedDate)
         SmsScanRecord(
@@ -512,7 +515,6 @@ private fun loadRealSmsTransactions(context: Context): List<TransactionUi> {
         )
     }
     val records = parsedRecords.withRecurringInvestmentHints()
-    DebugFeedWriter.write(context, records)
     repository.import(
         records.map { record ->
             ImportRecord(
@@ -523,6 +525,10 @@ private fun loadRealSmsTransactions(context: Context): List<TransactionUi> {
             )
         }
     )
+    preferences.edit()
+        .putLong(SmsLastSyncAtKey, System.currentTimeMillis())
+        .putInt(SmsParserRevisionKey, SmsParserRevision)
+        .apply()
     runCatching {
         FxRateImporter(context).refreshRatesFor(records.map { it.parsed })
     }.onFailure { error ->
@@ -548,25 +554,12 @@ private fun hasPersistedGmailTransactions(context: Context): Boolean {
 }
 
 private fun loadFeedState(context: Context, hasSmsPermission: Boolean): FeedState {
-    val transactions = if (hasSmsPermission) {
-        loadRealSmsTransactions(context)
-    } else {
-        loadPersistedTransactions(context)
-    }
-
-    return if (transactions.isNotEmpty()) {
-        FeedState(
-            transactions = transactions,
-            label = transactions.feedSourceLabel(),
-            needsSmsPermission = !hasSmsPermission
-        )
-    } else {
-        FeedState(
-            transactions = parsedSampleTransactions(),
-            label = "sample SMS",
-            needsSmsPermission = !hasSmsPermission
-        )
-    }
+    val transactions = loadPersistedTransactions(context)
+    return FeedState(
+        transactions = transactions,
+        label = transactions.feedSourceLabel(),
+        needsSmsPermission = !hasSmsPermission
+    )
 }
 
 private fun saveManualTransaction(context: Context, draft: ManualTransactionDraft): String {
@@ -617,7 +610,7 @@ private fun ParsedTransaction.toTransactionUi(
     val inrEquivalent = inrEquivalentValue(amountNumber, currencyCode, fxRate)
     val payment = paymentMode.displayName()
     val misc = miscCategory ?: "Uncategorized"
-    val category = departmentCategory ?: "Other"
+    val category = canonicalCategory(departmentCategory, misc, merchantNormalized ?: merchantRaw)
     val date = transactionDate ?: "Date unknown"
     val directionUi = when (direction) {
         Direction.DEBIT -> DirectionUi.Debit
@@ -664,7 +657,7 @@ private fun TransactionEntity.toTransactionUi(
     val inrEquivalent = inrEquivalentValue(amountNumber, currencyCode, fxRate)
     val payment = paymentMode.displayName()
     val misc = miscCategory ?: "Uncategorized"
-    val category = departmentCategory ?: "Other"
+    val category = canonicalCategory(departmentCategory, misc, merchantNormalized ?: merchantRaw)
     val date = transactionDate ?: "Date unknown"
     val directionUi = when (direction) {
         Direction.DEBIT -> DirectionUi.Debit
@@ -702,6 +695,19 @@ private fun TransactionEntity.toTransactionUi(
     )
 }
 
+private fun canonicalCategory(category: String?, miscCategory: String?, merchant: String?): String {
+    val value = category?.trim().orEmpty()
+    return when (value) {
+        "Rent/Home" -> {
+            val evidence = "${miscCategory.orEmpty()} ${merchant.orEmpty()}".lowercase(Locale.US)
+            if ("rent" in evidence || "rental" in evidence) "Rent" else "Home"
+        }
+        "Bills" -> "Utilities"
+        "Travel" -> "Transport"
+        else -> value.ifBlank { "Other" }
+    }
+}
+
 private fun ParsedTransaction.withReceivedDateCorrection(receivedDate: String?): ParsedTransaction {
     if (!isTransaction || receivedDate == null) return this
     val parsedDate = transactionDate?.toLocalDateOrNull()
@@ -716,37 +722,43 @@ private fun ParsedTransaction.withReceivedDateCorrection(receivedDate: String?):
     }
 }
 
-private fun readRecentSmsMessages(context: Context, limit: Int): List<SmsInboxMessage> {
+private fun readRecentSmsMessages(
+    context: Context,
+    limit: Int,
+    afterMillis: Long? = null
+): List<SmsInboxMessage> {
     val uri = Uri.parse("content://sms/inbox")
     val projection = arrayOf("_id", "address", "body", "date")
     val messages = mutableListOf<SmsInboxMessage>()
 
-    context.contentResolver.query(
+    val cursor = context.contentResolver.query(
         uri,
         projection,
-        null,
-        null,
+        if (afterMillis == null) null else "date >= ?",
+        if (afterMillis == null) null else arrayOf(afterMillis.toString()),
         "date DESC"
-)?.use { cursor ->
-        val idIndex = cursor.getColumnIndex("_id")
-        val addressIndex = cursor.getColumnIndex("address")
-        val bodyIndex = cursor.getColumnIndex("body")
-        val dateIndex = cursor.getColumnIndex("date")
-        while (cursor.moveToNext() && messages.size < limit) {
+    ) ?: throw IllegalStateException("Could not read SMS messages.")
+
+    cursor.use { smsCursor ->
+        val idIndex = smsCursor.getColumnIndex("_id")
+        val addressIndex = smsCursor.getColumnIndex("address")
+        val bodyIndex = smsCursor.getColumnIndex("body")
+        val dateIndex = smsCursor.getColumnIndex("date")
+        while (smsCursor.moveToNext() && messages.size < limit) {
             if (bodyIndex >= 0) {
-                val id = if (idIndex >= 0 && !cursor.isNull(idIndex)) {
-                    cursor.getLong(idIndex)
+                val id = if (idIndex >= 0 && !smsCursor.isNull(idIndex)) {
+                    smsCursor.getLong(idIndex)
                 } else {
                     null
                 }
-                val address = if (addressIndex >= 0 && !cursor.isNull(addressIndex)) {
-                    cursor.getString(addressIndex)
+                val address = if (addressIndex >= 0 && !smsCursor.isNull(addressIndex)) {
+                    smsCursor.getString(addressIndex)
                 } else {
                     null
                 }
-                val body = cursor.getString(bodyIndex)
-                val receivedAtMillis = if (dateIndex >= 0 && !cursor.isNull(dateIndex)) {
-                    cursor.getLong(dateIndex)
+                val body = smsCursor.getString(bodyIndex)
+                val receivedAtMillis = if (dateIndex >= 0 && !smsCursor.isNull(dateIndex)) {
+                    smsCursor.getLong(dateIndex)
                 } else {
                     null
                 }
@@ -1701,9 +1713,9 @@ private fun SortedHome(
             try {
                 val saved = withContext(Dispatchers.IO) {
                     val sourceHash = saveManualTransaction(appContext, draft)
-                    sourceHash to loadFeedState(appContext, hasPermission)
+                    sourceHash to loadPersistedTransactions(appContext)
                 }
-                updateFeed(saved.second.transactions)
+                updateFeed(saved.second)
                 manualSaveState = ManualSaveState(
                     message = "Payment added",
                     sourceHash = saved.first,
@@ -1725,9 +1737,9 @@ private fun SortedHome(
                     check(TransactionRepository(appContext).deleteManualTransaction(sourceHash)) {
                         "This payment could not be undone."
                     }
-                    loadFeedState(appContext, hasPermission)
+                    loadPersistedTransactions(appContext)
                 }
-                updateFeed(refreshed.transactions)
+                updateFeed(refreshed)
                 manualSaveState = ManualSaveState()
             } catch (error: Throwable) {
                 manualSaveState = manualSaveState.copy(
@@ -1740,11 +1752,13 @@ private fun SortedHome(
 
     fun saveCorrectionDraft(
         draft: TransactionCorrectionDraft,
-        showDetailsAfterSave: Boolean = true
+        showDetailsAfterSave: Boolean = true,
+        onComplete: (Boolean, String?) -> Unit = { _, _ -> }
     ) {
         val transactionId = draft.transaction.id
         if (transactionId == null) {
             correctionSaveState = CorrectionSaveState(error = "Sample transactions cannot be edited.")
+            onComplete(false, "This payment is not saved on this phone.")
             return
         }
 
@@ -1762,7 +1776,8 @@ private fun SortedHome(
                             rememberRule = draft.rememberRule,
                             amount = draft.amount,
                             transactionDate = draft.transactionDate,
-                            note = draft.note
+                            note = draft.note,
+                            status = draft.status
                         )
                     )
                     if (!saved) {
@@ -1777,10 +1792,13 @@ private fun SortedHome(
                     null
                 }
                 correctionSaveState = CorrectionSaveState(message = "Updated locally")
+                onComplete(true, null)
             } catch (error: Throwable) {
+                val message = error.message?.take(160) ?: "Could not save this change."
                 correctionSaveState = CorrectionSaveState(
-                    error = error.message?.take(160) ?: error.javaClass.simpleName
+                    error = message
                 )
+                onComplete(false, message)
             }
         }
     }
@@ -1991,7 +2009,7 @@ private fun SortedHome(
                 updateFeed(transactions)
                 syncStatus = "SMS synced"
             } catch (error: Throwable) {
-                syncStatus = "SMS sync failed"
+                syncStatus = error.message?.take(100) ?: "SMS sync failed"
             }
         }
     }
@@ -2017,7 +2035,7 @@ private fun SortedHome(
                         requestSilentGmailImport()
                         syncStatus = "SMS synced, Gmail running"
                     } catch (error: Throwable) {
-                        syncStatus = "Full sync failed"
+                        syncStatus = error.message?.take(100) ?: "Full sync failed"
                     }
                 }
             }
@@ -2045,6 +2063,14 @@ private fun SortedHome(
             ?.takeIf { it in months }
             ?: months.firstOrNull()
         feedLoaded = true
+        if (hasPermission) {
+            val needsInitialScan = withContext(Dispatchers.IO) {
+                val preferences = appContext.getSharedPreferences(SmsSyncPreferencesName, Context.MODE_PRIVATE)
+                preferences.getLong(SmsLastSyncAtKey, 0L) == 0L ||
+                    preferences.getInt(SmsParserRevisionKey, 0) < SmsParserRevision
+            }
+            if (needsInitialScan) syncSmsNow()
+        }
     }
 
     LaunchedEffect(syncStatus) {
@@ -2134,10 +2160,6 @@ private fun SortedHome(
                                 sortInboxOpen = false
                                 selectedTab = tab
                             },
-                            onOpenSync = {
-                                sortInboxOpen = false
-                                syncChooserOpen = true
-                            },
                             onOpenReview = {}
                         )
                     }
@@ -2148,7 +2170,7 @@ private fun SortedHome(
                         modifier = Modifier.padding(padding),
                         onBack = { sortInboxOpen = false },
                         onTransactionClick = { openTransaction(it) },
-                        onCorrect = { transaction, category, transactionType, rememberRule ->
+                        onCorrect = { transaction, category, transactionType, rememberRule, onComplete ->
                             saveCorrectionDraft(
                                 draft = TransactionCorrectionDraft(
                                     transaction = transaction,
@@ -2161,7 +2183,8 @@ private fun SortedHome(
                                     note = transaction.note.orEmpty(),
                                     rememberRule = rememberRule
                                 ),
-                                showDetailsAfterSave = false
+                                showDetailsAfterSave = false,
+                                onComplete = onComplete
                             )
                         },
                         onOpenSync = {
@@ -2192,7 +2215,6 @@ private fun SortedHome(
                             hasReview = feedState.transactions.reviewCandidates(selectedHomeMonthKey ?: feedState.transactions.selectedMonthKey()).isNotEmpty(),
                             highlightSelection = false,
                             onTabSelected = { tab -> settingsOpen = false; selectedTab = tab },
-                            onOpenSync = { settingsOpen = false; syncChooserOpen = true },
                             onOpenReview = { settingsOpen = false; sortInboxOpen = true }
                         )
                     }
@@ -2217,9 +2239,23 @@ private fun SortedHome(
                         onExport = { exportLauncher.launch("sorted-transactions.csv") },
                         onDeleteLocalData = {
                             scope.launch {
-                                withContext(Dispatchers.IO) { TransactionRepository(appContext).deleteAllLocalData() }
+                                withContext(Dispatchers.IO) {
+                                    GmailSyncScheduler.cancel(appContext)
+                                    gmailSyncPreferences.clearAll()
+                                    DebugFeedWriter.clear(appContext)
+                                    GmailDebugFeedWriter.clear(appContext)
+                                    appContext.getSharedPreferences(SmsSyncPreferencesName, Context.MODE_PRIVATE)
+                                        .edit()
+                                        .clear()
+                                        .apply()
+                                    TransactionRepository(appContext).deleteAllLocalData()
+                                }
                                 updateFeed(emptyList())
                             }
+                        },
+                        onOpenSync = {
+                            settingsOpen = false
+                            syncChooserOpen = true
                         },
                         onOpenRuleCenter = {
                             settingsOpen = false
@@ -2247,7 +2283,6 @@ private fun SortedHome(
                                     syncChooserOpen = false
                                     selectedTab = it
                                 },
-                                onOpenSync = { syncChooserOpen = !syncChooserOpen },
                                 onOpenReview = { sortInboxOpen = true }
                             )
                         }
@@ -2263,6 +2298,11 @@ private fun SortedHome(
                                 SortedTab.Home -> HomeTabContent(
                                     feedState = feedState,
                                     selectedMonthKey = selectedHomeMonthKey,
+                                    isSyncing = gmailState.isImporting ||
+                                        syncStatus?.startsWith("Syncing") == true ||
+                                        syncStatus?.startsWith("Reading") == true ||
+                                        syncStatus?.startsWith("Opening") == true ||
+                                        syncStatus?.startsWith("Auto syncing") == true,
                                     modifier = Modifier.padding(padding),
                                     onSettings = { settingsOpen = true },
                                     onOpenSync = { syncChooserOpen = !syncChooserOpen },
@@ -2417,6 +2457,7 @@ private fun SortedHome(
 private fun HomeTabContent(
     feedState: FeedState,
     selectedMonthKey: String?,
+    isSyncing: Boolean,
     modifier: Modifier,
     onSettings: () -> Unit,
     onOpenSync: () -> Unit,
@@ -2428,12 +2469,16 @@ private fun HomeTabContent(
     onMerchantClick: (SummaryGroup) -> Unit,
     onCategoryClick: (SummaryGroup) -> Unit
 ) {
-    val months = remember(feedState.transactions) { feedState.transactions.availableMonthKeys() }
-    val activeMonthKey = selectedMonthKey ?: months.firstOrNull()
+    val currentMonthKey = remember { LocalDate.now().toString().take(7) }
+    val months = remember(feedState.transactions, currentMonthKey) {
+        (feedState.transactions.availableMonthKeys() + currentMonthKey).distinct().sortedDescending()
+    }
+    val activeMonthKey = selectedMonthKey ?: months.firstOrNull() ?: currentMonthKey
     TapeHome(
         feedState = feedState,
         months = months,
         selectedMonthKey = activeMonthKey,
+        isSyncing = isSyncing,
         modifier = modifier,
         onSettings = onSettings,
         onOpenSync = onOpenSync,
@@ -2506,6 +2551,7 @@ private fun TapeHome(
     feedState: FeedState,
     months: List<String>,
     selectedMonthKey: String?,
+    isSyncing: Boolean,
     modifier: Modifier,
     onSettings: () -> Unit,
     onOpenSync: () -> Unit,
@@ -2550,8 +2596,6 @@ private fun TapeHome(
                 .thenByDescending { it.inrAmountValue ?: 0.0 }
         ).take(4)
     }
-    val sampleFallback = feedState.needsSmsPermission && feedState.label == "sample SMS"
-    val importLabel = if (sampleFallback) "Imports need permission" else "Imports up to date"
     val moneyInCount = breakdown.creditCount
     val moneyInAmount = breakdown.totalCredits
 
@@ -2570,10 +2614,10 @@ private fun TapeHome(
             HomeHeader(
                 palette = palette,
                 monthKey = activeMonthKey,
-                importLabel = importLabel,
                 months = months,
                 onMonthSelected = onMonthSelected,
                 onOpenSync = onOpenSync,
+                isSyncing = isSyncing,
                 onSettings = onSettings
             )
             LazyColumn(
@@ -2581,7 +2625,7 @@ private fun TapeHome(
                     .fillMaxWidth()
                     .weight(1f),
                 content = {
-                    if (sampleFallback || monthTransactions.isEmpty()) {
+                    if (monthTransactions.isEmpty()) {
                         item {
                             ModernHomeEmptyState(
                                 needsPermission = feedState.needsSmsPermission,
@@ -2709,12 +2753,24 @@ private fun homePalette(): HomePalette {
 private fun HomeHeader(
     palette: HomePalette,
     monthKey: String?,
-    importLabel: String,
     months: List<String>,
     onMonthSelected: (String) -> Unit,
     onOpenSync: () -> Unit,
+    isSyncing: Boolean,
     onSettings: () -> Unit
 ) {
+    val rotation = remember { Animatable(0f) }
+    LaunchedEffect(isSyncing) {
+        rotation.snapTo(0f)
+        while (isSyncing) {
+            rotation.animateTo(
+                targetValue = 360f,
+                animationSpec = tween(durationMillis = 1_100, easing = LinearEasing)
+            )
+            rotation.snapTo(0f)
+            delay(380)
+        }
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -2735,47 +2791,28 @@ private fun HomeHeader(
                 .padding(horizontal = 20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            SortedTallyMark(
-                ink = palette.ink,
-                clay = palette.review,
-                modifier = Modifier.size(30.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onOpenSync)
+                    .semantics { contentDescription = if (isSyncing) "Syncing imports" else "Sync imports" },
+                contentAlignment = Alignment.Center
+            ) {
+                SortedTallyMark(
+                    ink = palette.ink,
+                    clay = palette.review,
+                    modifier = Modifier
+                        .size(30.dp)
+                        .graphicsLayer(rotationZ = rotation.value)
+                )
+            }
             Spacer(modifier = Modifier.weight(1f))
-            Text(
-                text = importLabel,
-                modifier = Modifier.clickable(onClick = onOpenSync),
-                color = palette.muted,
-                fontSize = 12.sp,
-                fontWeight = SortedHomeWeight,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
             IconButton(onClick = onSettings, modifier = Modifier.size(38.dp)) {
                 HomeSettingsSlidersGlyph(color = palette.muted, modifier = Modifier.size(20.dp))
             }
         }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 20.dp, end = 20.dp, top = 8.dp),
-            verticalAlignment = Alignment.Bottom
-        ) {
-            Text(
-                text = monthKey?.monthNameLabel() ?: "Month",
-                modifier = Modifier.weight(1f),
-                color = palette.ink,
-                fontSize = 15.sp,
-                fontWeight = SortedHomeWeight,
-                maxLines = 1
-            )
-            Text(
-                text = monthKey?.substringBefore("-") ?: LocalDate.now().year.toString(),
-                color = palette.muted,
-                fontSize = 11.5.sp,
-                fontWeight = SortedHomeWeight
-            )
-        }
-        HomeMonthRuler(
+        HomeMonthDropdown(
             selectedMonthKey = monthKey,
             availableMonths = months,
             palette = palette,
@@ -2785,67 +2822,63 @@ private fun HomeHeader(
 }
 
 @Composable
-private fun HomeMonthRuler(
+private fun HomeMonthDropdown(
     selectedMonthKey: String?,
     availableMonths: List<String>,
     palette: HomePalette,
     onMonthSelected: (String) -> Unit
 ) {
-    val year = selectedMonthKey?.substringBefore("-") ?: availableMonths.firstOrNull()?.substringBefore("-")
-        ?: LocalDate.now().year.toString()
-    val available = availableMonths.toSet()
-    Row(
+    var expanded by remember { mutableStateOf(false) }
+    val displayMonth = selectedMonthKey?.let {
+        "${it.monthNameLabel()} ${it.substringBefore('-')}"
+    } ?: "Choose a month"
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 20.dp, end = 20.dp, top = 9.dp, bottom = 14.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp)
+            .padding(start = 20.dp, end = 20.dp, top = 9.dp, bottom = 14.dp)
     ) {
-        (1..12).forEach { month ->
-            val key = "$year-${month.toString().padStart(2, '0')}"
-            val selected = key == selectedMonthKey
-            val enabled = key in available
-            Box(
-                modifier = Modifier
-                    .weight(if (selected) 1.9f else 1f)
-                    .height(30.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(
-                        when {
-                            selected -> palette.ink
-                            else -> palette.softFill
-                        }
-                    )
-                    .alpha(if (enabled || selected) 1f else 0.4f)
-                    .clickable(enabled = enabled) { onMonthSelected(key) },
-                contentAlignment = Alignment.Center
-            ) {
-                if (selected) {
-                    Text(
-                        text = month.shortMonthLabel(),
-                        color = palette.background,
-                        fontSize = 11.5.sp,
-                        fontWeight = SortedHomeWeight,
-                        maxLines = 1
-                    )
-                } else {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(
+            modifier = Modifier
+                .clip(CircleShape)
+                .background(palette.softFill)
+                .border(1.dp, palette.rule, CircleShape)
+                .clickable { expanded = true }
+                .padding(start = 14.dp, end = 9.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = displayMonth,
+                color = palette.ink,
+                fontSize = 13.sp,
+                fontWeight = SortedHomeWeight,
+                maxLines = 1
+            )
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowDown,
+                contentDescription = "Choose month",
+                tint = palette.muted,
+                modifier = Modifier.padding(start = 5.dp).size(18.dp)
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.background(palette.header)
+        ) {
+            availableMonths.forEach { key ->
+                DropdownMenuItem(
+                    text = {
                         Text(
-                            text = month.monthLetter(),
-                            color = palette.muted,
-                            fontSize = 10.5.sp,
-                            fontWeight = SortedHomeWeight,
-                            maxLines = 1
+                            text = "${key.monthNameLabel()} ${key.substringBefore('-')}",
+                            color = palette.ink,
+                            fontFamily = SortedHomeFontFamily
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Box(
-                            modifier = Modifier
-                                .width(2.dp)
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(1.dp))
-                                .background(palette.ink.copy(alpha = 0.22f))
-                        )
+                    },
+                    onClick = {
+                        expanded = false
+                        onMonthSelected(key)
                     }
-                }
+                )
             }
         }
     }
@@ -2893,6 +2926,7 @@ private fun HomeHeroSpend(
     palette: HomePalette,
     onClick: () -> Unit
 ) {
+    val amountLabel = amount.formatHomeRupee()
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -2905,27 +2939,45 @@ private fun HomeHeroSpend(
             fontSize = 13.sp,
             fontWeight = SortedHomeWeight
         )
-        Row(
-            modifier = Modifier.padding(top = 5.dp),
-            verticalAlignment = Alignment.Bottom
-        ) {
-            HomeUltraHeavyAmount(
-                text = amount.formatHomeRupee(),
-                modifier = Modifier.weight(1f, fill = false),
-                color = palette.ink
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = "$paymentCount payments >",
-                modifier = Modifier.padding(bottom = 9.dp),
-                color = palette.muted,
-                fontSize = 13.sp,
-                fontWeight = SortedHomeWeight,
-                maxLines = 1
-            )
+        if (amountLabel.length > 9) {
+            Column(modifier = Modifier.padding(top = 5.dp)) {
+                HomeUltraHeavyAmount(
+                    text = amountLabel,
+                    modifier = Modifier.fillMaxWidth(),
+                    color = palette.ink
+                )
+                Text(
+                    text = "$paymentCount payments  ›",
+                    modifier = Modifier.padding(top = 2.dp),
+                    color = palette.muted,
+                    fontSize = 13.sp,
+                    fontWeight = SortedHomeWeight,
+                    maxLines = 1
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier.padding(top = 5.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                HomeUltraHeavyAmount(
+                    text = amountLabel,
+                    modifier = Modifier.weight(1f, fill = false),
+                    color = palette.ink
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "$paymentCount payments  ›",
+                    modifier = Modifier.padding(bottom = 9.dp),
+                    color = palette.muted,
+                    fontSize = 13.sp,
+                    fontWeight = SortedHomeWeight,
+                    maxLines = 1
+                )
+            }
         }
         Text(
-            text = "Includes transfers and investments",
+            text = "Includes investments · transfers aren’t counted",
             modifier = Modifier.padding(top = 3.dp),
             color = palette.muted,
             fontSize = 11.5.sp,
@@ -2940,40 +2992,38 @@ private fun HomeUltraHeavyAmount(
     modifier: Modifier = Modifier,
     color: Color
 ) {
-    Box(modifier = modifier) {
-        val baseOffsets = listOf(
-            0.dp to 0.dp,
-            0.42.dp to 0.dp,
-            (-0.42).dp to 0.dp,
-            0.dp to 0.36.dp,
-            0.dp to (-0.36).dp,
-            0.30.dp to 0.28.dp,
-            (-0.30).dp to 0.28.dp,
-            0.30.dp to (-0.28).dp,
-            (-0.30).dp to (-0.28).dp,
-            0.58.dp to 0.dp,
-            (-0.58).dp to 0.dp,
-            0.dp to 0.52.dp,
-            0.dp to (-0.52).dp
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    BoxWithConstraints(modifier = modifier) {
+        val maxWidthPx = with(density) { maxWidth.toPx() }
+        val baseStyle = TextStyle(
+            fontFamily = SortedHomeDesignFontFamily,
+            fontWeight = SortedHomeWeight,
+            fontSize = 58.sp,
+            letterSpacing = (-1.2).sp,
+            fontFeatureSettings = "tnum"
         )
-        val offsets = baseOffsets.flatMap { (x, y) ->
-            listOf(0.58f, 0.81f, 1.04f).map { scale ->
-                (x * scale) to (y * scale)
-            }
+        val naturalWidth = remember(text, textMeasurer) {
+            textMeasurer.measure(AnnotatedString(text), style = baseStyle).size.width.toFloat()
         }
-        offsets.forEach { (x, y) ->
-            Text(
-                text = text,
-                modifier = Modifier.offset(x = x, y = y),
-                color = color,
-                fontSize = 58.sp,
-                fontWeight = SortedHomeWeight,
-                lineHeight = 58.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                letterSpacing = (-1.2).sp
-            )
+        val fontSize = if (naturalWidth <= 0f || maxWidthPx <= 0f) {
+            58.sp
+        } else {
+            (58f * (maxWidthPx / naturalWidth) * 0.98f).coerceIn(18f, 58f).sp
         }
+        Text(
+            text = text,
+            color = color,
+            fontFamily = SortedHomeDesignFontFamily,
+            fontSize = fontSize,
+            fontWeight = SortedHomeWeight,
+            lineHeight = fontSize,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Clip,
+            letterSpacing = (-1.2).sp,
+            style = TextStyle(fontFeatureSettings = "tnum")
+        )
     }
 }
 
@@ -4568,6 +4618,7 @@ private fun InsightsTabContent(
 ) {
     val palette = homePalette()
     val allRows = feedState.transactions.filter { it.inrAmountValue != null }
+    val analyticsEntries = remember(allRows) { allRows.map(TransactionUi::toSpendAnalyticsEntry) }
     val today = remember { LocalDate.now() }
     val thisMonth = today.toString().take(7)
     val months = remember(today) { (1..12).map { month -> "%04d-%02d".format(today.year, month) } }
@@ -4577,14 +4628,28 @@ private fun InsightsTabContent(
         else -> thisMonth
     }
     val keys = if (range == "This year") months.filter { it <= thisMonth } else listOf(selectedKey)
-    val spend = allRows.filter { it.transactionDate?.take(7) in keys && it.countsTowardSpentTotal() }
-    val periodTotal = spend.sumOf { it.inrAmountValue ?: 0.0 }
+    val periodSpendEntries = SpendAnalytics.eligibleEntries(analyticsEntries, keys.toSet())
+    val periodSpendHashes = periodSpendEntries.mapTo(mutableSetOf()) { it.sourceHash }
+    val spend = allRows.filter { it.sourceHash in periodSpendHashes }
+    val periodTotal = SpendAnalytics.total(periodSpendEntries)
     val comparisonKey = if (range == "Last month") today.minusMonths(2).toString().take(7) else today.minusMonths(1).toString().take(7)
-    val comparisonRows = allRows.filter { it.transactionDate?.take(7) == comparisonKey && it.countsTowardSpentTotal() }
-    val comparisonTotal = comparisonRows.sumOf { it.inrAmountValue ?: 0.0 }
-    val average = if (range == "This year") periodTotal / keys.size.coerceAtLeast(1) else allRows.filter { it.countsTowardSpentTotal() }.groupBy { it.transactionDate?.take(7) }.values.map { rows -> rows.sumOf { it.inrAmountValue ?: 0.0 } }.average().takeIf { it.isFinite() } ?: 0.0
-    val groups = spend.groupBy { it.category.ifBlank { "Other" } }.map { (label, rows) -> SummaryGroup(label, rows.size, rows.sumOf { it.inrAmountValue ?: 0.0 }, "INR", label) }.sortedByDescending { it.total }
-    val merchants = spend.groupBy { it.merchant.ifBlank { "Unknown" } }.map { (label, rows) -> SummaryGroup(label, rows.size, rows.sumOf { it.inrAmountValue ?: 0.0 }, "INR", rows.first().category) }.sortedByDescending { it.total }
+    val comparisonEntries = SpendAnalytics.eligibleEntries(analyticsEntries, setOf(comparisonKey))
+    val comparisonHashes = comparisonEntries.mapTo(mutableSetOf()) { it.sourceHash }
+    val comparisonRows = allRows.filter { it.sourceHash in comparisonHashes }
+    val comparisonTotal = SpendAnalytics.total(comparisonEntries)
+    val monthlyTotals = remember(analyticsEntries) { SpendAnalytics.monthlyTotals(analyticsEntries) }
+    val recurringCandidates = remember(analyticsEntries) { SpendAnalytics.recurringCandidates(analyticsEntries) }
+    val average = if (range == "This year") {
+        periodTotal / keys.size.coerceAtLeast(1)
+    } else {
+        monthlyTotals.values.average().takeIf { it.isFinite() } ?: 0.0
+    }
+    val groups = SpendAnalytics.byCategory(periodSpendEntries).map { group ->
+        SummaryGroup(group.label, group.count, group.total, "INR", group.label)
+    }
+    val merchants = SpendAnalytics.byMerchant(periodSpendEntries).map { group ->
+        SummaryGroup(group.label, group.count, group.total, "INR", group.category ?: "Other")
+    }
     val moneyIn = allRows.filter { it.transactionDate?.take(7) in keys && it.countsTowardMoneyIn() }
     var sheetTitle by remember { mutableStateOf<String?>(null) }
     var sheetRows by remember { mutableStateOf(emptyList<TransactionUi>()) }
@@ -4619,8 +4684,8 @@ private fun InsightsTabContent(
                     InsightsSectionTitle("Month by month", "${today.year}", palette)
                     Row(Modifier.fillMaxWidth().height(106.dp).padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.Bottom) {
                         months.forEachIndexed { index, key ->
-                            val sum = allRows.filter { it.transactionDate?.take(7) == key && it.countsTowardSpentTotal() }.sumOf { it.inrAmountValue ?: 0.0 }
-                            val max = months.map { m -> allRows.filter { it.transactionDate?.take(7) == m && it.countsTowardSpentTotal() }.sumOf { it.inrAmountValue ?: 0.0 } }.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0
+                            val sum = monthlyTotals[key] ?: 0.0
+                            val max = months.map { month -> monthlyTotals[month] ?: 0.0 }.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0
                             val future = key > thisMonth
                             Column(Modifier.weight(1f).fillMaxHeight().clickable(enabled = !future) { openRows(key.monthNameLabel(), allRows.filter { it.transactionDate?.take(7) == key && it.countsTowardSpentTotal() }) }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Bottom) {
                                 Spacer(Modifier.fillMaxWidth().height((70 * (sum / max).coerceAtLeast(if (sum > 0) .08 else 0.015)).dp).background(if (future) palette.faintRule else if (range == "This year" && !future) palette.categoryTwo else if (key == selectedKey) palette.ink else palette.categoryTwo.copy(alpha = .42f), RoundedCornerShape(2.dp)))
@@ -4667,6 +4732,27 @@ private fun InsightsTabContent(
                     InsightsSectionTitle("Top merchants", "${merchants.size} places", palette)
                     merchants.take(5).forEach { group ->
                         InsightsTextRow(group.label, "${group.count} payments  ·  ${group.total.formatHomeRupee()}", palette) { onMerchantClick(group, keys) }
+                    }
+                }
+            }
+            item {
+                Column(Modifier.fillMaxWidth().background(palette.band).padding(horizontal = 20.dp, vertical = 18.dp)) {
+                    InsightsSectionTitle("Repeated payments", "${recurringCandidates.size} patterns", palette)
+                    if (recurringCandidates.isEmpty()) {
+                        Text("Repeated monthly payments will appear here as more history builds up.", Modifier.padding(top = 12.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp)
+                    } else {
+                        recurringCandidates.take(5).forEach { candidate ->
+                            val candidateHashes = candidate.sourceHashes.toSet()
+                            val rows = allRows.filter { it.sourceHash in candidateHashes }
+                            Row(Modifier.fillMaxWidth().clickable { openRows("${candidate.merchant} repeated payments", rows) }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(candidate.merchant, color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text("${candidate.count} payments across ${candidate.distinctMonths} months · ${candidate.confidence.name.lowercase().replaceFirstChar(Char::uppercase)}", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp)
+                                }
+                                Text("~${candidate.expectedAmount.formatHomeRupee()}", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                            if (candidate != recurringCandidates.take(5).lastOrNull()) Spacer(Modifier.fillMaxWidth().height(1.dp).background(palette.faintRule))
+                        }
                     }
                 }
             }
@@ -5025,7 +5111,7 @@ private fun IndexGroupBlock(
 
 @Composable
 private fun IndexRepeatsBlock(
-    candidates: List<RecurringCandidate>,
+    candidates: List<com.sorted.app.engine.RecurringSpendCandidate>,
     palette: TapePalette
 ) {
     IndexBlockShell(
@@ -5034,7 +5120,7 @@ private fun IndexRepeatsBlock(
         palette = palette
     ) {
         IndexCalendarStrip(
-            days = candidates.mapNotNull { it.lastSeenDate?.takeLast(2)?.toIntOrNull() },
+            days = candidates.mapNotNull { it.lastSeenDate.takeLast(2).toIntOrNull() },
             palette = palette
         )
         if (candidates.isEmpty()) {
@@ -5043,10 +5129,9 @@ private fun IndexRepeatsBlock(
             candidates.take(6).forEach { candidate ->
                 IndexEntryRow(
                     name = candidate.merchant.uppercase(Locale.US),
-                    meta = "${candidate.lastSeenDate?.takeLast(2) ?: "--"}TH - ${candidate.count} SEEN - ${candidate.confidenceLabel.uppercase(Locale.US)}",
+                    meta = "${candidate.lastSeenDate.takeLast(2)}TH - ${candidate.count} SEEN - ${candidate.confidence.name}",
                     value = candidate.expectedAmount.formatRupee(),
-                    palette = palette,
-                    delta = if (candidate.transactionType == TransactionType.INVESTMENT) "SIP" else null
+                    palette = palette
                 )
             }
             IndexBlockFoot("RECURRING TOTAL - INSIDE SPEND", candidates.sumOf { it.expectedAmount }.formatRupee(), palette)
@@ -5129,10 +5214,9 @@ private fun IndexHeldBlock(
         meta = "${breakdown.debitCount} PAYMENTS IN TOTAL",
         palette = palette
     ) {
-        val otherOutgoing = (breakdown.totalDebits - breakdown.transfers - breakdown.investments).coerceAtLeast(0.0)
+        val spending = (breakdown.totalDebits - breakdown.transfers).coerceAtLeast(0.0)
         val rows = listOf(
-            Triple("EVERYDAY", "PURCHASES AND BILLS", otherOutgoing),
-            Triple("INVESTED", "INVESTMENTS", breakdown.investments),
+            Triple("SPENDING", "PURCHASES, BILLS AND INVESTMENTS", spending),
             Triple("MOVED", "TRANSFERS", breakdown.transfers)
         ).filter { it.third > 0.0 }
         if (rows.isEmpty()) {
@@ -5652,7 +5736,7 @@ private fun SpendExplanationScreen(
                     Text("Spent this month", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     Text(total.formatHomeRupee(), Modifier.padding(top = 3.dp), color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 48.sp, lineHeight = 50.sp, fontWeight = FontWeight.SemiBold)
                     Text("${outgoing.size} payments", Modifier.padding(top = 2.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                    Text("Includes transfers and investments.", Modifier.padding(top = 10.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp)
+                    Text("Investment payments are included. Transfers are not.", Modifier.padding(top = 10.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp)
                 }
             }
             item {
@@ -5729,17 +5813,13 @@ private data class ReviewCorrectionChoice(
 )
 
 private val ReviewCategories = listOf(
-    "Food",
-    "Shopping",
-    "Bills",
-    "Travel",
-    "Health",
-    "Home",
-    "Fun",
-    "Gifts",
-    "Investment",
-    "Transfer"
+    "Food", "Groceries", "Rent", "Home", "Utilities", "Transport", "Fuel",
+    "Shopping", "Subscriptions", "Health", "Education", "Entertainment", "Gifts",
+    "Personal Care", "Loans", "Insurance", "Taxes", "Fees", "Cash",
+    "Investment", "Transfer", "Self Transfer", "Income", "Refund", "Reward", "Other"
 )
+
+private val EditableCategories = ReviewCategories
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -5749,7 +5829,7 @@ private fun SortInboxScreen(
     modifier: Modifier = Modifier,
     onBack: () -> Unit,
     onTransactionClick: (TransactionUi) -> Unit,
-    onCorrect: (TransactionUi, String, TransactionType, Boolean) -> Unit,
+    onCorrect: (TransactionUi, String, TransactionType, Boolean, (Boolean, String?) -> Unit) -> Unit,
     onOpenSync: () -> Unit,
     onOpenRules: () -> Unit
 ) {
@@ -5763,6 +5843,8 @@ private fun SortInboxScreen(
     var categoriesOpen by remember { mutableStateOf(false) }
     var pendingCorrection by remember { mutableStateOf<ReviewCorrectionChoice?>(null) }
     var madeRules by remember { mutableStateOf(0) }
+    var isSavingCorrection by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<String?>(null) }
 
     val candidates = remember(persistedCandidates, handledHashes) {
         persistedCandidates.filterNot { it.sourceHash in handledHashes }
@@ -5786,11 +5868,20 @@ private fun SortInboxScreen(
     val current = candidates.getOrNull(currentIndex)
 
     fun submitCorrection(choice: ReviewCorrectionChoice, rememberRule: Boolean) {
-        onCorrect(choice.transaction, choice.category, choice.transactionType, rememberRule)
-        handledHashes = handledHashes + choice.transaction.sourceHash
-        if (rememberRule) madeRules += 1
-        pendingCorrection = null
-        categoriesOpen = false
+        if (isSavingCorrection) return
+        isSavingCorrection = true
+        saveError = null
+        onCorrect(choice.transaction, choice.category, choice.transactionType, rememberRule) { saved, error ->
+            isSavingCorrection = false
+            if (saved) {
+                handledHashes = handledHashes + choice.transaction.sourceHash
+                if (rememberRule) madeRules += 1
+                pendingCorrection = null
+                categoriesOpen = false
+            } else {
+                saveError = error ?: "Try again. This payment is still in your review list."
+            }
+        }
     }
 
     fun offerCorrection(choice: ReviewCorrectionChoice) {
@@ -5813,6 +5904,19 @@ private fun SortInboxScreen(
             palette = palette,
             onBack = onBack
         )
+
+        saveError?.let { message ->
+            Text(
+                text = "Could not save. $message",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(palette.band)
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                color = palette.review,
+                fontFamily = SortedHomeFontFamily,
+                fontSize = 12.5.sp
+            )
+        }
 
         if (feedState.needsSmsPermission) {
             Row(
@@ -5896,6 +6000,12 @@ private fun SortInboxScreen(
                 },
                 onEdit = { onTransactionClick(current) },
                 onAllCategories = { categoriesOpen = true },
+                onBrowsePrevious = {
+                    if (candidates.size > 1) currentIndex = (currentIndex - 1 + candidates.size) % candidates.size
+                },
+                onBrowseNext = {
+                    if (candidates.size > 1) currentIndex = (currentIndex + 1) % candidates.size
+                },
                 onSkip = {
                     currentIndex = if (candidates.size <= 1) {
                         currentIndex
@@ -6031,6 +6141,8 @@ private fun ReviewCurrentPayment(
     onKeep: () -> Unit,
     onEdit: () -> Unit,
     onAllCategories: () -> Unit,
+    onBrowsePrevious: () -> Unit,
+    onBrowseNext: () -> Unit,
     onSkip: () -> Unit
 ) {
     val reason = transaction.reviewPromptTitle()
@@ -6039,12 +6151,31 @@ private fun ReviewCurrentPayment(
     val secondCategory = transaction.reviewSecondaryCategory(categoryGuess)
     val suggestionFirst = reason == "Looks like a transfer" || reason == "Looks like an investment"
 
+    val density = LocalDensity.current
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 20.dp)
+                    .pointerInput(transaction.sourceHash, onBrowsePrevious, onBrowseNext) {
+                        val swipeThreshold = with(density) { 56.dp.toPx() }
+                        var dragDistance = 0f
+                        detectHorizontalDragGestures(
+                            onHorizontalDrag = { change, dragAmount ->
+                                dragDistance += dragAmount
+                                change.consume()
+                            },
+                            onDragEnd = {
+                                when {
+                                    dragDistance <= -swipeThreshold -> onBrowseNext()
+                                    dragDistance >= swipeThreshold -> onBrowsePrevious()
+                                }
+                                dragDistance = 0f
+                            },
+                            onDragCancel = { dragDistance = 0f }
+                        )
+                    }
             ) {
                 Row(
                     modifier = Modifier
@@ -6095,6 +6226,13 @@ private fun ReviewCurrentPayment(
                     fontSize = 12.5.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "Swipe left or right to browse",
+                    modifier = Modifier.padding(top = 7.dp),
+                    color = palette.muted.copy(alpha = 0.8f),
+                    fontFamily = SortedHomeFontFamily,
+                    fontSize = 11.5.sp
                 )
                 Text(
                     text = transaction.displayAmount(),
@@ -6600,8 +6738,8 @@ private fun TransactionUi.reviewPromptTitle(): String {
 
 private fun TransactionUi.reviewPromptHint(): String {
     return when (reviewPromptTitle()) {
-        "Looks like an investment" -> "Investment payments stay in your monthly total"
-        "Looks like a transfer" -> "Transfers stay in your monthly total"
+        "Looks like an investment" -> "Investment payments count toward spending"
+        "Looks like a transfer" -> "Transfers are shown separately from spending"
         "Check this amount" -> "Sorted needs you to confirm the converted amount"
         "Check this payment" -> "A larger payment imported from Gmail"
         else -> "A new place — which category should it use?"
@@ -6614,8 +6752,8 @@ private fun TransactionUi.reviewCategoryGuess(): String {
     return when {
         listOf("swiggy", "zomato", "restaurant", "cafe").any(value::contains) -> "Food"
         listOf("amazon", "flipkart", "myntra", "store").any(value::contains) -> "Shopping"
-        listOf("electric", "airtel", "jio", "bill", "bescom").any(value::contains) -> "Bills"
-        listOf("uber", "ola", "metro", "irctc", "flight").any(value::contains) -> "Travel"
+        listOf("electric", "airtel", "jio", "bill", "bescom").any(value::contains) -> "Utilities"
+        listOf("uber", "ola", "metro", "irctc", "flight").any(value::contains) -> "Transport"
         listOf("hospital", "pharmacy", "medical", "clinic").any(value::contains) -> "Health"
         else -> "Shopping"
     }
@@ -6625,10 +6763,10 @@ private fun TransactionUi.reviewSecondaryCategory(primary: String): String {
     return when (primary) {
         "Food" -> "Shopping"
         "Shopping" -> "Food"
-        "Bills" -> "Home"
-        "Travel" -> "Shopping"
+        "Utilities" -> "Home"
+        "Transport" -> "Shopping"
         "Health" -> "Home"
-        "Home" -> "Bills"
+        "Home" -> "Utilities"
         else -> "Shopping"
     }
 }
@@ -6647,8 +6785,9 @@ private fun TransactionUi.reviewSuggestedOutgoingType(): TransactionType {
 
 private fun TransactionUi.reviewTypeForCategory(category: String): TransactionType = when (category) {
     "Investment" -> TransactionType.INVESTMENT
-    "Transfer" -> TransactionType.TRANSFER
-    else -> if (transactionType == TransactionType.SUBSCRIPTION) TransactionType.SUBSCRIPTION else TransactionType.EXPENSE
+    "Transfer", "Self Transfer" -> TransactionType.TRANSFER
+    "Subscriptions" -> TransactionType.SUBSCRIPTION
+    else -> TransactionType.EXPENSE
 }
 
 private fun TransactionUi.canCreateReviewRule(): Boolean {
@@ -6808,103 +6947,6 @@ private fun RefundSignalsCard(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun RecurringRadarCard(candidates: List<RecurringCandidate>) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "Recurring radar",
-                    modifier = Modifier.weight(1f),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.sp
-                )
-                Text(
-                    text = "${candidates.size} found",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    letterSpacing = 0.sp
-                )
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-            if (candidates.isEmpty()) {
-                Text(
-                    text = "No repeated patterns yet",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 13.sp,
-                    letterSpacing = 0.sp
-                )
-            } else {
-                candidates.take(5).forEach { candidate ->
-                    RecurringCandidateRow(candidate = candidate)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RecurringCandidateRow(candidate: RecurringCandidate) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        CategoryMiniDot(candidate.category)
-        Spacer(modifier = Modifier.width(9.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = candidate.merchant,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                letterSpacing = 0.sp
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = "${candidate.transactionType.displayName()} • ${candidate.count} rows • ${candidate.lastSeenDate ?: "Unknown"}",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                letterSpacing = 0.sp
-            )
-        }
-        Spacer(modifier = Modifier.width(10.dp))
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                text = candidate.expectedAmount.formatInr(),
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                letterSpacing = 0.sp
-            )
-            Text(
-                text = candidate.confidenceLabel,
-                color = MaterialTheme.colorScheme.primary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                letterSpacing = 0.sp
-            )
         }
     }
 }
@@ -7552,10 +7594,7 @@ private fun AddPaymentScreen(
         }
     }
 
-    val categories = listOf(
-        "Food", "Groceries", "Shopping", "Subscriptions", "Transport",
-        "Utilities", "Health", "Home", "Entertainment", "Other"
-    )
+    val categories = EditableCategories.filterNot { it in setOf("Investment", "Transfer", "Self Transfer", "Income", "Refund", "Reward") }
     val recentPlaces = remember(feedState.transactions) {
         feedState.transactions
             .filter { it.merchant.isNotBlank() && it.merchant != "Unknown" }
@@ -7966,22 +8005,7 @@ private fun ManualAddCard(
         }
     }
 
-    val categories = listOf(
-        "Food",
-        "Groceries",
-        "Shopping",
-        "Subscriptions",
-        "Transport",
-        "Utilities",
-        "Health",
-        "Entertainment",
-        "Investment",
-        "Transfer",
-        "Income",
-        "Refund",
-        "Reward",
-        "Other"
-    )
+    val categories = EditableCategories
     val paymentModes = listOf(
         PaymentMode.UPI,
         PaymentMode.CARD,
@@ -8852,6 +8876,7 @@ private fun SettingsScreen(
     onRequestSmsPermission: () -> Unit,
     onOpenSmsSettings: () -> Unit,
     onImportGmail: () -> Unit,
+    onOpenSync: () -> Unit,
     onExport: () -> Unit,
     onDeleteLocalData: () -> Unit,
     onOpenRuleCenter: () -> Unit
@@ -8898,6 +8923,14 @@ private fun SettingsScreen(
                 Column(Modifier.fillMaxWidth().padding(top = 20.dp)) {
                     SettingsSectionHeading("Imports", if (feedState.transactions.isEmpty()) "No payments yet" else "${feedState.transactions.size} payments", palette)
                     Column(Modifier.padding(horizontal = 20.dp)) {
+                        SettingsActionRow(
+                            title = "Sync payment alerts",
+                            detail = "Check SMS and connected Gmail",
+                            action = "Sync",
+                            actionColor = palette.ink,
+                            palette = palette,
+                            onClick = onOpenSync
+                        )
                         SettingsActionRow(
                             title = "SMS",
                             detail = if (smsAllowed) "Reading payment alerts on this phone" else "Allow access to find payment alerts",
@@ -9003,7 +9036,7 @@ private fun SettingsScreen(
         ModalBottomSheet(onDismissRequest = { deleteConfirmOpen = false }, containerColor = palette.background, shape = RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp)) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
                 Text("Delete local data?", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                Text("This removes saved payments, corrections, and auto-sorting rules from this phone. Import permissions stay on. This can’t be undone.", Modifier.padding(top = 8.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 14.sp, lineHeight = 21.sp)
+                Text("This removes saved payments, corrections, and auto-sorting rules from this phone, and pauses automatic Gmail imports. Permissions stay on. You can sync again whenever you choose. This can’t be undone.", Modifier.padding(top = 8.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 14.sp, lineHeight = 21.sp)
                 Row(Modifier.fillMaxWidth().padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     TextButton(onClick = { deleteConfirmOpen = false }, modifier = Modifier.weight(1f)) { Text("Keep my data", color = palette.ink) }
                     TextButton(onClick = { deleteConfirmOpen = false; onDeleteLocalData() }, modifier = Modifier.weight(1f)) { Text("Delete local data", color = palette.review) }
@@ -9825,7 +9858,6 @@ private fun SortedBottomBar(
     highlightSelection: Boolean = true,
     reviewSelected: Boolean = false,
     onTabSelected: (SortedTab) -> Unit,
-    onOpenSync: () -> Unit,
     onOpenReview: () -> Unit
 ) {
     val palette = homePalette()
@@ -9858,7 +9890,11 @@ private fun SortedBottomBar(
                         palette = palette,
                         onClick = { onTabSelected(SortedTab.Insights) }
                     )
-                    HomeNavSyncCell(palette = palette, onClick = onOpenSync)
+                    HomeNavRulesCell(
+                        selected = highlightSelection && selectedTab == SortedTab.RuleCenter,
+                        palette = palette,
+                        onClick = { onTabSelected(SortedTab.RuleCenter) }
+                    )
                     HomeNavTextCell(
                         label = "Review",
                         selected = reviewSelected,
@@ -9962,7 +9998,8 @@ private fun RowScope.HomeNavTextCell(
 }
 
 @Composable
-private fun RowScope.HomeNavSyncCell(
+private fun RowScope.HomeNavRulesCell(
+    selected: Boolean,
     palette: HomePalette,
     onClick: () -> Unit
 ) {
@@ -9979,27 +10016,27 @@ private fun RowScope.HomeNavSyncCell(
                 )
             }
             .clickable(onClick = onClick)
-            .padding(top = 7.dp, bottom = 11.dp),
+            .padding(top = 7.dp, bottom = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
                 .size(30.dp)
                 .clip(CircleShape)
-                .background(palette.softFill)
+                .background(if (selected) palette.ink else palette.softFill)
                 .border(1.dp, palette.rule, CircleShape),
             contentAlignment = Alignment.Center
         ) {
             SortedNavGlyph(
-                icon = SortedNavIcon.Sync,
-                color = palette.ink,
-                active = false,
+                icon = SortedNavIcon.RuleCenter,
+                color = if (selected) palette.background else palette.ink,
+                active = selected,
                 modifier = Modifier.size(16.dp)
             )
         }
         Text(
-            text = "Sync",
-            color = palette.muted,
+            text = "Rules",
+            color = if (selected) palette.ink else palette.muted,
             fontSize = 11.5.sp,
             fontWeight = SortedHomeWeight,
             maxLines = 1
@@ -10494,42 +10531,6 @@ private fun ConstellationHome(
                 visibleAtZoom = 1.18f,
                 accent = if (isDark) Color(0xFFFBC02D) else Color(0xFFE8622F),
                 needsAttention = true,
-                onClick = onExplainSpend
-            )
-        } else {
-            null
-        },
-        if (breakdown.recurringInvestments > 0.0) {
-            HomeConstellationNode(
-                id = "invest",
-                label = "SIPs",
-                value = breakdown.recurringInvestments.formatRupeeCompact(),
-                detail = "recurring",
-                x = 0.5f,
-                y = 340f / 650f,
-                orbitAngle = 42f,
-                orbitRadius = 106f,
-                visibleAtZoom = 1.22f,
-                accent = if (isDark) Color(0xFFFBC02D) else Color(0xFF0F9A54),
-                outsideSpend = true,
-                onClick = onExplainSpend
-            )
-        } else {
-            null
-        },
-        if (breakdown.oneTimeInvestments > 0.0) {
-            HomeConstellationNode(
-                id = "invest_once",
-                label = "One-time",
-                value = breakdown.oneTimeInvestments.formatRupeeCompact(),
-                detail = "investment",
-                x = 0.5f,
-                y = 340f / 650f,
-                orbitAngle = 14f,
-                orbitRadius = 118f,
-                visibleAtZoom = 1.36f,
-                accent = if (isDark) Color(0xFFFBC02D) else Color(0xFF2B83F6),
-                outsideSpend = true,
                 onClick = onExplainSpend
             )
         } else {
@@ -11120,24 +11121,6 @@ private fun MonthSummary(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 HomeMetricTile(
-                    label = "Investments included",
-                    value = breakdown.investments.formatInr(),
-                    accent = categoryColor("Food"),
-                    modifier = Modifier.weight(1f)
-                )
-                HomeMetricTile(
-                    label = "Transfers included",
-                    value = breakdown.transfers.formatInr(),
-                    accent = categoryColor("Investment"),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                HomeMetricTile(
                     label = "Average payment",
                     value = averageSpend.formatInr(),
                     accent = MaterialTheme.colorScheme.secondary,
@@ -11328,20 +11311,15 @@ private fun List<TransactionUi>.monthBreakdown(monthKey: String? = selectedMonth
     val monthTransactions = filter {
         it.inrAmountValue != null && it.isInSelectedMonth(monthKey)
     }
-    val debitTransactions = monthTransactions.filter { it.countsTowardSpentTotal() }
-    val spendTransactions = debitTransactions
-    val fxConverted = debitTransactions
+    val debitTransactions = monthTransactions.filter { it.countsTowardDebitTotal() }
+    val spendTransactions = debitTransactions.filter { it.countsTowardSpentTotal() }
+    val fxConverted = spendTransactions
         .filter { !it.countsInInrTotals() }
         .sumOf { it.inrAmountValue ?: 0.0 }
     val spends = spendTransactions.sumOf { it.inrAmountValue ?: 0.0 }
     val transfers = debitTransactions
         .filter { it.transactionType == TransactionType.TRANSFER }
         .sumOf { it.inrAmountValue ?: 0.0 }
-    val investmentTransactions = debitTransactions.filter { it.transactionType == TransactionType.INVESTMENT }
-    val recurringInvestmentTransactions = investmentTransactions.filter { it.isRecurringInvestmentPattern(this) }
-    val investments = investmentTransactions.sumOf { it.inrAmountValue ?: 0.0 }
-    val recurringInvestments = recurringInvestmentTransactions.sumOf { it.inrAmountValue ?: 0.0 }
-    val oneTimeInvestments = investments - recurringInvestments
     val creditTransactions = monthTransactions.filter { it.countsTowardMoneyIn() }
     val refunds = creditTransactions
         .filter { it.transactionType == TransactionType.REFUND || it.category == "Refund" }
@@ -11362,9 +11340,6 @@ private fun List<TransactionUi>.monthBreakdown(monthKey: String? = selectedMonth
         creditCount = creditTransactions.size,
         totalCredits = creditTransactions.sumOf { it.inrAmountValue ?: 0.0 },
         transfers = transfers,
-        investments = investments,
-        recurringInvestments = recurringInvestments,
-        oneTimeInvestments = oneTimeInvestments,
         refunds = refunds,
         income = income,
         rewards = rewards,
@@ -11399,41 +11374,6 @@ private fun List<TransactionUi>.latestMonthSpendTransactions(monthKey: String? =
 
 private fun List<TransactionUi>.latestMonthMoneyInTransactions(monthKey: String? = selectedMonthKey()): List<TransactionUi> {
     return filter { it.countsTowardMoneyIn() && it.isInSelectedMonth(monthKey) }
-}
-
-private fun TransactionUi.isRecurringInvestmentPattern(allTransactions: List<TransactionUi>): Boolean {
-    if (direction != DirectionUi.Debit || transactionType != TransactionType.INVESTMENT) return false
-    val amount = inrAmountValue ?: return false
-    if (amount < 500.0) return false
-
-    val merchantKey = merchant.trim().lowercase(Locale.US)
-    val knownSipMerchant = listOf(
-        "indian clearing corporation",
-        "quant mutual fund",
-        "edelweiss mutual fund",
-        "hdfc mutual fund",
-        "icici prudential mutual fund",
-        "motilal oswal mutual fund"
-    ).any { merchantKey == it }
-    val recurringRail = paymentMode.equals(PaymentMode.NACH.displayName(), ignoreCase = true) ||
-        paymentMode.equals(PaymentMode.UPI_MANDATE.displayName(), ignoreCase = true)
-    if ((knownSipMerchant || recurringRail) && amount <= 10_000.0) return true
-
-    val amountKey = amount.toInvestmentAmountKey()
-    val recurringMonths = allTransactions
-        .asSequence()
-        .filter { transaction ->
-            transaction.direction == DirectionUi.Debit &&
-                transaction.transactionType == TransactionType.INVESTMENT &&
-                transaction.merchant.equals(merchant, ignoreCase = true) &&
-                transaction.transactionDate?.take(7) != null &&
-                (transaction.inrAmountValue ?: 0.0).toInvestmentAmountKey() == amountKey
-        }
-        .mapNotNull { it.transactionDate?.take(7) }
-        .distinct()
-        .count()
-
-    return amount <= 10_000.0 && recurringMonths >= 3
 }
 
 private fun List<TransactionUi>.monthMerchantGroups(): List<SummaryGroup> {
@@ -11553,63 +11493,6 @@ private fun List<TransactionUi>.monthRefundSignals(): List<TransactionUi> {
         .sortedByDescending { it.inrAmountValue ?: 0.0 }
 }
 
-private fun List<TransactionUi>.recurringCandidates(): List<RecurringCandidate> {
-    return filter {
-        it.countsTowardSpentTotal() &&
-            !it.transactionDate.isNullOrBlank()
-    }
-        .groupBy { it.merchant.uppercase(Locale.US).trim() }
-        .mapNotNull { (_, rows) ->
-            val datedRows = rows.sortedByDescending { it.transactionDate.orEmpty() }
-            if (datedRows.size < 2) return@mapNotNull null
-
-            val amounts = datedRows.mapNotNull { it.inrAmountValue }
-            val averageAmount = amounts.average()
-            val closeAmountCount = amounts.count { amount ->
-                kotlin.math.abs(amount - averageAmount) <= maxOf(20.0, averageAmount * 0.12)
-            }
-            val distinctMonths = datedRows.mapNotNull { it.transactionDate?.take(7) }.distinct().size
-            val subscriptionSignal = datedRows.any {
-                it.transactionType == TransactionType.SUBSCRIPTION ||
-                    it.transactionType == TransactionType.INVESTMENT ||
-                    it.paymentMode.contains("mandate", ignoreCase = true) ||
-                    it.paymentMode == PaymentMode.NACH.displayName() ||
-                    it.merchant.contains("netflix", ignoreCase = true) ||
-                    it.merchant.contains("mutual", ignoreCase = true) ||
-                    it.merchant.contains("clearing", ignoreCase = true)
-            }
-            val shouldShow = subscriptionSignal || distinctMonths >= 2 || closeAmountCount >= 2
-            if (!shouldShow) return@mapNotNull null
-
-            val confidence = when {
-                subscriptionSignal && datedRows.size >= 3 -> "High"
-                distinctMonths >= 2 && closeAmountCount >= 2 -> "Medium"
-                subscriptionSignal -> "Medium"
-                else -> "Watch"
-            }
-            val latest = datedRows.first()
-            RecurringCandidate(
-                merchant = latest.merchant,
-                expectedAmount = averageAmount,
-                count = datedRows.size,
-                lastSeenDate = latest.transactionDate,
-                category = latest.category,
-                transactionType = latest.transactionType,
-                confidenceLabel = confidence
-            )
-        }
-        .sortedWith(
-            compareByDescending<RecurringCandidate> {
-                when (it.confidenceLabel) {
-                    "High" -> 3
-                    "Medium" -> 2
-                    else -> 1
-                }
-            }.thenByDescending { it.expectedAmount }
-        )
-        .take(8)
-}
-
 private fun List<TransactionUi>.sourceHealthRows(): List<SourceHealthRow> {
     return latestMonthTransactions()
         .filter { it.inrAmountValue != null }
@@ -11668,26 +11551,6 @@ private fun List<TransactionUi>.monthStoryItems(): List<MonthStoryItem> {
                 detail = it.value.formatInr(),
                 category = largestSpend?.category ?: "Other"
             )
-        },
-        if (breakdown.recurringInvestments > 0.0) {
-            MonthStoryItem(
-                label = "Kept separate",
-                value = "Recurring SIPs",
-                detail = breakdown.recurringInvestments.formatInr(),
-                category = "Investment"
-            )
-        } else {
-            null
-        },
-        if (breakdown.oneTimeInvestments > 0.0) {
-            MonthStoryItem(
-                label = "One-time move",
-                value = "Investments",
-                detail = breakdown.oneTimeInvestments.formatInr(),
-                category = "Investment"
-            )
-        } else {
-            null
         },
         if (refundTotal > 0.0) {
             MonthStoryItem(
@@ -11756,7 +11619,7 @@ private fun TransactionUi.isInSelectedMonth(monthKey: String?): Boolean {
 private fun List<TransactionUi>.feedSourceLabel(): String {
     val sourceSet = map { it.source }.toSet()
     return when {
-        sourceSet.isEmpty() -> "sample SMS"
+        sourceSet.isEmpty() -> "No payments yet"
         sourceSet.size == 1 && "SMS" in sourceSet -> "device SMS"
         sourceSet.size == 1 -> sourceSet.first()
         sourceSet.containsAll(listOf("SMS", "Gmail", "Manual")) -> "SMS + Gmail + Manual"
@@ -13356,6 +13219,19 @@ private fun TransactionDetail(
 ) {
     val palette = homePalette()
     val context = LocalContext.current
+    var localCorrectionSuggestion by remember(transaction.sourceHash, transaction.merchant) {
+        mutableStateOf<CategorySuggestionResult?>(null)
+    }
+    LaunchedEffect(transaction.sourceHash, transaction.merchant) {
+        localCorrectionSuggestion = null
+        if (transaction.id != null) {
+            localCorrectionSuggestion = withContext(Dispatchers.IO) {
+                TransactionRepository(context).suggestCategoryFromLocalCorrections(
+                    CategorySuggestionInput(merchant = transaction.merchant)
+                )
+            }
+        }
+    }
     var sheet by remember(transaction.id, transaction.sourceHash) { mutableStateOf<String?>(null) }
     var amount by remember(transaction.id, transaction.amountValue) { mutableStateOf(transaction.amountValue.toString()) }
     var place by remember(transaction.id, transaction.merchant) { mutableStateOf(transaction.merchant) }
@@ -13365,6 +13241,7 @@ private fun TransactionDetail(
     var note by remember(transaction.id, transaction.note) { mutableStateOf(transaction.note.orEmpty()) }
     var category by remember(transaction.id, transaction.category) { mutableStateOf(transaction.category) }
     var type by remember(transaction.id, transaction.transactionType) { mutableStateOf(transaction.transactionType) }
+    var status by remember(transaction.id, transaction.status) { mutableStateOf(transaction.status) }
     var validation by remember { mutableStateOf<String?>(null) }
     var undoDraft by remember(transaction.id) { mutableStateOf<TransactionCorrectionDraft?>(null) }
 
@@ -13375,10 +13252,7 @@ private fun TransactionDetail(
         }
     }
 
-    val categoryOptions = listOf(
-        "Food", "Groceries", "Shopping", "Subscriptions", "Transport", "Utilities",
-        "Health", "Entertainment", "Home", "Investment", "Transfer", "Income", "Refund", "Reward", "Other"
-    )
+    val categoryOptions = EditableCategories
     val countOptions = listOf(
         TransactionType.EXPENSE, TransactionType.SUBSCRIPTION, TransactionType.TRANSFER, TransactionType.INVESTMENT,
         TransactionType.REFUND, TransactionType.REWARD, TransactionType.INCOME
@@ -13405,6 +13279,13 @@ private fun TransactionDetail(
         note = transaction.note.orEmpty(),
         rememberRule = false
     )
+    val suggestedCategory = (localCorrectionSuggestion as? CategorySuggestionResult.Suggested)
+        ?.takeIf { suggestion ->
+            transaction.categorySource != CategorySource.USER_RULE &&
+                (suggestion.category.miscCategory != transaction.miscCategory ||
+                    suggestion.category.departmentCategory != category ||
+                    suggestion.category.transactionType != type)
+        }
 
     Column(
         modifier = Modifier
@@ -13468,7 +13349,57 @@ private fun TransactionDetail(
                 DetailInfoRow("Account", transaction.accountHint?.let { "Ending ${it.takeLast(4)}" } ?: "Not available", palette)
                 DetailInfoRow("Monthly total", countsLabel, palette)
                 DetailInfoRow("Payment type", type.detailCountsLabel(), palette, clickable = canEdit) { sheet = "counts" }
+                if (transaction.status != TransactionStatus.COMPLETED) {
+                    DetailInfoRow("Payment status", status.paymentStatusLabel(), palette, clickable = canEdit) { sheet = "status" }
+                }
                 DetailInfoRow("Reference", "Not available", palette, last = true)
+            }
+
+            if (canEdit && suggestedCategory != null) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
+                    color = palette.softFill,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Column(Modifier.padding(horizontal = 15.dp, vertical = 13.dp)) {
+                        Text("Sorted's Suggestion", color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "${suggestedCategory.category.departmentCategory} · ${suggestedCategory.category.transactionType.detailCountsLabel()}",
+                            Modifier.padding(top = 5.dp),
+                            color = palette.ink,
+                            fontFamily = SortedHomeFontFamily,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text("Based on category choices saved on this profile.", Modifier.padding(top = 3.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.sp)
+                        TextButton(
+                            onClick = {
+                                val proposed = suggestedCategory.category
+                                undoDraft = initialDraft
+                                category = proposed.departmentCategory
+                                type = proposed.transactionType
+                                onCorrect(
+                                    TransactionCorrectionDraft(
+                                        transaction = transaction,
+                                        merchant = place,
+                                        miscCategory = proposed.miscCategory,
+                                        category = proposed.departmentCategory,
+                                        transactionType = proposed.transactionType,
+                                        amount = amountValue ?: transaction.amountValue,
+                                        transactionDate = date,
+                                        note = note,
+                                        rememberRule = false,
+                                        status = status
+                                    )
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                            enabled = !saveState.isSaving
+                        ) {
+                            Text("Use suggestion", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
             }
 
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -13556,6 +13487,9 @@ private fun TransactionDetail(
                     }
                     DetailInfoRow("Category", category, palette, clickable = canEdit) { sheet = "category" }
                     DetailInfoRow("Payment type", type.detailCountsLabel(), palette, clickable = canEdit) { sheet = "counts" }
+                    if (transaction.status != TransactionStatus.COMPLETED) {
+                        DetailInfoRow("Payment status", status.paymentStatusLabel(), palette, clickable = canEdit) { sheet = "status" }
+                    }
                     OutlinedTextField(value = note, onValueChange = { note = it.take(180) }, label = { Text("Note") }, minLines = 2, maxLines = 3, modifier = Modifier.fillMaxWidth())
                     if (validation != null || saveState.error != null) Text(validation ?: saveState.error.orEmpty(), color = palette.review, fontFamily = SortedHomeFontFamily, fontSize = 12.sp)
                     DetailPrimaryAction(if (saveState.isSaving) "Saving…" else "Save changes", palette, enabled = !saveState.isSaving) {
@@ -13580,11 +13514,12 @@ private fun TransactionDetail(
                         DetailChoiceRow(option, selected = option == category, palette = palette) {
                             val selectedType = when (option) {
                                 "Investment" -> TransactionType.INVESTMENT
-                                "Transfer" -> TransactionType.TRANSFER
+                                "Transfer", "Self Transfer" -> TransactionType.TRANSFER
                                 "Income" -> TransactionType.INCOME
                                 "Refund" -> TransactionType.REFUND
                                 "Reward" -> TransactionType.REWARD
-                                else -> type
+                                "Subscriptions" -> TransactionType.SUBSCRIPTION
+                                else -> TransactionType.EXPENSE
                             }
                             category = option
                             type = selectedType
@@ -13596,16 +13531,16 @@ private fun TransactionDetail(
                 }
                 "counts" -> Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
                     Text("Payment type", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                    Text("This label describes the payment. Every outgoing payment stays in the monthly total.", modifier = Modifier.padding(top = 4.dp, bottom = 12.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp, lineHeight = 18.sp)
+                    Text("Transfers and investments count toward spending.", modifier = Modifier.padding(top = 4.dp, bottom = 12.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 12.5.sp, lineHeight = 18.sp)
                     countOptions.forEach { option ->
                         DetailChoiceRow(option.detailCountsLabel(), selected = option == type, palette = palette) {
                             val selectedCategory = when (option) {
-                                TransactionType.TRANSFER -> "Transfer"
+                                TransactionType.TRANSFER -> category.takeIf { it in setOf("Transfer", "Self Transfer") } ?: "Transfer"
                                 TransactionType.INVESTMENT -> "Investment"
                                 TransactionType.INCOME -> "Income"
                                 TransactionType.REFUND -> "Refund"
                                 TransactionType.REWARD -> "Reward"
-                                else -> if (category in setOf("Transfer", "Investment", "Income", "Refund", "Reward")) "Other" else category
+                            else -> if (category in setOf("Transfer", "Self Transfer", "Investment", "Income", "Refund", "Reward")) "Other" else category
                             }
                             category = selectedCategory
                             type = option
@@ -13613,6 +13548,22 @@ private fun TransactionDetail(
                             onCorrect(TransactionCorrectionDraft(transaction, place, transaction.miscCategory, selectedCategory, option, amountValue ?: transaction.amountValue, date, note, false))
                             sheet = null
                         }
+                    }
+                }
+                "status" -> Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
+                    Text("Payment status", color = palette.ink, fontFamily = SortedHomeFontFamily, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Payments waiting for confirmation stay out of monthly spending.", modifier = Modifier.padding(top = 5.dp, bottom = 12.dp), color = palette.muted, fontFamily = SortedHomeFontFamily, fontSize = 13.sp, lineHeight = 19.sp)
+                    DetailChoiceRow("Still waiting", selected = status == TransactionStatus.PENDING, palette = palette) {
+                        status = TransactionStatus.PENDING
+                        undoDraft = initialDraft
+                        onCorrect(TransactionCorrectionDraft(transaction, place, transaction.miscCategory, category, type, amountValue ?: transaction.amountValue, date, note, false, TransactionStatus.PENDING))
+                        sheet = null
+                    }
+                    DetailChoiceRow("Completed", selected = status == TransactionStatus.COMPLETED, palette = palette) {
+                        status = TransactionStatus.COMPLETED
+                        undoDraft = initialDraft
+                        onCorrect(TransactionCorrectionDraft(transaction, place, transaction.miscCategory, category, type, amountValue ?: transaction.amountValue, date, note, false, TransactionStatus.COMPLETED))
+                        sheet = null
                     }
                 }
                 "rule" -> Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
@@ -13716,22 +13667,7 @@ private fun TransactionDetailLegacy(
     var transactionType by remember(transaction.id, transaction.transactionType) { mutableStateOf(transaction.transactionType) }
     var rememberRule by remember(transaction.id, transaction.sourceHash) { mutableStateOf(true) }
     var validationError by remember(transaction.id, transaction.sourceHash) { mutableStateOf<String?>(null) }
-    val categories = listOf(
-        "Food",
-        "Groceries",
-        "Shopping",
-        "Subscriptions",
-        "Transport",
-        "Utilities",
-        "Health",
-        "Entertainment",
-        "Investment",
-        "Transfer",
-        "Income",
-        "Refund",
-        "Reward",
-        "Other"
-    )
+    val categories = EditableCategories
     val transactionTypes = listOf(
         TransactionType.EXPENSE,
         TransactionType.SUBSCRIPTION,
@@ -13923,9 +13859,16 @@ private fun TransactionDetailLegacy(
                     palette = palette,
                     selectedColor = palette.amber,
                     onSelected = { selected ->
-                        category = selected.lowercase(Locale.US).replaceFirstChar { it.titlecase(Locale.US) }
-                        if (category == "Investment") transactionType = TransactionType.INVESTMENT
-                        if (category == "Transfer") transactionType = TransactionType.TRANSFER
+                        category = EditableCategories.firstOrNull { it.equals(selected, ignoreCase = true) } ?: selected
+                        transactionType = when (category) {
+                            "Investment" -> TransactionType.INVESTMENT
+                            "Transfer", "Self Transfer" -> TransactionType.TRANSFER
+                            "Income" -> TransactionType.INCOME
+                            "Refund" -> TransactionType.REFUND
+                            "Reward" -> TransactionType.REWARD
+                            "Subscriptions" -> TransactionType.SUBSCRIPTION
+                            else -> TransactionType.EXPENSE
+                        }
                     }
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -13939,11 +13882,11 @@ private fun TransactionDetailLegacy(
                         transactionType = transactionTypes.first { it.displayName().equals(selected, ignoreCase = true) }
                         category = when (transactionType) {
                             TransactionType.INVESTMENT -> "Investment"
-                            TransactionType.TRANSFER -> "Transfer"
+                            TransactionType.TRANSFER -> category.takeIf { it in setOf("Transfer", "Self Transfer") } ?: "Transfer"
                             TransactionType.INCOME -> "Income"
                             TransactionType.REFUND -> "Refund"
                             TransactionType.REWARD -> "Reward"
-                            else -> category
+                            else -> if (category in setOf("Transfer", "Self Transfer", "Investment", "Income", "Refund", "Reward")) "Other" else category
                         }
                     }
                 )
@@ -14055,7 +13998,7 @@ private fun Double.formatRupee(): String {
 }
 
 private fun Double.formatHomeRupee(): String {
-    val rounded = roundToInt().coerceAtLeast(0).toString()
+    val rounded = roundToLong().coerceAtLeast(0L).toString()
     if (rounded.length <= 3) return "₹$rounded"
     val last3 = rounded.takeLast(3)
     val rest = rounded.dropLast(3)
@@ -14135,9 +14078,34 @@ private fun TransactionUi.countsTowardSpentTotal(): Boolean {
     return OutflowPolicy.countsTowardSpent(
         status = status,
         direction = direction,
-        amount = inrAmountValue
+        amount = inrAmountValue,
+        type = transactionType
     )
 }
+
+private fun TransactionUi.toSpendAnalyticsEntry(): SpendAnalyticsEntry {
+    val direction = when (direction) {
+        DirectionUi.Debit -> Direction.DEBIT
+        DirectionUi.Credit -> Direction.CREDIT
+        DirectionUi.Unknown -> Direction.UNKNOWN
+    }
+    return SpendAnalyticsEntry(
+        sourceHash = sourceHash,
+        transactionDate = transactionDate,
+        merchant = merchant,
+        category = category,
+        amountInr = inrAmountValue,
+        status = status,
+        direction = direction,
+        transactionType = transactionType
+    )
+}
+
+private fun TransactionUi.countsTowardDebitTotal(): Boolean =
+    status == TransactionStatus.COMPLETED &&
+        direction == DirectionUi.Debit &&
+        inrAmountValue != null &&
+        inrAmountValue > 0.0
 
 private fun TransactionUi.countsTowardMoneyIn(): Boolean =
     status == TransactionStatus.COMPLETED &&
@@ -14192,6 +14160,16 @@ private fun TransactionType.displayName(): String {
         TransactionType.SUBSCRIPTION -> "Subscription"
         TransactionType.REWARD -> "Reward"
         TransactionType.UNKNOWN -> "Other"
+    }
+}
+
+private fun TransactionStatus.paymentStatusLabel(): String {
+    return when (this) {
+        TransactionStatus.COMPLETED -> "Completed"
+        TransactionStatus.IGNORED -> "Ignored"
+        TransactionStatus.PENDING -> "Still waiting"
+        TransactionStatus.FAILED -> "Failed"
+        TransactionStatus.UNKNOWN -> "Unclear"
     }
 }
 

@@ -12,18 +12,18 @@ object SmsParser {
     private fun parseInternal(rawMessage: String, sourceAddress: String?): ParsedTransaction {
         val cleaned = clean(rawMessage)
 
-        ignoreReason(cleaned, sourceAddress)?.let { reason ->
-            return ignored(reason)
-        }
+        val ignoredReason = ignoreReason(cleaned, sourceAddress)
+        val isPending = ignoredReason == "pending"
+        if (ignoredReason != null && !isPending) return ignored(ignoredReason)
 
-        val facts = parseKnownTemplate(cleaned)
-            ?: parseGenericFinancialAlert(cleaned, sourceAddress)
+        val knownFacts = parseKnownTemplate(cleaned)
+        val facts = knownFacts ?: parseGenericFinancialAlert(cleaned, sourceAddress)
             ?: return ignored("unsupported")
 
         val category = Categorizer.categorize(facts)
         return ParsedTransaction(
             isTransaction = true,
-            status = TransactionStatus.COMPLETED,
+            status = if (isPending) TransactionStatus.PENDING else TransactionStatus.COMPLETED,
             amount = facts.amount,
             currency = facts.currency,
             direction = facts.direction,
@@ -38,7 +38,12 @@ object SmsParser {
             transactionType = category.transactionType,
             categorySource = category.categorySource,
             confidence = category.confidence,
-            ignoreReason = null
+            ignoreReason = null,
+            evidenceConfidence = when {
+                isPending -> 0.86
+                knownFacts != null -> 0.98
+                else -> 0.86
+            }
         )
     }
 
@@ -245,6 +250,7 @@ object SmsParser {
         if (direction == Direction.UNKNOWN) return null
 
         val amount = parseBestAmount(message, direction) ?: return null
+        if (!hasNearbyTransactionSignal(message, direction)) return null
         val paymentMode = parseGenericPaymentMode(message)
         val merchant = parseGenericMerchant(message, direction)
             ?: parseMerchantFromSourceAddress(sourceAddress)
@@ -262,6 +268,19 @@ object SmsParser {
             transactionDate = date,
             transactionTime = time
         )
+    }
+
+    private fun hasNearbyTransactionSignal(message: String, direction: Direction): Boolean {
+        val amountPattern = Regex("""(?i)(?:INR|Rs\.?|₹)\s*[\d,]+(?:\.\d+)?""")
+        val signals = when (direction) {
+            Direction.DEBIT -> listOf("debited", "debit", "spent", "deducted", "paid", "sent", "withdrawn", "purchase", "charged", "transferred")
+            Direction.CREDIT -> listOf("credited", "credit", "received", "deposited", "refund", "reversal", "cashback", "reward", "interest")
+            Direction.UNKNOWN -> emptyList()
+        }
+        return amountPattern.findAll(message).any { amount ->
+            val context = message.windowAround(amount.range.first, radius = 105).lowercase()
+            signals.any { it in context }
+        }
     }
 
     private fun looksLikeFinancialAlert(message: String, sourceAddress: String?): Boolean {
@@ -522,8 +541,13 @@ object SmsParser {
         ).any { it in sender }
 
         return when {
+            "shop now" in lower &&
+                Regex("""(?i)(?:https?://|www\.)""").containsMatchIn(lower) &&
+                !Regex("""(?i)\b(?:debited|credited|spent using|deducted from|sent rs|transaction successful|payment successful)\b""").containsMatchIn(lower) -> "promotional_link"
             "consent requested" in lower || "authenticate via otp" in lower -> "consent_request"
             "mandate request" in lower && "debited" !in lower && "deducted" !in lower -> "consent_request"
+            listOf("transaction cancelled", "transaction canceled", "payment cancelled", "payment canceled", "transaction voided", "payment voided")
+                .any { it in lower } -> "cancelled_transaction"
             "not completed" in lower || "payment failure" in lower || "failed" in lower || "declined" in lower || "unsuccessful" in lower -> "failed_transaction"
             "will be deducted" in lower || "will be debited" in lower || "will be credited" in lower || "upcoming mandate" in lower || "pre-debit" in lower -> "pending"
             "settlement worth" in lower || "settlement has been processed" in lower -> "pending"

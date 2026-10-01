@@ -58,6 +58,17 @@ enum class CategorySource {
     NONE
 }
 
+enum class ImportDecision {
+    ACCEPT,
+    REVIEW,
+    IGNORE
+}
+
+data class ImportAssessment(
+    val decision: ImportDecision,
+    val reason: String
+)
+
 data class ParsedTransaction(
     val isTransaction: Boolean,
     val status: TransactionStatus,
@@ -76,7 +87,9 @@ data class ParsedTransaction(
     val categorySource: CategorySource,
     val confidence: Double,
     val ignoreReason: String?,
-    val note: String? = null
+    val note: String? = null,
+    /** Confidence that this source record describes a completed financial movement. */
+    val evidenceConfidence: Double = confidence
 )
 
 data class ParserFacts(

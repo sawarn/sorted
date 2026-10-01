@@ -5,9 +5,17 @@ import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import com.sorted.app.engine.CategorySource
+import com.sorted.app.engine.CategorySuggestionInput
+import com.sorted.app.engine.CategorySuggestionResult
 import com.sorted.app.engine.Direction
+import com.sorted.app.engine.ImportDecision
+import com.sorted.app.engine.ImportDecisionPolicy
+import com.sorted.app.engine.LocalCategoryCorrectionExample
+import com.sorted.app.engine.LocalCorrectionCategorySuggestionEngine
+import com.sorted.app.engine.MerchantNormalizer
 import com.sorted.app.engine.ParsedTransaction
 import com.sorted.app.engine.PaymentMode
+import com.sorted.app.engine.SuggestedCategory
 import com.sorted.app.engine.TransactionStatus
 import com.sorted.app.engine.TransactionType
 import java.security.MessageDigest
@@ -37,14 +45,10 @@ class TransactionRepository(context: Context) {
                     val parsed = record.parsed
                         .applyCategoryRules(rules)
                         .applyUserCorrection(corrections[record.sourceHash])
-                    if (parsed.isTransaction) {
-                        db.insertWithOnConflict(
-                            "transactions",
-                            null,
-                            record.toValues(now, parsed),
-                            SQLiteDatabase.CONFLICT_REPLACE
-                        )
-                    } else {
+                    val assessment = ImportDecisionPolicy.assess(parsed)
+                    if (assessment.decision != ImportDecision.IGNORE) {
+                        db.upsertTransaction(record, now, parsed)
+                    } else if (corrections[record.sourceHash] == null) {
                         db.delete(
                             "transactions",
                             "source_hash = ?",
@@ -58,36 +62,34 @@ class TransactionRepository(context: Context) {
         }
     }
 
-    fun replaceSource(source: ImportSource, records: List<ImportRecord>) {
-        val now = System.currentTimeMillis()
-        val db = database.writableDatabase
-        db.beginTransaction()
-        try {
-            val ignoredHashes = ignoredSourceHashes(db)
-            val rules = categoryRules(db)
-            val corrections = userCorrections(db)
-            db.delete(
-                "transactions",
-                "source = ?",
-                arrayOf(source.value)
-            )
-            records
-                .filter { it.parsed.isTransaction && it.sourceHash !in ignoredHashes }
-                .forEach { record ->
-                    val parsed = record.parsed
-                        .applyCategoryRules(rules)
-                        .applyUserCorrection(corrections[record.sourceHash])
-                    db.insertWithOnConflict(
-                        "transactions",
-                        null,
-                        record.toValues(now, parsed),
-                        SQLiteDatabase.CONFLICT_REPLACE
-                    )
-                }
-            db.setTransactionSuccessful()
-        } finally {
-            db.endTransaction()
+    /** Removes selected imported rows without disturbing the rest of a source's history. */
+    fun deleteTransactions(source: ImportSource, sourceHashes: Collection<String>): Int {
+        val requestedHashes = sourceHashes.filter(String::isNotBlank).distinct()
+        if (requestedHashes.isEmpty()) return 0
+        val requestedPlaceholders = List(requestedHashes.size) { "?" }.joinToString(",")
+        val correctedHashes = database.readableDatabase.query(
+            true,
+            "user_corrections",
+            arrayOf("source_hash"),
+            "source_hash IN ($requestedPlaceholders)",
+            requestedHashes.toTypedArray(),
+            null,
+            null,
+            null,
+            null
+        ).use { cursor ->
+            buildSet {
+                while (cursor.moveToNext()) cursor.string("source_hash")?.let(::add)
+            }
         }
+        val hashes = requestedHashes.filterNot(correctedHashes::contains)
+        if (hashes.isEmpty()) return 0
+        val placeholders = List(hashes.size) { "?" }.joinToString(",")
+        return database.writableDatabase.delete(
+            "transactions",
+            "source = ? AND source_hash IN ($placeholders)",
+            arrayOf(source.value) + hashes
+        )
     }
 
     fun updateTransaction(correction: TransactionCorrection): Boolean {
@@ -101,6 +103,7 @@ class TransactionRepository(context: Context) {
                 put("misc_category", correction.miscCategory)
                 put("department_category", correction.departmentCategory)
                 put("transaction_type", correction.transactionType.name)
+                correction.status?.let { put("status", it.name) }
                 correction.amount?.let { put("amount", it) }
                 correction.transactionDate?.let { put("transaction_date", it) }
                 put("note", correction.note.orEmpty())
@@ -201,6 +204,11 @@ class TransactionRepository(context: Context) {
         return categoryRules(database.readableDatabase, limit)
     }
 
+    /** Uses only explicit category corrections held in this app profile's private database. */
+    fun suggestCategoryFromLocalCorrections(input: CategorySuggestionInput): CategorySuggestionResult =
+        LocalCorrectionCategorySuggestionEngine(localCategoryCorrectionExamples(database.readableDatabase))
+            .suggest(input)
+
     fun deleteManualTransaction(sourceHash: String): Boolean {
         if (sourceHash.isBlank()) return false
         return database.writableDatabase.delete(
@@ -289,13 +297,37 @@ class TransactionRepository(context: Context) {
         }
     }
 
+    private fun SQLiteDatabase.upsertTransaction(
+        record: ImportRecord,
+        now: Long,
+        parsed: ParsedTransaction
+    ) {
+        val values = record.toValues(now, parsed)
+        values.remove("created_at")
+        val updated = update(
+            "transactions",
+            values,
+            "source_hash = ?",
+            arrayOf(record.sourceHash)
+        )
+        if (updated == 0) {
+            values.put("created_at", now)
+            insertWithOnConflict(
+                "transactions",
+                null,
+                values,
+                SQLiteDatabase.CONFLICT_IGNORE
+            )
+        }
+    }
+
     private fun upsertCategoryRule(
         db: SQLiteDatabase,
         existing: TransactionEntity,
         correction: TransactionCorrection,
         now: Long
     ): Long? {
-        val pattern = correction.merchantNormalized.ruleKey()
+        val pattern = MerchantNormalizer.key(correction.merchantNormalized)
             .takeIf(String::isNotBlank)
             ?: existing.rulePattern()
             ?: return null
@@ -361,6 +393,7 @@ class TransactionRepository(context: Context) {
             put("new_department_category", correction.departmentCategory)
             put("old_transaction_type", existing.transactionType.name)
             put("new_transaction_type", correction.transactionType.name)
+            put("new_status", correction.status?.name)
             put("new_amount", correction.amount)
             put("new_transaction_date", correction.transactionDate)
             put("new_note", correction.note.orEmpty())
@@ -371,30 +404,8 @@ class TransactionRepository(context: Context) {
     }
 
     private fun ParsedTransaction.applyCategoryRules(rules: List<CategoryRuleEntity>): ParsedTransaction {
-        if (!isTransaction || rules.isEmpty()) return this
-        val merchantKeys = listOfNotNull(merchantNormalized, merchantRaw)
-            .mapNotNull { it.ruleKey().takeIf(String::isNotBlank) }
-            .distinct()
-        if (merchantKeys.isEmpty()) return this
-
-        val rule = rules
-            .asSequence()
-            .filter { it.enabled }
-            .filter { rule ->
-                merchantKeys.any { key ->
-                    when (rule.matchType) {
-                        RuleMatchExact -> key == rule.pattern
-                        RuleMatchContains -> key.contains(rule.pattern)
-                        else -> false
-                    }
-                }
-            }
-            .sortedWith(
-                compareByDescending<CategoryRuleEntity> { if (it.matchType == RuleMatchExact) 1 else 0 }
-                    .thenByDescending { it.priority }
-                    .thenByDescending { it.updatedAt }
-            )
-            .firstOrNull()
+        if (!isTransaction) return this
+        val rule = CategoryRuleMatcher.bestMatch(rules, merchantNormalized, merchantRaw)
             ?: return this
 
         return copy(
@@ -414,6 +425,7 @@ class TransactionRepository(context: Context) {
             miscCategory = correction.miscCategory,
             departmentCategory = correction.departmentCategory,
             transactionType = correction.transactionType,
+            status = correction.status ?: status,
             amount = correction.amount ?: amount,
             transactionDate = correction.transactionDate ?: transactionDate,
             note = correction.note ?: note,
@@ -469,6 +481,7 @@ class TransactionRepository(context: Context) {
                 "new_misc_category",
                 "new_department_category",
                 "new_transaction_type",
+                "new_status",
                 "new_amount",
                 "new_transaction_date",
                 "new_note"
@@ -489,6 +502,9 @@ class TransactionRepository(context: Context) {
                         cursor.string("new_transaction_type"),
                         TransactionType.UNKNOWN
                     ),
+                    status = cursor.string("new_status")?.let {
+                        enumValueOrDefault(it, TransactionStatus.UNKNOWN)
+                    },
                     amount = cursor.doubleOrNull("new_amount"),
                     transactionDate = cursor.string("new_transaction_date"),
                     note = cursor.string("new_note")
@@ -496,6 +512,36 @@ class TransactionRepository(context: Context) {
             }
         }
         return rows
+    }
+
+    private fun localCategoryCorrectionExamples(db: SQLiteDatabase): List<LocalCategoryCorrectionExample> {
+        val examples = mutableListOf<LocalCategoryCorrectionExample>()
+        db.rawQuery(
+            """
+            SELECT new_merchant_normalized, new_misc_category, new_department_category, new_transaction_type
+            FROM user_corrections
+            WHERE (
+                COALESCE(old_misc_category, '') != COALESCE(new_misc_category, '') OR
+                COALESCE(old_department_category, '') != COALESCE(new_department_category, '') OR
+                COALESCE(old_transaction_type, '') != COALESCE(new_transaction_type, '')
+            )
+            ORDER BY created_at DESC, id DESC
+            """.trimIndent(),
+            null
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val merchant = cursor.string("new_merchant_normalized")?.takeIf(String::isNotBlank) ?: continue
+                val miscCategory = cursor.string("new_misc_category")?.takeIf(String::isNotBlank) ?: continue
+                val departmentCategory = cursor.string("new_department_category")?.takeIf(String::isNotBlank) ?: continue
+                val type = enumValueOrDefault(cursor.string("new_transaction_type"), TransactionType.UNKNOWN)
+                if (type == TransactionType.UNKNOWN) continue
+                examples += LocalCategoryCorrectionExample(
+                    merchant = merchant,
+                    category = SuggestedCategory(miscCategory, departmentCategory, type)
+                )
+            }
+        }
+        return examples
     }
 
     private fun Cursor.toTransactionEntity(): TransactionEntity {
@@ -544,13 +590,7 @@ class TransactionRepository(context: Context) {
 
     private fun TransactionEntity.rulePattern(): String? {
         return listOfNotNull(merchantNormalized, merchantRaw)
-            .firstNotNullOfOrNull { it.ruleKey().takeIf(String::isNotBlank) }
-    }
-
-    private fun String.ruleKey(): String {
-        return uppercase()
-            .replace(Regex("""\s+"""), " ")
-            .trim()
+            .firstNotNullOfOrNull { MerchantNormalizer.key(it).takeIf(String::isNotBlank) }
     }
 
     private fun Cursor.string(column: String): String? {
@@ -578,8 +618,8 @@ class TransactionRepository(context: Context) {
     }
 
     private companion object {
-        const val RuleMatchExact = "exact"
-        const val RuleMatchContains = "contains"
+        const val RuleMatchExact = CategoryRuleMatcher.MatchExact
+        const val RuleMatchContains = CategoryRuleMatcher.MatchContains
         const val RuleSourceUser = "user"
         const val UserRulePriority = 100
     }
@@ -590,6 +630,7 @@ private data class StoredCorrection(
     val miscCategory: String,
     val departmentCategory: String,
     val transactionType: TransactionType,
+    val status: TransactionStatus?,
     val amount: Double?,
     val transactionDate: String?,
     val note: String?

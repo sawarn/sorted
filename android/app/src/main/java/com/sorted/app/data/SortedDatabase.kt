@@ -109,6 +109,7 @@ class SortedDatabase(context: Context) : SQLiteOpenHelper(
                 new_department_category TEXT,
                 old_transaction_type TEXT,
                 new_transaction_type TEXT,
+                new_status TEXT,
                 new_amount REAL,
                 new_transaction_date TEXT,
                 new_note TEXT,
@@ -160,10 +161,14 @@ class SortedDatabase(context: Context) : SQLiteOpenHelper(
             db.execSQL("ALTER TABLE user_corrections ADD COLUMN new_transaction_date TEXT")
             db.execSQL("ALTER TABLE user_corrections ADD COLUMN new_note TEXT")
         }
+
+        if (oldVersion in 4 until 6) {
+            db.execSQL("ALTER TABLE user_corrections ADD COLUMN new_status TEXT")
+        }
     }
 
     private companion object {
         const val DatabaseName = "sorted.db"
-        const val DatabaseVersion = 5
+        const val DatabaseVersion = 6
     }
 }

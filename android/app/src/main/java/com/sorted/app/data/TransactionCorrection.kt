@@ -1,5 +1,6 @@
 package com.sorted.app.data
 
+import com.sorted.app.engine.TransactionStatus
 import com.sorted.app.engine.TransactionType
 
 data class TransactionCorrection(
@@ -11,5 +12,6 @@ data class TransactionCorrection(
     val rememberRule: Boolean,
     val amount: Double?,
     val transactionDate: String?,
-    val note: String?
+    val note: String?,
+    val status: TransactionStatus? = null
 )

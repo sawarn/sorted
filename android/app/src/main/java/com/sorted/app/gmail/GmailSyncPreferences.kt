@@ -49,6 +49,10 @@ class GmailSyncPreferences(context: Context) {
         }
     }
 
+    fun clearAll() {
+        prefs.edit().clear().apply()
+    }
+
     fun statusLabel(): String {
         val lastError = prefs.getString(KeyLastError, null)
         if (!lastError.isNullOrBlank()) return "Auto sync paused: $lastError"

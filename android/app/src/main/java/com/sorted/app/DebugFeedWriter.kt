@@ -14,6 +14,10 @@ import java.security.MessageDigest
 object DebugFeedWriter {
     private const val FileName = "sorted-debug-feed.json"
 
+    fun clear(context: Context) {
+        File(context.cacheDir, FileName).delete()
+    }
+
     fun write(context: Context, records: List<SmsScanRecord>) {
         val parsed = records.map { it.parsed }
         val exportedRecords = records

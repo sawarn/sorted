@@ -14,6 +14,10 @@ import java.security.MessageDigest
 object GmailDebugFeedWriter {
     private const val FileName = "sorted-gmail-debug-feed.json"
 
+    fun clear(context: Context) {
+        File(context.cacheDir, FileName).delete()
+    }
+
     fun write(context: Context, records: List<GmailScanRecord>) {
         val payload = JSONObject()
             .put("messagesScanned", records.size)

@@ -5,7 +5,8 @@ object OutflowPolicy {
     fun countsTowardSpent(
         status: TransactionStatus,
         direction: Direction,
-        amount: Double?
+        amount: Double?,
+        @Suppress("UNUSED_PARAMETER") type: TransactionType
     ): Boolean =
         status == TransactionStatus.COMPLETED &&
             direction == Direction.DEBIT &&

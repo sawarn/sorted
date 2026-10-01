@@ -21,7 +21,9 @@ object GmailParser {
                 .joinToString("\n")
         )
 
-        ignoreReason(message, text)?.let { return ignored(it) }
+        val ignoredReason = ignoreReason(message, text)
+        val isPending = ignoredReason == "pending_transaction"
+        if (ignoredReason != null && !isPending) return ignored(ignoredReason)
 
         val money = parseMoney(text) ?: return ignored("amount_missing")
         if (money.amount <= 0.0) return ignored("non_positive_amount")
@@ -46,7 +48,7 @@ object GmailParser {
 
         return ParsedTransaction(
             isTransaction = true,
-            status = TransactionStatus.COMPLETED,
+            status = if (isPending) TransactionStatus.PENDING else TransactionStatus.COMPLETED,
             amount = facts.amount,
             currency = facts.currency,
             direction = facts.direction,
@@ -61,7 +63,8 @@ object GmailParser {
             transactionType = category.transactionType,
             categorySource = category.categorySource,
             confidence = gmailConfidence(category.categorySource, facts.merchantRaw, category.confidence),
-            ignoreReason = null
+            ignoreReason = null,
+            evidenceConfidence = transactionEvidenceConfidence(message, text, isPending)
         )
     }
 
@@ -199,7 +202,13 @@ object GmailParser {
 
         return when {
             "one-time password" in lower || Regex("""\botp\b""").containsMatchIn(lower) -> "otp"
+            "shop now" in lower &&
+                Regex("""(?i)(?:https?://|www\.)""").containsMatchIn(lower) &&
+                !hasCompletedPaymentEvidence(lower) -> "promotional_link"
+            listOf("transaction cancelled", "transaction canceled", "payment cancelled", "payment canceled", "transaction voided", "payment voided")
+                .any { it in lower } -> "cancelled_transaction"
             "failed" in lower || "declined" in lower || "unsuccessful" in lower -> "failed_transaction"
+            hasPendingPaymentEvidence(lower) -> "pending_transaction"
             !supportedTransactionEmail -> "unsupported_sender"
             "itinerary" in subject || "booking confirmation" in lower || "flight details" in lower -> "merchant_receipt"
             "order was delivered" in subject || "order was successfully delivered" in subject || "bill details" in lower -> "merchant_receipt"
@@ -248,6 +257,39 @@ object GmailParser {
             "global investing" in fromSubject && investingSignals.any { it in lowerText } -> true
             else -> false
         }
+    }
+
+    private fun hasCompletedPaymentEvidence(lowerText: String): Boolean {
+        val moneyMovement = Regex(
+            """(?i)\b(?:debited|credited|deducted|spent|charged|refunded|reversed|transferred|received|deposited)\b"""
+        ).containsMatchIn(lowerText)
+        val completedPayment = Regex(
+            """(?i)\b(?:payment|transaction|purchase)\b.{0,48}\b(?:successful|completed|processed|confirmed)\b"""
+        ).containsMatchIn(lowerText)
+        return !hasPendingPaymentEvidence(lowerText) && (moneyMovement || completedPayment)
+    }
+
+    private fun transactionEvidenceConfidence(
+        message: GmailRawMessage,
+        lowerText: String,
+        isPending: Boolean
+    ): Double {
+        if (!isSupportedTransactionEmail(message, lowerText)) return 0.0
+        if (isPending) return 0.86
+        val explicitMovement = Regex(
+            """(?i)\b(?:debited|credited|deducted|spent|charged|refunded|reversed|transferred|received|deposited)\b"""
+        ).containsMatchIn(lowerText)
+        if (explicitMovement) return 0.96
+        val completedPayment = Regex(
+            """(?i)\b(?:payment|transaction|purchase)\b.{0,48}\b(?:successful|completed|processed|confirmed)\b"""
+        ).containsMatchIn(lowerText)
+        return if (completedPayment) 0.88 else 0.35
+    }
+
+    private fun hasPendingPaymentEvidence(lowerText: String): Boolean {
+        return Regex(
+            """(?i)\b(?:will\s+be\s+(?:debited|credited|deducted|transferred)|pending|scheduled|upcoming|pre[- ]?debit|authorization pending|mandate request)\b"""
+        ).containsMatchIn(lowerText)
     }
 
     private fun isAuthoritativeFinancialSender(message: GmailRawMessage): Boolean {

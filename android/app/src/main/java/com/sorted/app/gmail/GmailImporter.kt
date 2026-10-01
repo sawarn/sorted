@@ -5,8 +5,9 @@ import com.sorted.app.data.ImportRecord
 import com.sorted.app.data.ImportSource
 import com.sorted.app.data.TransactionEntity
 import com.sorted.app.data.TransactionRepository
+import com.sorted.app.engine.ImportDecision
+import com.sorted.app.engine.ImportDecisionPolicy
 import com.sorted.app.engine.ParsedTransaction
-import com.sorted.app.engine.TransactionType
 import com.sorted.app.fx.FxRateImporter
 import kotlin.math.abs
 
@@ -34,18 +35,23 @@ class GmailImporter(context: Context) {
                 parsed = GmailParser.parse(raw)
             )
         }
-        GmailDebugFeedWriter.write(appContext, records)
-
         val existingTransactions = repository.listTransactions(limit = 5_000)
         val transactionRecords = records.filter { it.parsed.isTransaction }
-        val highConfidenceRecords = transactionRecords
-            .filter { it.parsed.confidence >= GmailImportPlan.MinImportConfidence }
-        val importableRecords = highConfidenceRecords
+        val evidencedRecords = transactionRecords
+            .filter { ImportDecisionPolicy.assess(it.parsed).decision != ImportDecision.IGNORE }
+        val importableRecords = evidencedRecords
             .filterNot { it.isLikelyDuplicateOf(existingTransactions) }
             .dedupeWithinBatch()
 
-        repository.replaceSource(
+        val importedHashes = importableRecords.mapTo(mutableSetOf()) { it.sourceHash }
+        repository.deleteTransactions(
             ImportSource.GMAIL,
+            records.asSequence()
+                .map { it.sourceHash }
+                .filterNot { it in importedHashes }
+                .toList()
+        )
+        repository.import(
             importableRecords.map { record ->
                 ImportRecord(
                     source = ImportSource.GMAIL,
@@ -63,8 +69,8 @@ class GmailImporter(context: Context) {
             messagesScanned = rawMessages.size,
             transactionsDetected = transactionRecords.size,
             importedTransactions = importableRecords.size,
-            skippedLowConfidence = transactionRecords.size - highConfidenceRecords.size,
-            skippedDuplicates = highConfidenceRecords.size - importableRecords.size,
+            skippedLowConfidence = transactionRecords.size - evidencedRecords.size,
+            skippedDuplicates = evidencedRecords.size - importableRecords.size,
             fxRatesUpdated = fxResult.ratesUpdated,
             fxRateFailures = fxResult.failures
         )
@@ -90,19 +96,13 @@ class GmailImporter(context: Context) {
         val parsedAmount = parsedTransaction.amount ?: return false
         val parsedDate = parsedTransaction.transactionDate ?: return false
         val parsedMerchant = parsedTransaction.merchantNormalized ?: parsedTransaction.merchantRaw ?: return false
-        val gmailLooksAuthoritative = raw.looksLikeAuthoritativeFinancialAlert()
-
         return existingTransactions.any { existing ->
             existing.sourceHash != sourceHash &&
                 existing.transactionDate == parsedDate &&
                 existing.direction == parsedTransaction.direction &&
                 sameCurrency(existing.currency, parsedTransaction.currency) &&
                 sameAmount(existing.amount, parsedAmount) &&
-                (
-                    sameMerchant(existing.merchantNormalized ?: existing.merchantRaw, parsedMerchant) ||
-                        (gmailLooksAuthoritative && existing.source == ImportSource.SMS) ||
-                        sameTransactionFamily(existing.transactionType, parsedTransaction.transactionType)
-                )
+                sameMerchant(existing.merchantNormalized ?: existing.merchantRaw, parsedMerchant)
         }
     }
 
@@ -119,10 +119,7 @@ class GmailImporter(context: Context) {
             existingParsed.direction == parsedTransaction.direction &&
             sameCurrency(existingParsed.currency, parsedTransaction.currency) &&
             sameAmount(existingAmount, parsedAmount) &&
-            (
-                sameMerchant(existingMerchant, parsedMerchant) ||
-                    sameTransactionFamily(existingParsed.transactionType, parsedTransaction.transactionType)
-            )
+            sameMerchant(existingMerchant, parsedMerchant)
     }
 
     private fun GmailScanRecord.importPriority(): Int {
@@ -148,16 +145,6 @@ class GmailImporter(context: Context) {
         val rightKey = right.normalizedMerchantKey()
         if (leftKey.length < 4 || rightKey.length < 4) return false
         return leftKey == rightKey || leftKey.contains(rightKey) || rightKey.contains(leftKey)
-    }
-
-    private fun sameTransactionFamily(left: TransactionType, right: TransactionType): Boolean {
-        return left == right && left in setOf(
-            TransactionType.INVESTMENT,
-            TransactionType.SUBSCRIPTION,
-            TransactionType.TRANSFER,
-            TransactionType.REFUND,
-            TransactionType.REWARD
-        )
     }
 
     private fun GmailRawMessage.looksLikeAuthoritativeFinancialAlert(): Boolean {

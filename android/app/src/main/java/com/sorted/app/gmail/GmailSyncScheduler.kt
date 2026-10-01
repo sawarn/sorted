@@ -27,4 +27,8 @@ object GmailSyncScheduler {
         WorkManager.getInstance(context.applicationContext)
             .enqueueUniquePeriodicWork(WorkName, ExistingPeriodicWorkPolicy.UPDATE, request)
     }
+
+    fun cancel(context: Context) {
+        WorkManager.getInstance(context.applicationContext).cancelUniqueWork(WorkName)
+    }
 }

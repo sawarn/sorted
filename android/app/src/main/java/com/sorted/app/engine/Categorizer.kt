@@ -2,7 +2,7 @@ package com.sorted.app.engine
 
 object Categorizer {
     fun categorize(facts: ParserFacts): CategoryResult {
-        val raw = facts.merchantRaw?.trim().orEmpty()
+        val raw = MerchantNormalizer.normalize(facts.merchantRaw).orEmpty()
         val key = raw.uppercase()
 
         merchantRule(key)?.let {
@@ -123,7 +123,7 @@ object Categorizer {
             key.contains("AMAZON") -> rule("Amazon", "Online Shopping", "Shopping", TransactionType.EXPENSE)
             key == "AMAZON PAY" -> rule("Amazon Pay", "Online Shopping", "Shopping", TransactionType.EXPENSE)
             key.contains("MYNTRA") -> rule("Myntra", "Fashion", "Shopping", TransactionType.EXPENSE)
-            key.contains("RENTOMOJO") -> rule("Rentomojo", "Rental", "Utilities", TransactionType.EXPENSE)
+            key.contains("RENTOMOJO") -> rule("Rentomojo", "Rent", "Rent", TransactionType.EXPENSE)
             key == "MUTUAL FUNDS NCL" -> rule("Mutual Funds NCL", "Mutual Fund", "Investment", TransactionType.INVESTMENT)
             key.contains("INDIAN CLEARING CORPORATION") -> rule("Indian Clearing Corporation", "Mutual Fund", "Investment", TransactionType.INVESTMENT)
             key.contains("BSE STAR") -> rule("BSE Star MF", "Mutual Fund", "Investment", TransactionType.INVESTMENT)
@@ -170,6 +170,9 @@ object Categorizer {
         }
 
         return when {
+            containsAny(key, "SELF TRANSFER", "OWN ACCOUNT", "OWN A/C", "OWN ACCT", "BETWEEN MY ACCOUNTS", "BETWEEN OWN ACCOUNTS", "TRANSFER TO SELF", "TRANSFER TO OWN") ->
+                generic(normalizeUnknownMerchant(key), "Self Transfer", "Self Transfer", TransactionType.TRANSFER)
+
             containsAny(key, "MUTUAL FUND", "MF ", "SIP", "NACH MANDATE", "BROKING", "DEMAT", "TRADING", "NPS") ->
                 generic(titleCasePreservingNcl(key), "Investment", "Investment", TransactionType.INVESTMENT)
 
@@ -209,8 +212,11 @@ object Categorizer {
             containsAny(key, "AMAZON", "FLIPKART", "MYNTRA", "AJIO", "NYKAA", "SHOP", "STORE", "RETAIL", "FASHION") ->
                 generic(normalizeUnknownMerchant(key), "Shopping", "Shopping", TransactionType.EXPENSE)
 
-            containsAny(key, "RENT", "RENTOMOJO", "MAINTENANCE", "SOCIETY", "HOUSING") ->
-                generic(normalizeUnknownMerchant(key), "Housing", "Rent/Home", TransactionType.EXPENSE)
+            containsAny(key, "RENT", "RENTOMOJO") ->
+                generic(normalizeUnknownMerchant(key), "Rent", "Rent", TransactionType.EXPENSE)
+
+            containsAny(key, "MAINTENANCE", "SOCIETY", "HOUSING") ->
+                generic(normalizeUnknownMerchant(key), "Home", "Home", TransactionType.EXPENSE)
 
             containsAny(key, "SCHOOL", "COLLEGE", "UNIVERSITY", "TUITION", "EDUCATION", "COURSE") ->
                 generic(normalizeUnknownMerchant(key), "Education", "Education", TransactionType.EXPENSE)
@@ -292,7 +298,7 @@ object Categorizer {
     }
 
     private fun normalizeUnknownMerchant(value: String): String? {
-        return value.takeIf { it.isNotBlank() }?.let(::titleCase)
+        return MerchantNormalizer.normalize(value)
     }
 
     private fun titleCasePreservingNcl(value: String): String {
