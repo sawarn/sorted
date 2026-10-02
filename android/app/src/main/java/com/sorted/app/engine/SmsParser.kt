@@ -408,37 +408,41 @@ object SmsParser {
     private fun parseGenericDirection(message: String): Direction {
         val lower = message.lowercase()
         val creditWords = listOf(
-            "credited",
-            "credit alert",
-            "received",
-            "deposited",
-            "refund",
-            "refunded",
-            "reversal",
-            "reversed",
-            "cashback",
-            "reward",
-            "interest"
+            "credited", "credit alert", "received", "deposited",
+            "refund", "refunded", "reversal", "reversed", "cashback", "reward", "interest"
         )
         val debitWords = listOf(
-            "debited",
-            "debit alert",
-            "spent",
-            "deducted",
-            "paid",
-            "sent",
-            "withdrawn",
-            "purchase",
-            "charged",
-            "transferred",
-            "dr "
+            "debited", "debit alert", "spent", "deducted", "paid", "sent",
+            "withdrawn", "purchase", "charged", "transferred", "dr "
         )
 
-        return when {
-            creditWords.any { it in lower } -> Direction.CREDIT
-            debitWords.any { it in lower } -> Direction.DEBIT
-            else -> Direction.UNKNOWN
+        val hasCredit = creditWords.any { it in lower }
+        val hasDebit = debitWords.any { it in lower }
+        if (!hasCredit && !hasDebit) return Direction.UNKNOWN
+        if (hasCredit && !hasDebit) return Direction.CREDIT
+        if (hasDebit && !hasCredit) return Direction.DEBIT
+
+        // Both appear. Common in two-sided alerts: "your a/c X debited for Rs N on D and
+        // a/c Y credited" — from the sender's POV this is a debit. Decide by which verb
+        // sits closest to the possessive "your" phrase that names the user's account.
+        //
+        // Also handles reversal credits: "credited ... against reversal of txn" is still
+        // a credit back to the user.
+        if (Regex("""(?i)against (?:reversal|refund) of""").containsMatchIn(message)) return Direction.CREDIT
+
+        val yourAcIdx = Regex("""(?i)\byour\s+(?:a/c|ac|account)""").find(message)?.range?.first
+        if (yourAcIdx != null) {
+            val creditIdx = Regex("""(?i)\bcredited\b""").findAll(message).map { it.range.first }.toList()
+            val debitIdx = Regex("""(?i)\bdebited\b""").findAll(message).map { it.range.first }.toList()
+            val nearestCredit = creditIdx.minByOrNull { kotlin.math.abs(it - yourAcIdx) } ?: Int.MAX_VALUE
+            val nearestDebit = debitIdx.minByOrNull { kotlin.math.abs(it - yourAcIdx) } ?: Int.MAX_VALUE
+            if (nearestDebit < nearestCredit) return Direction.DEBIT
+            if (nearestCredit < nearestDebit) return Direction.CREDIT
         }
+
+        // Fallback: debit wins when ambiguous. In practice ambiguous alerts are mostly
+        // "credited to your credit card" style outbound bill payments.
+        return Direction.DEBIT
     }
 
     private data class AmountCandidate(
@@ -455,7 +459,8 @@ object SmsParser {
     private const val MinimumAmountScore = 0
 
     private fun parseBestAmount(message: String, direction: Direction): AmountCandidate? {
-        val candidates = Regex("""(?i)(?:INR|Rs\.?|₹)\s*([\d,]+(?:\.\d+)?)""")
+        // Prefix-amount candidates ("INR 1,234.56", "Rs.100"). Strongest form of amount.
+        val prefixed = Regex("""(?i)(?:INR|Rs\.?|₹)\s*([\d,]+(?:\.\d+)?)""")
             .findAll(message)
             .mapNotNull { match ->
                 val amount = parseAmountOrNull(match.groupValues.getOrNull(1).orEmpty())
@@ -463,8 +468,24 @@ object SmsParser {
                 val score = amountContextScore(message, match.range.first, direction)
                 AmountCandidate(amount = amount, startIndex = match.range.first, score = score)
             }
-            .toList()
 
+        // Bare-amount candidates with a decimal. Some senders print "debited by 2500.00"
+        // without any currency prefix. Require a decimal part so arbitrary order numbers
+        // ("Refno 601216164509") cannot be mistaken for amounts. Also require a strong
+        // movement word adjacent (score >= 12), so plain numbers in balance/limit windows
+        // are rejected by the floor.
+        val bare = Regex("""(?<![\d.])(\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})|\d{1,10}\.\d{1,2})(?!\d)""")
+            .findAll(message)
+            .mapNotNull { match ->
+                val raw = match.groupValues[1]
+                val amount = parseAmountOrNull(raw) ?: return@mapNotNull null
+                // Guard against ref numbers: amounts rarely exceed 1e8 and never go below 0.
+                if (amount <= 0.0 || amount >= 1e8) return@mapNotNull null
+                val score = amountContextScore(message, match.range.first, direction)
+                AmountCandidate(amount = amount, startIndex = match.range.first, score = score)
+            }
+
+        val candidates = (prefixed + bare).toList()
         if (candidates.isEmpty()) return null
         val best = candidates.maxWith(compareBy<AmountCandidate> { it.score }.thenBy { -it.startIndex })
         // maxWith only ranks candidates against each other. Without a floor, a lone
@@ -534,14 +555,24 @@ object SmsParser {
 
     private fun parseGenericMerchant(message: String, direction: Direction): String? {
         val searchableMessage = message.withoutSecurityTail()
+        // Terms that end a merchant phrase. A merchant can run until an acting word
+        // ("on 12-Jan-26", "via UPI", "ref 123") or punctuation.
+        val merchantEnd =
+            """(?:\s+(?:on|via|using|through|thru|ref|refno|rrn|utr|upi|txn|transaction|a/c|account|if not|not you|bal|avl|limit|dispute|block|report|dt)\b|[.,\n]|${'$'})"""
+
+        // "To" that starts an action phrase ("To dispute call ...", "To block ...",
+        // "To pay visit ...", "To avail use code ...") is not a merchant pointer.
+        // Checked by negative lookahead so bare "to <merchant>" still works.
+        val toNotAction = """to(?!\s+(?:dispute|block|report|call|register|pay|avail|redeem|activate|know|view|opt|change|get)\b)"""
+
         val patterns = when (direction) {
             Direction.CREDIT -> listOf(
-                Regex("""(?is)\bfrom\s+(?:VPA\s+)?(.+?)(?:\s+(?:on|via|using|through|thru|ref|rrn|upi|txn|transaction|a/c|account)\b|[.,\n]|$)"""),
-                Regex("""(?is)\bby\s+(.+?)(?:\s+(?:on|via|using|through|thru|ref|rrn|upi|txn|transaction)\b|[.,\n]|$)""")
+                Regex("""(?is)\bfrom\s+(?:VPA\s+)?(.+?)$merchantEnd"""),
+                Regex("""(?is)\bby\s+(.+?)$merchantEnd""")
             )
             Direction.DEBIT -> listOf(
-                Regex("""(?is)\b(?:paid to|payment to|sent to|transferred to|to|towards|at|merchant|biller|beneficiary)\s+(?:VPA\s+)?(.+?)(?:\s+(?:on|via|using|through|thru|ref|rrn|upi|txn|transaction|a/c|account|if not|not you|bal|avl)\b|[.,\n]|$)"""),
-                Regex("""(?is)\bon\s+([A-Za-z][A-Za-z0-9 .&@/_-]{1,80})(?:\s+(?:via|using|through|thru|ref|rrn|upi|txn|transaction|if not|not you|bal|avl)\b|[.,\n]|$)""")
+                Regex("""(?is)\b(?:paid to|payment to|sent to|transferred to|trf to|towards|at|merchant|biller|beneficiary|$toNotAction)\s+(?:VPA\s+)?(.+?)$merchantEnd"""),
+                Regex("""(?is)\bon\s+([A-Za-z][A-Za-z0-9 .&@/_-]{1,80})(?:\s+(?:via|using|through|thru|ref|rrn|upi|txn|transaction|if not|not you|bal|avl)\b|[.,\n]|${'$'})""")
             )
             Direction.UNKNOWN -> emptyList()
         }
@@ -659,6 +690,53 @@ object SmsParser {
             listOf("pre-qualified", "prequalified", "pre-approved", "preapproved", "you are eligible for")
                 .any { it in lower } &&
                 !Regex("""(?i)\b(?:debited|credited|spent|deducted|withdrawn|transferred)\b""").containsMatchIn(lower) -> "promotional_offer"
+
+            // A cashback offer printed in future-tense or capped language ("enjoy up to Rs.N
+            // cashback", "get flat Rs.N cashback", "earn N cashback") is bait, not a payment.
+            // The language that distinguishes a real cashback credit — "has been credited to",
+            // "is credited to", "credited to your", "credited to a/c" — is explicitly excluded.
+            Regex("""(?i)(?:enjoy|get|earn|avail|unlock|up to|flat)\s+(?:up to\s+)?rs\.?\s*[\d,]+(?:\.\d+)?\*?\s+cashback""").containsMatchIn(lower) &&
+                !Regex("""(?i)(?:has been|is)\s+credited\s+(?:to|in|with)\s+(?:your|the|a/c)""").containsMatchIn(lower) -> "promotional_offer"
+
+            // A "shop ..." / "use code ..." / "coupon ..." construct with a currency figure
+            // but no settled wording is a promo. The literal word "credited" can appear in
+            // promos like "Rs.1000 off credited to your cart" or "credited with Rs.1500 off" —
+            // caught by the "off" suffix check.
+            (("use code" in lower || "coupon" in lower || "shop now" in lower || "shop at" in lower ||
+                "click here" in lower || "offer valid" in lower || "limited period" in lower) &&
+                !Regex("""(?i)(?:debited|spent|deducted|withdrawn|transferred|has been credited|is credited by)""").containsMatchIn(lower)) -> "promotional_offer"
+            Regex("""(?i)credited (?:to your cart|with (?:rs\.?\s*)?[\d,]+(?:\.\d+)?\*?\s*off)""").containsMatchIn(lower) -> "promotional_offer"
+            Regex("""(?i)rs\.?\s*[\d,]+(?:\.\d+)?\s+off credited""").containsMatchIn(lower) -> "promotional_offer"
+
+            // SBI "Enjoy Zero Processing Fee on Flexipay EMI! Simply convert your ... Trxn.
+            // of Rs. N dated DDMMM into EMIs ..." is an EMI-conversion offer referencing a
+            // prior transaction, not a new one.
+            Regex("""(?i)flexipay emi.*?convert your.*?trxn.*?into emi""").containsMatchIn(lower) -> "promotional_offer"
+
+            // "spend milestone of Rs. N" — a milestone target referenced to congratulate the
+            // card user, not a payment. The figure is a lifetime spend goal.
+            Regex("""(?i)\bspend milestone of rs""").containsMatchIn(lower) -> "promotional_offer"
+
+            // Milestone / threshold rewards framed as "you have received N reward points"
+            // typically also quote a Rs. threshold that is not a payment.
+            Regex("""(?i)reward points on reaching\b""").containsMatchIn(lower) -> "promotional_offer"
+
+            // Job offer scams: "you have received request for Salary Rs.N ... work at home".
+            // Guarded on absence of settled transfer wording.
+            (Regex("""(?i)received request for\s+(?:salary|job|work|data entry)""").containsMatchIn(lower) &&
+                !Regex("""(?i)(?:transferred to|credited to your a/c|from a/c)""").containsMatchIn(lower)) -> "promotional_offer"
+
+            // Credit card bill payments. Money going OUT of the user's bank account to pay
+            // their own card: the card issuer records a credit, but for the user's cash flow
+            // this is a transfer between their own accounts, not income or new spend.
+            // Three common phrasings:
+            //   - "payment of INR N towards your <bank> Credit Card"
+            //   - "we have received payment of Rs N via UPI & the same has been credited to
+            //      your <bank> Credit Card"
+            //   - "payment of Rs N has been received on your <bank> Credit Card"
+            Regex("""(?i)payment of (?:INR|Rs)\.?\s*[\d,.]+\s+towards your (?:ICICI|HDFC|SBI|Axis|Kotak|American Express|Amex|Bank)""").containsMatchIn(lower) -> "card_payment_ack"
+            Regex("""(?i)we have received payment of rs\.?\s*[\d,.]+\s+via upi\s*&\s*the same has been credited to your (?:\w+ )?credit card""").containsMatchIn(lower) -> "card_payment_ack"
+            Regex("""(?i)payment of (?:INR|Rs)\.?\s*[\d,.]+\s+has been received on your (?:ICICI|HDFC|SBI|Axis|Kotak|American Express|Amex|Bank)[^.]*\bcredit card""").containsMatchIn(lower) -> "card_payment_ack"
             "consent requested" in lower || "authenticate via otp" in lower -> "consent_request"
             "mandate request" in lower && "debited" !in lower && "deducted" !in lower -> "consent_request"
             listOf("transaction cancelled", "transaction canceled", "payment cancelled", "payment canceled", "transaction voided", "payment voided")
@@ -671,6 +749,11 @@ object SmsParser {
             "statement" in lower && listOf("debited", "credited", "spent", "deducted").none { it in lower } -> "statement"
             "total amount due" in lower || "minimum amount due" in lower || "min amount due" in lower -> "bill_due"
             "due for payment" in lower || ("pay by" in lower && "ignore if paid" in lower) -> "bill_due"
+            // "Last day to pay BESCOM bill of Rs 1667 ... Ignore if paid" — bill reminder with
+            // a "to pay" preamble and an "Ignore if paid" footer. Guarded by "Ignore if paid"
+            // so a genuine debit alert never matches.
+            Regex("""(?i)\b(?:last day )?to pay\s+(?:your\s+)?[A-Za-z ]*bill\s+of\b""").containsMatchIn(lower) &&
+                "ignore if paid" in lower -> "bill_due"
             "invoice" in lower && ("generated" in lower || "total due" in lower || "pay by" in lower) -> "bill_due"
             "credited to your card" in lower || "received towards your credit card" in lower -> "card_payment_ack"
             "we have received a payment" in lower && !senderLooksLikeBankOrPaymentApp -> "merchant_receipt"
@@ -731,7 +814,7 @@ object SmsParser {
     }
 
     private fun String.cleanMerchant(): String? {
-        val candidate = replace(Regex("""(?i)\s+(?:on|using|via|through|thru|for|with|ref|reference|transaction|txn|upi|rrn|card|a/c|account|if not|not you|bal|avl|limit)\b.*"""), "")
+        val candidate = replace(Regex("""(?i)\s+(?:on|using|via|through|thru|for|with|ref|refno|reference|transaction|txn|upi|rrn|utr|card|a/c|account|if not|not you|bal|avl|limit|dispute|block|call|sms)\b.*"""), "")
             .replace(Regex("""(?i)\b(?:no|number)\s+\d+.*"""), "")
             .replace(Regex("""[.,;:]+$"""), "")
             .replace(Regex("""\s+"""), " ")

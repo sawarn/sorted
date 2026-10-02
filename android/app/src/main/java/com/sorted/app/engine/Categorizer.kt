@@ -162,9 +162,12 @@ object Categorizer {
     private fun keywordRule(key: String, facts: ParserFacts): CategoryResult? {
         if (key.isBlank()) {
             return when {
-                facts.direction == Direction.CREDIT -> generic("Income", "Income", "Income", TransactionType.INCOME)
-                facts.paymentMode == PaymentMode.ATM -> generic("ATM Withdrawal", "Cash Withdrawal", "Cash", TransactionType.EXPENSE)
-                facts.paymentMode == PaymentMode.NACH || facts.paymentMode == PaymentMode.ECS -> generic("Auto Debit", "Auto Debit", "Other", TransactionType.EXPENSE)
+                // Merchant stays null when it is genuinely unknown. Previously these rules
+                // wrote the category word ("Income", "ATM Withdrawal") into the merchant slot,
+                // producing nonsense like merchant="Income" that the user then saw as a row.
+                facts.direction == Direction.CREDIT -> generic(null, "Income", "Income", TransactionType.INCOME)
+                facts.paymentMode == PaymentMode.ATM -> generic(null, "Cash Withdrawal", "Cash", TransactionType.EXPENSE)
+                facts.paymentMode == PaymentMode.NACH || facts.paymentMode == PaymentMode.ECS -> generic(null, "Auto Debit", "Other", TransactionType.EXPENSE)
                 else -> null
             }
         }
