@@ -100,7 +100,12 @@ data class ParserFacts(
     val paymentMode: PaymentMode,
     val accountHint: String?,
     val transactionDate: String?,
-    val transactionTime: String?
+    val transactionTime: String?,
+    /**
+     * How well the surrounding text supports this figure being the transaction amount.
+     * Only the generic parser infers an amount, so templates leave this null.
+     */
+    val amountScore: Int? = null
 )
 
 data class CategoryResult(
