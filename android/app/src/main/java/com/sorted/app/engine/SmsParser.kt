@@ -16,9 +16,17 @@ object SmsParser {
         val isPending = ignoredReason == "pending"
         if (ignoredReason != null && !isPending) return ignored(ignoredReason)
 
-        val knownFacts = parseKnownTemplate(cleaned)
-        val facts = knownFacts ?: parseGenericFinancialAlert(cleaned, sourceAddress)
-            ?: return ignored("unsupported")
+        val template = parseKnownTemplate(cleaned)
+        val knownFacts = (template as? TemplateMatch.Parsed)?.facts
+        val facts = when (template) {
+            is TemplateMatch.Parsed -> template.facts
+            // The message was positively identified as this template, so a failed extraction
+            // is not the same as an unknown message. Falling through to the generic parser
+            // here lets it harvest an unrelated figure such as an available-balance line.
+            is TemplateMatch.ExtractionFailed -> return ignored("template_extraction_failed")
+            TemplateMatch.NotRecognised -> parseGenericFinancialAlert(cleaned, sourceAddress)
+                ?: return ignored("unsupported")
+        }
 
         val category = Categorizer.categorize(facts)
         return ParsedTransaction(
@@ -42,29 +50,60 @@ object SmsParser {
             evidenceConfidence = when {
                 isPending -> 0.86
                 knownFacts != null -> 0.98
-                else -> 0.86
+                // An inferred amount is only as trustworthy as the text around it. Without
+                // this the generic path reported a flat 0.86 regardless of how weak its
+                // evidence was, so ImportDecisionPolicy could never act on a poor score.
+                else -> genericEvidenceConfidence(facts.amountScore)
             }
         )
     }
 
-    private fun parseKnownTemplate(cleaned: String): ParserFacts? {
-        return when {
-            cleaned.contains("spent using ICICI Bank Card", ignoreCase = true) -> parseIciciCardSpend(cleaned)
-            cleaned.startsWith("Txn Rs.", ignoreCase = true) && cleaned.contains("HDFC Bank Card", ignoreCase = true) -> parseHdfcCardTxn(cleaned)
-            cleaned.contains("UPI Mandate:", ignoreCase = true) -> parseHdfcUpiMandate(cleaned)
-            cleaned.startsWith("Sent Rs.", ignoreCase = true) -> parseHdfcUpiDebit(cleaned)
-            cleaned.contains(" debited INR ", ignoreCase = true) && cleaned.contains(" thru UPI", ignoreCase = true) -> parsePnbUpiDebit(cleaned)
-            cleaned.contains("IT Refund amount", ignoreCase = true) -> parseSbiTaxRefund(cleaned)
-            cleaned.contains("Credit Alert!", ignoreCase = true) && cleaned.contains(" credited to HDFC Bank", ignoreCase = true) -> parseHdfcUpiCredit(cleaned)
-            cleaned.contains("PAYMENT ALERT!", ignoreCase = true) && cleaned.contains(" deducted from ", ignoreCase = true) -> parsePaymentAlertDeduction(cleaned)
-            cleaned.contains("deducted towards PMJJBY", ignoreCase = true) -> parsePmjjbyDebit(cleaned)
-            else -> null
+    /** Distinguishes "no template claims this message" from "a template claimed it and failed". */
+    private sealed interface TemplateMatch {
+        data class Parsed(val facts: ParserFacts) : TemplateMatch
+        data class ExtractionFailed(val template: String) : TemplateMatch
+        data object NotRecognised : TemplateMatch
+    }
+
+    private fun parseKnownTemplate(cleaned: String): TemplateMatch {
+        val template: String
+        val facts: ParserFacts?
+        when {
+            cleaned.contains("spent using ICICI Bank Card", ignoreCase = true) -> {
+                template = "icici_card_spend"; facts = parseIciciCardSpend(cleaned)
+            }
+            cleaned.startsWith("Txn Rs.", ignoreCase = true) && cleaned.contains("HDFC Bank Card", ignoreCase = true) -> {
+                template = "hdfc_card_txn"; facts = parseHdfcCardTxn(cleaned)
+            }
+            cleaned.contains("UPI Mandate:", ignoreCase = true) -> {
+                template = "hdfc_upi_mandate"; facts = parseHdfcUpiMandate(cleaned)
+            }
+            cleaned.startsWith("Sent Rs.", ignoreCase = true) -> {
+                template = "hdfc_upi_debit"; facts = parseHdfcUpiDebit(cleaned)
+            }
+            cleaned.contains(" debited INR ", ignoreCase = true) && cleaned.contains(" thru UPI", ignoreCase = true) -> {
+                template = "pnb_upi_debit"; facts = parsePnbUpiDebit(cleaned)
+            }
+            cleaned.contains("IT Refund amount", ignoreCase = true) -> {
+                template = "sbi_tax_refund"; facts = parseSbiTaxRefund(cleaned)
+            }
+            cleaned.contains("Credit Alert!", ignoreCase = true) && cleaned.contains(" credited to HDFC Bank", ignoreCase = true) -> {
+                template = "hdfc_upi_credit"; facts = parseHdfcUpiCredit(cleaned)
+            }
+            cleaned.contains("PAYMENT ALERT!", ignoreCase = true) && cleaned.contains(" deducted from ", ignoreCase = true) -> {
+                template = "payment_alert_deduction"; facts = parsePaymentAlertDeduction(cleaned)
+            }
+            cleaned.contains("deducted towards PMJJBY", ignoreCase = true) -> {
+                template = "pmjjby_debit"; facts = parsePmjjbyDebit(cleaned)
+            }
+            else -> return TemplateMatch.NotRecognised
         }
+        return facts?.let { TemplateMatch.Parsed(it) } ?: TemplateMatch.ExtractionFailed(template)
     }
 
     private fun parseIciciCardSpend(message: String): ParserFacts? {
         val regex = Regex(
-            """([A-Z]{3})\s+([\d,]+(?:\.\d+)?)\s+spent using ICICI Bank Card\s+(\S+)\s+on\s+(\d{2}-[A-Za-z]{3}-\d{2})\s+on\s+(.+?)(?:\.|$)""",
+            """([A-Z]{3})\s+((?:[\d,]+(?:\.\d+)?|\.\d+))\s+spent using ICICI Bank Card\s+(\S+)\s+on\s+(\d{2}-[A-Za-z]{3}-\d{2})\s+on\s+(.+?)(?:\.|$)""",
             RegexOption.IGNORE_CASE
         )
         val match = regex.find(message) ?: return null
@@ -250,7 +289,7 @@ object SmsParser {
         if (direction == Direction.UNKNOWN) return null
 
         val amount = parseBestAmount(message, direction) ?: return null
-        if (!hasNearbyTransactionSignal(message, direction)) return null
+        if (!hasNearbyTransactionSignal(message, direction, amount.startIndex)) return null
         val paymentMode = parseGenericPaymentMode(message)
         val merchant = parseGenericMerchant(message, direction)
             ?: parseMerchantFromSourceAddress(sourceAddress)
@@ -259,28 +298,59 @@ object SmsParser {
         val time = parseGenericTime(message)
 
         return ParserFacts(
-            amount = amount,
+            amount = amount.amount,
             currency = "INR",
             direction = direction,
             merchantRaw = merchant,
             paymentMode = paymentMode,
             accountHint = accountHint,
             transactionDate = date,
-            transactionTime = time
+            transactionTime = time,
+            amountScore = amount.score
         )
     }
 
-    private fun hasNearbyTransactionSignal(message: String, direction: Direction): Boolean {
-        val amountPattern = Regex("""(?i)(?:INR|Rs\.?|₹)\s*[\d,]+(?:\.\d+)?""")
-        val signals = when (direction) {
-            Direction.DEBIT -> listOf("debited", "debit", "spent", "deducted", "paid", "sent", "withdrawn", "purchase", "charged", "transferred")
-            Direction.CREDIT -> listOf("credited", "credit", "received", "deposited", "refund", "reversal", "cashback", "reward", "interest")
-            Direction.UNKNOWN -> emptyList()
-        }
-        return amountPattern.findAll(message).any { amount ->
-            val context = message.windowAround(amount.range.first, radius = 105).lowercase()
-            signals.any { it in context }
-        }
+    /**
+     * Words saying money actually moved, by direction. Single source of truth for both
+     * [amountContextScore] and [hasNearbyTransactionSignal]; these previously held separate,
+     * drifting copies, so a word like "transferred" counted as a signal but scored nothing.
+     */
+    private val MovementWords = mapOf(
+        Direction.DEBIT to listOf(
+            "debited", "debit", "spent", "deducted", "paid", "sent",
+            "withdrawn", "withdrawal", "purchase", "charged", "transferred", "transfer"
+        ),
+        Direction.CREDIT to listOf(
+            "credited", "credit", "received", "deposited", "refund", "refunded",
+            "reversal", "reversed", "cashback", "reward", "interest"
+        ),
+        Direction.UNKNOWN to emptyList()
+    )
+
+    /**
+     * Phrases marking a figure as something other than the transaction amount.
+     *
+     * Matched on word boundaries: as bare substrings "limit" hits "Limited", which appears in a
+     * great many Indian merchant names, and wrongly penalised genuine payments.
+     */
+    private val NoisePatterns = listOf(
+        "bal", "balance", "avl", "available", "limit", "outstanding",
+        "minimum", "min due", "total due", "due date", "cashback offer", "reward points"
+    ).map { it.toWordRegex() }
+
+    private val MovementPatterns: Map<Direction, List<Regex>> =
+        MovementWords.mapValues { (_, words) -> words.map { it.toWordRegex() } }
+
+    private fun String.toWordRegex(): Regex =
+        Regex("""\b${Regex.escape(this)}\b""", RegexOption.IGNORE_CASE)
+
+    private fun hasNearbyTransactionSignal(message: String, direction: Direction, amountStartIndex: Int): Boolean {
+        // Checked against the chosen amount, not against any amount in the message, so one
+        // figure's evidence can never validate a different figure. Shares MovementRadius with
+        // amountContextScore; the two previously disagreed (56 vs 105), letting the wider one
+        // validate a figure the narrower one had already scored as balance noise.
+        val context = message.windowAround(amountStartIndex, radius = MovementRadius)
+        return MovementPatterns[direction].orEmpty().any { it.containsMatchIn(context) }
     }
 
     private fun looksLikeFinancialAlert(message: String, sourceAddress: String?): Boolean {
@@ -377,50 +447,90 @@ object SmsParser {
         val score: Int
     )
 
-    private fun parseBestAmount(message: String, direction: Direction): Double? {
+    /**
+     * Lowest context score an amount may have and still be treated as the transaction amount.
+     * A figure sitting in a balance, limit or due-amount phrase scores below this, so a message
+     * whose only number is such a figure yields no amount rather than the wrong one.
+     */
+    private const val MinimumAmountScore = 0
+
+    private fun parseBestAmount(message: String, direction: Direction): AmountCandidate? {
         val candidates = Regex("""(?i)(?:INR|Rs\.?|₹)\s*([\d,]+(?:\.\d+)?)""")
             .findAll(message)
             .mapNotNull { match ->
                 val amount = parseAmountOrNull(match.groupValues.getOrNull(1).orEmpty())
                     ?: return@mapNotNull null
-                val context = message.windowAround(match.range.first, radius = 56).lowercase()
-                val score = amountContextScore(context, direction)
+                val score = amountContextScore(message, match.range.first, direction)
                 AmountCandidate(amount = amount, startIndex = match.range.first, score = score)
             }
             .toList()
 
         if (candidates.isEmpty()) return null
-        return candidates.maxWith(compareBy<AmountCandidate> { it.score }.thenBy { -it.startIndex }).amount
+        val best = candidates.maxWith(compareBy<AmountCandidate> { it.score }.thenBy { -it.startIndex })
+        // maxWith only ranks candidates against each other. Without a floor, a lone
+        // balance/limit figure wins by default however badly it scores.
+        return best.takeIf { it.score >= MinimumAmountScore }
     }
 
-    private fun amountContextScore(context: String, direction: Direction): Int {
-        val amountWords = when (direction) {
-            Direction.CREDIT -> listOf("credited", "received", "deposited", "refund", "reversal", "cashback", "interest")
-            Direction.DEBIT -> listOf("debited", "spent", "deducted", "paid", "sent", "withdrawn", "purchase", "charged")
-            Direction.UNKNOWN -> emptyList()
-        }
-        val noiseWords = listOf(
-            "bal",
-            "balance",
-            "avl",
-            "available",
-            "limit",
-            "outstanding",
-            "minimum",
-            "min due",
-            "total due",
-            "due date",
-            "cashback offer",
-            "reward points"
-        )
+    /**
+     * Maps an amount's context score onto the evidence scale [ImportDecisionPolicy] gates on.
+     * A strongly supported amount keeps the previous 0.86; weaker support drops below
+     * [ImportDecisionPolicy.MinimumEvidenceConfidence] so the record is not imported silently.
+     */
+    private fun genericEvidenceConfidence(amountScore: Int?): Double = when {
+        amountScore == null -> 0.86
+        amountScore >= 12 -> 0.86
+        amountScore >= 6 -> 0.72
+        else -> 0.60
+    }
 
+    /**
+     * Scores how well the text around an amount supports it being the transaction amount.
+     *
+     * Scoring is asymmetric because these alerts label amounts positionally: the label sits
+     * immediately before its number ("Debited; INR 531.00", "Bal INR 5,925.37"). A symmetric
+     * window puts both numbers inside each other's context and scores them identically, so a
+     * trailing balance drags down the real payment. Noise is therefore read only from the text
+     * leading up to the amount, while movement words count on either side because some formats
+     * put the verb after ("INR 1,001.00 is debited from...").
+     */
+    private fun amountContextScore(message: String, amountStartIndex: Int, direction: Direction): Int {
+        val label = message.labelWindow(amountStartIndex)
+        val movementContext = message.windowAround(amountStartIndex, radius = MovementRadius)
+
+        val movement = MovementPatterns[direction].orEmpty()
         var score = 0
-        if (amountWords.any { it in context }) score += 12
-        if ("transaction" in context || "txn" in context) score += 4
-        if ("on " in context || " at " in context || " to " in context || " from " in context) score += 2
-        if (noiseWords.any { it in context }) score -= 18
+        // A verb right next to the figure identifies it; one merely somewhere nearby only says
+        // the message describes a payment. Without this distinction two figures in one message
+        // score alike and the tie-break picks whichever comes first — which is how
+        // "Rs. 825.0 is the total fare ... You paid Rs. 752.0" chose the fare over the payment.
+        score += when {
+            movement.any { it.containsMatchIn(label) } -> 12
+            movement.any { it.containsMatchIn(movementContext) } -> 8
+            else -> 0
+        }
+        if ("transaction" in movementContext.lowercase() || "txn" in movementContext.lowercase()) score += 4
+        if (NoisePatterns.any { it.containsMatchIn(label) }) score -= 18
         return score
     }
+
+    /**
+     * The text immediately before an amount, which is where these alerts put the word naming
+     * what the figure is ("Debited; INR 531.00", "Avl Bal INR 5,925.37"). Kept short and
+     * preceding-only: a balance printed after the payment must not describe the payment.
+     */
+    private fun String.labelWindow(amountStartIndex: Int): String =
+        substring((amountStartIndex - LabelRadius).coerceAtLeast(0), amountStartIndex)
+
+    /** How far back to read the label naming an amount. */
+    private const val LabelRadius = 34
+
+    /**
+     * How far to look for a word saying money moved. Wider than [LabelRadius] and symmetric,
+     * because the verb is often far from the figure and may follow it
+     * ("INR 230.00 (Incl. TCS as applicable) is debited from...").
+     */
+    private const val MovementRadius = 105
 
     private fun parseGenericMerchant(message: String, direction: Direction): String? {
         val searchableMessage = message.withoutSecurityTail()
@@ -544,6 +654,11 @@ object SmsParser {
             "shop now" in lower &&
                 Regex("""(?i)(?:https?://|www\.)""").containsMatchIn(lower) &&
                 !Regex("""(?i)\b(?:debited|credited|spent using|deducted from|sent rs|transaction successful|payment successful)\b""").containsMatchIn(lower) -> "promotional_link"
+            // An offer of money the user could receive is not money that moved. Guarded on the
+            // absence of settled wording, so a real alert can never match this rule.
+            listOf("pre-qualified", "prequalified", "pre-approved", "preapproved", "you are eligible for")
+                .any { it in lower } &&
+                !Regex("""(?i)\b(?:debited|credited|spent|deducted|withdrawn|transferred)\b""").containsMatchIn(lower) -> "promotional_offer"
             "consent requested" in lower || "authenticate via otp" in lower -> "consent_request"
             "mandate request" in lower && "debited" !in lower && "deducted" !in lower -> "consent_request"
             listOf("transaction cancelled", "transaction canceled", "payment cancelled", "payment canceled", "transaction voided", "payment voided")
